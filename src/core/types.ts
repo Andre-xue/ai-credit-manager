@@ -42,6 +42,10 @@ export interface Account {
   encryptedKey?: string
   /** 密钥指纹（用于识别是否已配置，不泄露原文） */
   keyFingerprint?: string
+  /** API 链接地址（用户自填，如 https://api.deepseek.com/v1） */
+  apiUrl?: string
+  /** 备注（用途） */
+  note?: string
   createdAt: string
   updatedAt: string
 }

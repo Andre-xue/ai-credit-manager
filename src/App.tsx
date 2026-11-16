@@ -3,12 +3,12 @@ import {
   LayoutDashboard, CalendarCheck2, KeyRound, BarChart3, Plus, ShieldCheck,
   ExternalLink, Trash2, RefreshCw, AlertTriangle, Info, Check,
   Wallet, Flame, Clock, TrendingUp, Lock, Unlock, Download, X, Copy, CircleHelp,
-  Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Gift,
+  Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Gift, Eye, EyeOff, Pencil,
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { PROVIDERS, PROVIDER_MAP, CATEGORY_LABEL } from './data/providers'
 import {
-  loadState, saveState, uid, addAccount, removeAccount, upsertQuota, latestQuota, toggleCheckin,
+  loadState, saveState, uid, addAccount, updateAccount, removeAccount, upsertQuota, latestQuota, toggleCheckin,
   exportState, importState, mergeState, addUsageEvent, updateSettings, clearAllData, markBenefit,
 } from './core/store'
 import { BENEFITS, BENEFIT_KIND_LABEL, type BenefitItem } from './data/benefits'
@@ -253,6 +253,7 @@ function App() {
               setState(s => ({ ...s, accounts: s.accounts.map(a => a.id === accId ? { ...a, encryptedKey: undefined, keyFingerprint: undefined } : a) }))
               notify('已清除本地密钥')
             }}
+            onUpdateAccount={(id, patch) => setState(s => updateAccount(s, id, patch))}
           />}
 
           {tab === 'usage' && <UsageView state={state} notify={notify}
@@ -533,14 +534,18 @@ function CheckinView({ accounts, checkins, notify, onToggle }: {
   )
 }
 
-function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched }: {
+function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onUpdateAccount }: {
   state: AppState; notify: (m: string) => void; onOpenVault: () => void;
   onRemoveKey: (id: string) => void;
-  onQuotaFetched: (accountId: string, used: number, total: number | undefined, unit: CreditUnit) => void
+  onQuotaFetched: (accountId: string, used: number, total: number | undefined, unit: CreditUnit) => void;
+  onUpdateAccount: (id: string, patch: Partial<AppState['accounts'][number]>) => void
 }) {
   const [unlockPwd, setUnlockPwd] = useState('')
   const [revealed, setRevealed] = useState<Record<string, string>>({})
+  const [showKey, setShowKey] = useState<Record<string, boolean>>({})
+  const [showBalance, setShowBalance] = useState<Record<string, boolean>>({})
   const [busy, setBusy] = useState(false)
+  const [editing, setEditing] = useState<string | null>(null)
   const keyAccounts = state.accounts.filter(a => a.encryptedKey)
 
   const unlock = async () => {
@@ -557,85 +562,229 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched }: {
     } finally { setBusy(false) }
   }
 
+  const backupOne = (a: AppState['accounts'][number]) => {
+    const provider = PROVIDER_MAP[a.providerId]
+    const q = latestQuota(state.quotas, a.id)
+    const data = {
+      platform: provider?.name ?? a.providerId, label: a.label, apiUrl: a.apiUrl ?? '',
+      fingerprint: a.keyFingerprint ?? '', note: a.note ?? '',
+      balance: q ? `${q.total - q.used} ${UNIT_LABEL[q.unit]}` : '未录入',
+      exportedAt: new Date().toISOString(),
+      // 注意：备份文件不含明文密钥与密文，避免泄露
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a'); link.href = url
+    link.download = `key-${a.providerId}-${todayISO()}.json`; link.click()
+    URL.revokeObjectURL(url)
+    notify('已导出密钥信息（不含密钥本身）')
+  }
+
   return (
     <>
       <div className="banner info">
         <ShieldCheck size={16} />
-        <div>API Key 使用 <b>AES-256-GCM</b> 加密，密钥由主密码经 PBKDF2 派生，仅存本地。导出数据不含密钥。遗忘主密码无法恢复，请谨慎保管。</div>
+        <div>API Key 使用 <b>AES-256-GCM</b> 加密、PBKDF2 派生密钥，仅存本地。导出不含密钥明文。遗忘主密码无法恢复。</div>
       </div>
-      <div className="split">
-        <div>
-          <div className="section-head"><h2>保险箱</h2></div>
-          <div className="panel" style={{ padding: 18 }}>
-            <div className="kv"><span className="k">状态</span><span className="v tag gray">{isVaultInitialized() ? '已初始化' : '未初始化'}</span></div>
-            <div className="kv"><span className="k">加密算法</span><span className="v mono">AES-256-GCM</span></div>
-            <div className="kv"><span className="k">密钥派生</span><span className="v mono">PBKDF2 · 210k</span></div>
-            <div className="kv"><span className="k">存储位置</span><span className="v">仅此设备</span></div>
-            <div style={{ marginTop: 16 }}>
-              {isVaultInitialized() ? (
-                <>
-                  <div className="field" style={{ marginBottom: 10 }}>
-                    <input className="input" type="password" placeholder="输入主密码解锁" value={unlockPwd} onChange={e => setUnlockPwd(e.target.value)} />
-                  </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button className="btn primary" onClick={unlock} disabled={busy || !unlockPwd}><Unlock size={14} /> 解锁查看</button>
-                    <button className="btn" onClick={() => { setRevealed({}); setUnlockPwd(''); notify('已锁定') }} disabled={!unlockPwd && !Object.keys(revealed).length}><Lock size={14} /> 锁定</button>
-                  </div>
-                </>
-              ) : (
-                <button className="btn primary" onClick={onOpenVault}><Lock size={14} /> 创建保险箱</button>
-              )}
-            </div>
-          </div>
+
+      <div className="panel key-vault-bar">
+        <div className="row" style={{ gap: 12 }}>
+          <span className={`tag ${isVaultInitialized() ? 'green' : 'gray'}`}>
+            {isVaultInitialized() ? '保险箱已启用' : '保险箱未创建'}
+          </span>
+          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{keyAccounts.length} 个密钥 · 仅此设备</span>
         </div>
-        <div>
-          <div className="section-head"><h2>已保存的密钥 <span className="hint">{keyAccounts.length} 个</span></h2></div>
-          <div className="panel">
+        <div className="row" style={{ gap: 8 }}>
+          {isVaultInitialized() ? (
+            <>
+              <input className="input" type="password" placeholder="主密码解锁" value={unlockPwd}
+                onChange={e => setUnlockPwd(e.target.value)} style={{ width: 150 }}
+                onKeyDown={e => { if (e.key === 'Enter') void unlock() }} />
+              <button className="btn sm primary" onClick={unlock} disabled={busy || !unlockPwd}><Unlock size={14} /> 解锁</button>
+              <button className="btn sm" onClick={() => { setRevealed({}); setShowKey({}); setUnlockPwd(''); notify('已锁定') }}
+                disabled={Object.keys(revealed).length === 0}><Lock size={14} /> 锁定</button>
+            </>
+          ) : <button className="btn sm primary" onClick={onOpenVault}><Lock size={14} /> 创建保险箱</button>}
+        </div>
+      </div>
+
+      <div className="section-head"><h2>密钥管理 <span className="hint">{keyAccounts.length} 项</span></h2></div>
+      <div className="panel key-table-wrap">
+        <table className="key-table">
+          <thead>
+            <tr>
+              <th style={{ width: 150 }}>名称</th>
+              <th style={{ width: 110 }}>余额</th>
+              <th style={{ width: 160 }}>链接地址 (API)</th>
+              <th style={{ width: 130 }}>API Key</th>
+              <th>备注 (用途)</th>
+              <th style={{ width: 260 }}>操作</th>
+            </tr>
+          </thead>
+          <tbody>
             {keyAccounts.length === 0 ? (
-              <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+              <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 40 }}>
                 暂无密钥。添加账户时选择「官方 API」模式即可保存。
-              </div>
+              </td></tr>
             ) : keyAccounts.map(a => {
               const provider = PROVIDER_MAP[a.providerId]
               const plain = revealed[a.id]
+              const q = latestQuota(state.quotas, a.id)
+              const balance = q ? `${(q.total - q.used).toLocaleString()} ${UNIT_LABEL[q.unit]}` : '未录入'
               const adapter = getAdapter(a.providerId)
               return (
-                <div key={a.id} style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                    <ProviderLogo provider={provider} size={28} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 500 }}>{a.label}</div>
-                      <div className="mono" style={{ color: 'var(--text-3)', fontSize: 11 }}>
-                        {plain ? plain : a.keyFingerprint}
+                <tr key={a.id}>
+                  <td>
+                    <div className="row" style={{ gap: 8 }}>
+                      <ProviderLogo provider={provider} size={26} />
+                      <div style={{ minWidth: 0 }}>
+                        <div className="key-name" title={a.label}>{a.label}</div>
+                        <div className="key-sub">{provider?.shortName ?? a.providerId}</div>
                       </div>
                     </div>
-                    {plain && <button className="icon-btn" title="复制" onClick={() => { navigator.clipboard.writeText(plain); notify('已复制（注意保管）') }}><Copy size={14} /></button>}
-                    <button className="icon-btn danger" title="清除密钥" onClick={() => onRemoveKey(a.id)}><Trash2 size={14} /></button>
-                  </div>
-                  {adapter.supported && (
-                    <button className="btn sm" onClick={async () => {
-                      if (!plain) { notify('请先解锁查看密钥'); return }
-                      try {
-                        const r = await adapter.fetchUsage!(plain)
-                        onQuotaFetched(a.id, r.used, r.total, r.unit)
-                        notify(`查询成功：已用 ${r.used.toLocaleString()} ${r.unit}`)
-                      } catch (e: any) { notify(e.message ?? '查询失败') }
-                    }}><RefreshCw size={13} /> 查询官方用量</button>
-                  )}
-                  {!adapter.supported && <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>该平台无公开只读 API，请到官方页面查看</span>}
-                </div>
+                  </td>
+                  <td>
+                    <div className="row" style={{ gap: 5 }}>
+                      <span className="mono" style={{ fontSize: 11.5 }}>
+                        {showBalance[a.id] ? balance : '••••••'}
+                      </span>
+                      <button className="icon-btn" title={showBalance[a.id] ? '隐藏余额' : '显示余额'}
+                        onClick={() => setShowBalance(s => ({ ...s, [a.id]: !s[a.id] }))}>
+                        <Eye size={13} /><EyeOff size={13} />
+                      </button>
+                    </div>
+                  </td>
+                  <td>
+                    {a.apiUrl
+                      ? <button className="key-link" onClick={() => { navigator.clipboard.writeText(a.apiUrl!); notify('API 地址已复制') }}>{a.apiUrl}</button>
+                      : <button className="key-link muted" onClick={() => setEditing(a.id)}>+ 添加地址</button>}
+                  </td>
+                  <td>
+                    <div className="row" style={{ gap: 5 }}>
+                      <span className="mono" style={{ fontSize: 11.5, maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {!plain ? '••••' : showKey[a.id] ? plain : a.keyFingerprint ?? '••••'}
+                      </span>
+                      <button className="icon-btn" title={!plain ? '请先解锁' : showKey[a.id] ? '隐藏 Key' : '显示 Key'}
+                        onClick={() => {
+                          if (!plain) { notify('请先解锁保险箱'); return }
+                          setShowKey(s => ({ ...s, [a.id]: !s[a.id] }))
+                        }}><Eye size={13} /><EyeOff size={13} /></button>
+                    </div>
+                  </td>
+                  <td>
+                    <span className="key-note" title={a.note ?? ''}>{a.note ?? '—'}</span>
+                  </td>
+                  <td>
+                    <div className="key-actions">
+                      <button className="key-action" title="编辑" onClick={() => setEditing(a.id)}><Pencil size={13} /> 编辑</button>
+                      <button className="key-action" title="复制 Key" onClick={async () => {
+                        if (!plain) { notify('请先解锁保险箱'); return }
+                        try { await navigator.clipboard.writeText(plain); notify('API Key 已复制（注意保管）') }
+                        catch { notify('复制失败，请检查浏览器权限') }
+                      }}><Copy size={13} /> 复制</button>
+                      <button className="key-action" title="备份" onClick={() => backupOne(a)}><Download size={13} /> 备份</button>
+                      {adapter.supported && <button className="key-action" title="查询官方用量" onClick={async () => {
+                        if (!plain) { notify('请先解锁保险箱'); return }
+                        try {
+                          const r = await adapter.fetchUsage!(plain)
+                          onQuotaFetched(a.id, r.used, r.total, r.unit)
+                          notify(`查询成功：已用 ${r.used.toLocaleString()} ${r.unit}`)
+                        } catch (e: any) { notify(e.message ?? '查询失败') }
+                      }}><RefreshCw size={13} /> 查询</button>}
+                      <button className="key-action danger" title="删除密钥" onClick={() => onRemoveKey(a.id)}><Trash2 size={13} /> 删除</button>
+                    </div>
+                  </td>
+                </tr>
               )
             })}
-          </div>
-        </div>
+          </tbody>
+        </table>
       </div>
-      <p style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 16 }}>
+      <p style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 14 }}>
         注：{isDesktopProxyAvailable()
           ? '当前为桌面端，官方只读请求经本地后端代理（域名白名单），不受 CORS 限制。'
           : '当前为 Web 端，直接调用官方 API 可能受浏览器 CORS 限制；可改用桌面端或手动录入。'}
-        查询仅发送只读 GET 请求至官方域名，不上传密钥至任何第三方。
+        备份仅导出名称/地址/备注等非敏感信息，不含密钥本身。
       </p>
+
+      {editing && (() => {
+        const acc = state.accounts.find(a => a.id === editing)
+        if (!acc) return null
+        return <KeyEditModal
+          account={acc} provider={PROVIDER_MAP[acc.providerId]}
+          currentKey={revealed[acc.id]}
+          onClose={() => setEditing(null)}
+          onSave={(patch, newKey) => {
+            onUpdateAccount(acc.id, patch)
+            if (newKey !== undefined && newKey !== '') {
+              // 密钥变更：需要主密码重新加密
+              void (async () => {
+                const pwd = newKey === '' ? '' : unlockPwd
+                if (!pwd) { notify('修改密钥请先解锁保险箱'); return }
+                const enc = await encryptSecret(newKey, pwd)
+                onUpdateAccount(acc.id, { encryptedKey: enc, keyFingerprint: fingerprint(newKey) })
+                setRevealed(s => ({ ...s, [acc.id]: newKey }))
+                notify('密钥已更新')
+              })()
+            }
+            setEditing(null)
+          }}
+          notify={notify}
+        />
+      })()}
     </>
+  )
+}
+
+
+/** 密钥条目编辑弹窗 */
+function KeyEditModal({ account, provider, currentKey, onClose, onSave, notify }: {
+  account: AppState['accounts'][number]; provider: ProviderDefinition; currentKey?: string;
+  onClose: () => void;
+  onSave: (patch: Partial<AppState['accounts'][number]>, newKey?: string) => void;
+  notify: (m: string) => void
+}) {
+  const [label, setLabel] = useState(account.label)
+  const [apiUrl, setApiUrl] = useState(account.apiUrl ?? '')
+  const [note, setNote] = useState(account.note ?? '')
+  const [newKey, setNewKey] = useState('')
+
+  return (
+    <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal" style={{ maxWidth: 480 }}>
+        <div className="modal-head"><h3>编辑密钥条目</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
+        <div className="modal-body">
+          <div className="banner info" style={{ marginBottom: 16 }}>
+            <ProviderLogo provider={provider} size={28} />
+            <div>{provider.name} · {currentKey ? '已配置密钥' : '未配置'}</div>
+          </div>
+          <div className="field">
+            <label>名称</label>
+            <input className="input" value={label} onChange={e => setLabel(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>链接地址 (API)</label>
+            <input className="input" placeholder="https://api.example.com/v1" value={apiUrl} onChange={e => setApiUrl(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>备注 (用途)</label>
+            <input className="input" placeholder="如：文本对话 / 图片生成" value={note} onChange={e => setNote(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>更换 API Key（留空表示不修改）</label>
+            <input className="input" type="password" placeholder="留空保持不变" value={newKey} onChange={e => setNewKey(e.target.value)} />
+            <div className="desc">修改密钥需先在主界面解锁保险箱；新密钥将以主密码重新加密。</div>
+          </div>
+        </div>
+        <div className="modal-foot">
+          <button className="btn" onClick={onClose}>取消</button>
+          <button className="btn primary" onClick={() => {
+            if (!label.trim()) { notify('名称不能为空'); return }
+            onSave({ label: label.trim(), apiUrl: apiUrl.trim(), note: note.trim() }, newKey.trim() || undefined)
+          }}>保存</button>
+        </div>
+      </div>
+    </div>
   )
 }
 

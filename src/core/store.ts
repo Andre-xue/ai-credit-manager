@@ -59,11 +59,19 @@ export function uid(prefix = 'id'): string {
 
 export function addAccount(
   state: AppState,
-  input: { providerId: string; label: string; mode: AccountMode; encryptedKey?: string; keyFingerprint?: string },
+  input: { providerId: string; label: string; mode: AccountMode; encryptedKey?: string; keyFingerprint?: string; apiUrl?: string; note?: string },
 ): AppState {
   const now = new Date().toISOString()
   const account: Account = { id: uid('acc'), ...input, createdAt: now, updatedAt: now }
   return { ...state, accounts: [...state.accounts, account] }
+}
+
+/** 局部更新账户（编辑名称/API 地址/备注/密钥等） */
+export function updateAccount(state: AppState, accountId: string, patch: Partial<Account>): AppState {
+  return {
+    ...state,
+    accounts: state.accounts.map(a => a.id === accountId ? { ...a, ...patch, updatedAt: new Date().toISOString() } : a),
+  }
 }
 
 export function removeAccount(state: AppState, accountId: string): AppState {
