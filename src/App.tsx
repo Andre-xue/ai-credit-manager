@@ -48,6 +48,8 @@ function App() {
   const [importData, setImportData] = useState<AppState | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [bioAvailableGlobal, setBioAvailableGlobal] = useState(false)
+  /** 当前会话已验证的主密码，用于明文回填「修改主密码」弹窗 */
+  const [sessionPwd, setSessionPwd] = useState('')
   useEffect(() => { void biometricAvailable().then(setBioAvailableGlobal) }, [])
 
   useEffect(() => { saveState(state) }, [state])
@@ -248,6 +250,7 @@ function App() {
               notify('已清除本地密钥')
             }}
             onUpdateAccount={(id, patch) => setState(s => updateAccount(s, id, patch))}
+            onUnlocked={(pwd) => setSessionPwd(pwd)}
           />}
 
           {tab === 'usage' && <UsageView state={state} notify={notify}
@@ -280,10 +283,12 @@ function App() {
               })
               // 指纹模式同步更新存储的密码
               if (state.settings.unlockMethod === 'biometric') saveBiometricPassword(newPwd)
+              setSessionPwd(newPwd)
             }}
             onResetVault={() => {
               clearBiometricPassword()
               resetVault()
+              setSessionPwd('')
               setState(s => ({
                 ...s,
                 accounts: s.accounts.map(a => ({ ...a, encryptedKey: undefined, keyFingerprint: undefined })),
@@ -292,6 +297,7 @@ function App() {
               notify('保险箱已重置')
             }}
             onBioAvailable={bioAvailableGlobal}
+            sessionPwd={sessionPwd}
             onTestNotify={async () => {
               if (!state.settings.systemNotify) { notify('请先开启系统通知'); return }
               const ok = await sendNotification({ title: 'AI 积分管家', body: '通知测试：这是一条本地提醒，不会领取任何福利。' })
@@ -546,12 +552,13 @@ function CheckinView({ accounts, checkins, notify, onToggle }: {
   )
 }
 
-function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onUpdateAccount, onImportFile, onExport }: {
+function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onUpdateAccount, onImportFile, onExport, onUnlocked }: {
   state: AppState; notify: (m: string) => void; onOpenVault: () => void;
   onImportFile: (file?: File) => void; onExport: () => void;
   onRemoveKey: (id: string) => void;
   onQuotaFetched: (accountId: string, used: number, total: number | undefined, unit: CreditUnit) => void;
-  onUpdateAccount: (id: string, patch: Partial<AppState['accounts'][number]>) => void
+  onUpdateAccount: (id: string, patch: Partial<AppState['accounts'][number]>) => void;
+  onUnlocked: (pwd: string) => void
 }) {
   const [unlockPwd, setUnlockPwd] = useState('')
   const [vaultPwd, setVaultPwd] = useState('')
@@ -583,6 +590,7 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
       setRevealed(decrypted)
       setHiddenKeys({})
       setVaultPwd(pwd)
+      onUnlocked(pwd)
       setUnlockPwd('')
       setUnlockOpen(false)
       notify('已解锁，密钥已明文展示')
@@ -1476,7 +1484,7 @@ function SettingsRow({ title, desc, children }: { title: string; desc?: string; 
 }
 
 /** 设置中心 */
-function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEnableNotify, onClear, onChangePassword, onResetVault, onBioAvailable }: {
+function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEnableNotify, onClear, onChangePassword, onResetVault, onBioAvailable, sessionPwd }: {
   state: AppState
   onChange: (patch: Partial<AppState['settings']>) => void
   notify: (m: string) => void
@@ -1487,6 +1495,7 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
   onChangePassword: (oldPwd: string, newPwd: string) => Promise<void>
   onResetVault: () => void
   onBioAvailable: boolean
+  sessionPwd: string
 }) {
   const s = state.settings
   const [confirmClear, setConfirmClear] = useState(false)
@@ -1594,7 +1603,10 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
               </div>
             )}
             <SettingsRow title="修改主密码" desc="需用原密码验证，所有密钥将重新加密">
-              <button className="btn sm" onClick={() => { setOldPwd(''); setNewPwd(''); setConfirmPwd(''); setPwdOpen(true) }} disabled={!s.vaultInitialized}>修改</button>
+              <button className="btn sm" onClick={() => {
+                const known = sessionPwd || getBiometricPassword() || ''
+                setOldPwd(known); setNewPwd(''); setConfirmPwd(''); setPwdOpen(true)
+              }} disabled={!s.vaultInitialized}>修改</button>
             </SettingsRow>
             <SettingsRow title="重置保险箱" desc="清除所有密钥与密码，不可恢复">
               {confirmReset ? (
