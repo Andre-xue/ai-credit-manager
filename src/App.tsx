@@ -324,14 +324,17 @@ function App() {
           notify('账户已添加，请在看板中录入额度')
         }}
       />}
-      {vaultOpen && <VaultModal onClose={() => setVaultOpen(false)} notify={notify}
+      {vaultOpen && <VaultModal
+        initialized={state.settings.vaultInitialized}
+        currentPwd={sessionPwd || getBiometricPassword() || ''}
+        onClose={() => setVaultOpen(false)} notify={notify}
         onInit={async (pwd) => {
           await initVault(pwd)
           if (state.settings.unlockMethod === 'biometric') saveBiometricPassword(pwd)
           setState(s => ({ ...s, settings: { ...s.settings, vaultInitialized: true } }))
+          setSessionPwd(pwd)
           notify('保险箱已创建')
         }}
-        onReset={() => { resetVault(); setState(s => ({ ...s, settings: { ...s.settings, vaultInitialized: false } })); notify('保险箱已重置') }}
       />}
       {quotaTarget && (() => {
         const acc = state.accounts.find(a => a.id === quotaTarget)
@@ -1154,28 +1157,81 @@ function AddAccountModal({ onClose, onSubmit }: {
   )
 }
 
-function VaultModal({ onClose, onInit, onReset, notify }: {
-  onClose: () => void; onInit: (pwd: string) => Promise<void>; onReset: () => void; notify: (m: string) => void
+function VaultModal({ initialized, currentPwd, onClose, onInit, notify }: {
+  initialized: boolean
+  currentPwd: string
+  onClose: () => void
+  onInit: (pwd: string) => Promise<void>
+  notify: (m: string) => void
 }) {
   const [pwd, setPwd] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [revealed, setRevealed] = useState(currentPwd)
+  const [viewPwd, setViewPwd] = useState('')
   const [busy, setBusy] = useState(false)
+
   const submit = async () => {
     if (pwd.length < 6) { notify('主密码至少 6 位'); return }
     if (pwd !== confirm) { notify('两次密码不一致'); return }
     setBusy(true)
     try { await onInit(pwd); onClose() } finally { setBusy(false) }
   }
+  /** 重置：仅清空本页内容，不删除保险箱数据 */
+  const resetPage = () => {
+    setPwd(''); setConfirm(''); setRevealed(''); setViewPwd('')
+    notify('已清空本页内容')
+  }
+  const reveal = async () => {
+    const ok = await verifyVault(viewPwd)
+    if (!ok) { notify('主密码错误'); return }
+    setRevealed(viewPwd); setViewPwd('')
+  }
+
+  // 已创建保险箱：明文展示当前密码
+  if (initialized) {
+    return (
+      <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+        <div className="modal" style={{ maxWidth: 440 }}>
+          <div className="modal-head"><h3>本地保险箱</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
+          <div className="modal-body">
+            <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 10 }}>当前主密码（明文）</div>
+            {revealed ? (
+              <div className="secret-reveal" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <span className="mono" style={{ fontSize: 15, letterSpacing: 1 }}>{revealed}</span>
+                <button className="icon-btn" title="复制主密码" onClick={() => { navigator.clipboard.writeText(revealed); notify('主密码已复制') }}><Copy size={14} /></button>
+              </div>
+            ) : (
+              <div className="field">
+                <label>输入主密码以查看</label>
+                <div className="row" style={{ gap: 8 }}>
+                  <input className="input" type="password" placeholder="输入主密码" value={viewPwd}
+                    onChange={e => setViewPwd(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && viewPwd) void reveal() }} />
+                  <button className="btn sm primary" onClick={() => void reveal()} disabled={!viewPwd}>查看</button>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="modal-foot">
+            <button className="btn danger" style={{ marginRight: 'auto' }} onClick={resetPage}>重置</button>
+            <button className="btn" onClick={onClose}>关闭</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // 未创建保险箱：创建密码页
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="modal" style={{ maxWidth: 440 }}>
         <div className="modal-head"><h3>创建本地保险箱</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
         <div className="modal-body">
-          <div className="field"><label>设置主密码（至少 6 位）</label><input className="input" type="password" value={pwd} onChange={e => setPwd(e.target.value)} /></div>
-          <div className="field"><label>确认主密码</label><input className="input" type="password" value={confirm} onChange={e => setConfirm(e.target.value)} /></div>
+          <div className="field"><label>设置主密码（至少 6 位）</label><input className="input" type="text" value={pwd} onChange={e => setPwd(e.target.value)} /></div>
+          <div className="field"><label>确认主密码</label><input className="input" type="text" value={confirm} onChange={e => setConfirm(e.target.value)} /></div>
         </div>
         <div className="modal-foot">
-          {isVaultInitialized() && <button className="btn danger" style={{ marginRight: 'auto' }} onClick={() => { onReset(); onClose() }}>重置保险箱</button>}
+          <button className="btn danger" style={{ marginRight: 'auto' }} onClick={resetPage}>重置</button>
           <button className="btn" onClick={onClose}>取消</button>
           <button className="btn primary" onClick={submit} disabled={busy}>创建</button>
         </div>
