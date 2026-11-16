@@ -2,6 +2,10 @@
 
 统一管理你在各家 AI 平台的**积分、额度、用量与 API Key** 的合规工具。
 
+> **仓库**：https://github.com/Andre-xue/ai-credit-manager
+> **线上演示**（启用 Pages 后）：https://andre-xue.github.io/ai-credit-manager/
+> **Docker 镜像**：`docker compose up -d` → http://localhost:8080
+
 ## Docker 版（容器运行）
 
 本项目 Web 版可完全运行在 Docker 容器中，镜像仅约 78 MB（多阶段构建 + nginx）。
