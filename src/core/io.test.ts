@@ -1,0 +1,139 @@
+import { describe, it, expect } from 'vitest'
+import type { AppState, Account, QuotaSnapshot } from './types'
+import {
+  csvCell, toCsv, detectCsvKind, isJsonImport,
+  exportAccountsCsv, exportQuotasCsv, exportUsageCsv, exportJson,
+  parseAccountsCsv, parseQuotasCsv, exportByFormat,
+} from './io'
+
+function latestQuota(quotas: QuotaSnapshot[], id: string): QuotaSnapshot | undefined {
+  let latest: QuotaSnapshot | undefined
+  for (const q of quotas) if (q.accountId === id && (!latest || q.capturedAt >= latest.capturedAt)) latest = q
+  return latest
+}
+
+function sampleState(): AppState {
+  const s: AppState = {
+    version: 1, accounts: [], quotas: [], checkins: [], usage: [], benefitMarks: [],
+    settings: {
+      vaultInitialized: false, monthlyBudget: 200, checkinReminder: true, alertDays: 7,
+      defaultUnit: 'credit', backupReminder: true, systemNotify: false,
+      quietStart: '', quietEnd: '', unlockMethod: 'password', unitPrices: {},
+    },
+  }
+  const acc: Account = {
+    id: 'a1', providerId: 'openai', label: '工作号', mode: 'api',
+    apiUrl: 'https://api.openai.com/v1', note: '[文本] 对话',
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+  s.accounts = [acc]
+  s.quotas = [{
+    id: 'q1', accountId: 'a1', unit: 'token', total: 1000, used: 250,
+    capturedAt: '2026-01-05T00:00:00.000Z', source: 'manual',
+  }]
+  s.usage = [
+    { id: 'u1', accountId: 'a1', date: '2026-01-03', inputTokens: 100, outputTokens: 50, estimatedCost: 1.5, model: 'gpt-4' },
+  ]
+  return s
+}
+
+describe('csvCell / toCsv', () => {
+  it('转义含逗号、引号、换行的字段', () => {
+    expect(csvCell('a,b')).toBe('"a,b"')
+    expect(csvCell('a"b')).toBe('"a""b"')
+    expect(csvCell('a\nb')).toBe('"a\nb"')
+    expect(csvCell('plain')).toBe('plain')
+    expect(csvCell(123)).toBe('123')
+    expect(csvCell(undefined)).toBe('')
+  })
+
+  it('toCsv 带 BOM 与 CRLF', () => {
+    const out = toCsv([['h1', 'h2'], ['a', 'b']])
+    expect(out.startsWith('\ufeff')).toBe(true)
+    expect(out).toContain('h1,h2\r\na,b')
+  })
+})
+
+describe('detectCsvKind', () => {
+  it('识别用量 CSV（英文/中文表头）', () => {
+    expect(detectCsvKind('date,account,inputTokens,outputTokens,cost,model\n2026-01-01,A,1,2,3,m')).toBe('usage')
+    expect(detectCsvKind('日期,账户,输入,输出,费用\n2026-01-01,A,1,2,3')).toBe('usage')
+  })
+  it('识别额度 CSV', () => {
+    expect(detectCsvKind('account,unit,total,used,resetAt\n工作号,token,100,20,')).toBe('quotas')
+  })
+  it('识别账户 CSV', () => {
+    expect(detectCsvKind('providerId,label,mode,apiUrl,note\nopenai,工作号,api,,文本')).toBe('accounts')
+  })
+  it('未知格式返回 null', () => {
+    expect(detectCsvKind('foo,bar\n1,2')).toBeNull()
+  })
+})
+
+describe('isJsonImport', () => {
+  it('按扩展名与内容识别 JSON', () => {
+    expect(isJsonImport('backup.json', 'x')).toBe(true)
+    expect(isJsonImport('a.txt', '{"accounts":[],"version":1}')).toBe(true)
+    expect(isJsonImport('a.csv', 'date,account')).toBe(false)
+  })
+})
+
+describe('导出/导入往返', () => {
+  it('账户 CSV 可解析回账户（不含密钥）', () => {
+    const csv = exportAccountsCsv(sampleState())
+    const parsed = parseAccountsCsv(csv)
+    expect(parsed.accounts).toHaveLength(1)
+    expect(parsed.accounts[0].providerId).toBe('openai')
+    expect(parsed.accounts[0].label).toBe('工作号')
+    expect(parsed.accounts[0].note).toBe('[文本] 对话')
+    expect((parsed.accounts[0] as any).encryptedKey).toBeUndefined()
+  })
+
+  it('账户 CSV 解析含逗号/引号的备注', () => {
+    const s = sampleState()
+    s.accounts[0].note = '[文本] 对话, 翻译 "主力"'
+    const parsed = parseAccountsCsv(exportAccountsCsv(s))
+    expect(parsed.accounts[0].note).toBe('[文本] 对话, 翻译 "主力"')
+  })
+
+  it('额度 CSV 可解析回快照并按账户名匹配', () => {
+    const s = sampleState()
+    const csv = exportQuotasCsv(s, latestQuota)
+    const parsed = parseQuotasCsv(csv, s.accounts)
+    expect(parsed.quotas).toHaveLength(1)
+    expect(parsed.quotas[0].accountId).toBe('a1')
+    expect(parsed.quotas[0].total).toBe(1000)
+    expect(parsed.quotas[0].used).toBe(250)
+    expect(parsed.quotas[0].unit).toBe('token')
+    expect(parsed.quotas[0].source).toBe('import')
+  })
+
+  it('额度 CSV 未匹配账户归入 unmatched', () => {
+    const csv = 'account,unit,total,used\n不存在,token,100,10'
+    const parsed = parseQuotasCsv(csv, sampleState().accounts)
+    expect(parsed.quotas).toHaveLength(0)
+    expect(parsed.unmatched).toContain('不存在')
+  })
+
+  it('用量 CSV 导出含正确表头与数据', () => {
+    const csv = exportUsageCsv(sampleState())
+    expect(csv).toContain('date,account,inputTokens,outputTokens,cost,model')
+    expect(csv).toContain('2026-01-03,工作号,100,50,1.5,gpt-4')
+  })
+
+  it('exportByFormat 返回正确 mime 与扩展名', () => {
+    const s = sampleState()
+    expect(exportByFormat('json', s, latestQuota).ext).toBe('json')
+    expect(exportByFormat('json', s, latestQuota).mime).toBe('application/json')
+    expect(exportByFormat('accounts-csv', s, latestQuota).ext).toBe('csv')
+    expect(exportByFormat('usage-csv', s, latestQuota).mime).toBe('text/csv')
+  })
+
+  it('JSON 导出不含密钥', () => {
+    const s = sampleState()
+    s.accounts[0].encryptedKey = 'SECRET_CIPHER'
+    const json = exportJson(s)
+    expect(json).not.toContain('SECRET_CIPHER')
+    expect(json).toContain('工作号')
+  })
+})

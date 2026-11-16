@@ -9,7 +9,7 @@ import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode
 import { PROVIDERS, PROVIDER_MAP, CATEGORY_LABEL } from './data/providers'
 import {
   loadState, saveState, uid, addAccount, updateAccount, removeAccount, upsertQuota, latestQuota, toggleCheckin,
-  exportState, importState, mergeState, addUsageEvent, updateSettings, clearAllData, markBenefit,
+  importState, mergeState, addUsageEvent, updateSettings, clearAllData, markBenefit,
 } from './core/store'
 import { BENEFITS, BENEFIT_KIND_LABEL, type BenefitItem } from './data/benefits'
 import { requestWebPermission, sendNotification, inQuietHours } from './core/notify'
@@ -22,7 +22,17 @@ import {
 } from './core/crypto'
 import { getAdapter } from './core/adapters'
 import { parseUsageCsv, type UsageEventInput } from './core/csv'
+import {
+  type ExportFormat, exportByFormat, detectCsvKind, isJsonImport,
+  parseAccountsCsv, parseQuotasCsv,
+} from './core/io'
 import { openExternal, isDesktopApp, biometricAvailable, biometricAuth } from './core/openExternal'
+
+/** CSV 导入预览：解析后的数据按类型区分 */
+type CsvImportPreview =
+  | { kind: 'accounts'; accounts: ReturnType<typeof parseAccountsCsv> }
+  | { kind: 'quotas'; quotas: ReturnType<typeof parseQuotasCsv> }
+  | { kind: 'usage'; events: UsageEventInput[] }
 
 type Tab = 'dashboard' | 'checkin' | 'benefits' | 'keys' | 'usage' | 'settings'
 
@@ -46,6 +56,8 @@ function App() {
   const [quotaTarget, setQuotaTarget] = useState<string | null>(null)
   const [usageOpen, setUsageOpen] = useState(false)
   const [importData, setImportData] = useState<AppState | null>(null)
+  const [csvPreview, setCsvPreview] = useState<CsvImportPreview | null>(null)
+  const [exportOpen, setExportOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [bioAvailableGlobal, setBioAvailableGlobal] = useState(false)
   /** 当前会话已验证的主密码，用于明文回填「修改主密码」弹窗 */
@@ -65,23 +77,44 @@ function App() {
     toastTimer.current = window.setTimeout(() => setToast(null), 2600)
   }, [])
 
-  /** 读取备份 JSON 并打开导入确认框（顶栏与设置页共用） */
+  /** 读取文件：自动识别 JSON 备份 / 账户 CSV / 额度 CSV / 用量 CSV */
   const handleImportFile = useCallback((file?: File) => {
     if (!file) return
     const reader = new FileReader()
     reader.onload = () => {
-      try { setImportData(importState(String(reader.result))) }
-      catch (err: any) { notify(err.message ?? '文件解析失败') }
+      const text = String(reader.result ?? '')
+      try {
+        if (isJsonImport(file.name, text)) {
+          setImportData(importState(text))
+          return
+        }
+        const kind = detectCsvKind(text)
+        if (!kind) { notify('无法识别文件格式：支持 JSON 备份、账户/额度/用量 CSV'); return }
+        const s = stateRef.current
+        if (kind === 'accounts') {
+          setCsvPreview({ kind, accounts: parseAccountsCsv(text) })
+        } else if (kind === 'quotas') {
+          setCsvPreview({ kind, quotas: parseQuotasCsv(text, s.accounts) })
+        } else {
+          setCsvPreview({ kind, events: parseUsageCsv(text, s.accounts) })
+        }
+      } catch (err: any) { notify(err.message ?? '文件解析失败') }
     }
     reader.readAsText(file)
   }, [notify])
 
-  /** 导出数据为 JSON 备份 */
-  const handleExport = useCallback((s: AppState) => {
-    const blob = new Blob([exportState(s)], { type: 'application/json' })
+  /** 按选择格式导出文件 */
+  const doExport = useCallback((format: ExportFormat) => {
+    const s = stateRef.current
+    const { content, mime, ext } = exportByFormat(format, s, latestQuota)
+    const suffix = format === 'json' ? 'backup' : format
+    const blob = new Blob([content], { type: mime + ';charset=utf-8' })
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = `ai-credit-manager-${todayISO()}.json`; a.click()
+    const a = document.createElement('a'); a.href = url
+    a.download = `ai-credit-manager-${suffix}-${todayISO()}.${ext}`
+    a.click()
     URL.revokeObjectURL(url)
+    if (format === 'json') setState(prev => updateSettings(prev, { lastExportAt: new Date().toISOString() }))
   }, [])
 
   /** 检查并发送提醒通知（签到 + 额度告警），每天每类最多一次 */
@@ -240,7 +273,7 @@ function App() {
           {tab === 'keys' && <KeysView
             state={state} notify={notify}
             onImportFile={handleImportFile}
-            onExport={() => { handleExport(state); notify('已导出（不含密钥）') }}
+            onExport={() => setExportOpen(true)}
             onOpenVault={() => setVaultOpen(true)}
             onQuotaFetched={(accountId, used, total, unit) => {
               setState(s => upsertQuota(s, { accountId, used, total: total ?? used, unit, source: 'api' }))
@@ -364,6 +397,24 @@ function App() {
           setImportData(null)
         }}
       />}
+      {csvPreview && <CsvImportModal
+        preview={csvPreview} current={state} onClose={() => setCsvPreview(null)}
+        onImport={(counts) => {
+          const p = csvPreview
+          setState(s => {
+            if (p.kind === 'accounts') {
+              const existing = new Set(s.accounts.map(a => `${a.providerId}|${a.label}`))
+              const fresh = p.accounts.accounts.filter(a => !existing.has(`${a.providerId}|${a.label}`))
+              return { ...s, accounts: [...s.accounts, ...fresh] }
+            }
+            if (p.kind === 'quotas') return { ...s, quotas: [...s.quotas, ...p.quotas.quotas] }
+            return { ...s, usage: [...s.usage, ...p.events.map(e => ({ ...e, id: uid('u') }))] }
+          })
+          notify(`已导入 ${counts} 条${p.kind === 'accounts' ? '账户' : p.kind === 'quotas' ? '额度' : '用量'}记录`)
+          setCsvPreview(null)
+        }}
+      />}
+      {exportOpen && <ExportModal state={state} onClose={() => setExportOpen(false)} onExport={(fmt) => { doExport(fmt); setExportOpen(false); notify('已导出文件') }} />}
       {toast && <div className="toast"><Check size={15} /> {toast}</div>}
     </div>
   )
@@ -648,7 +699,7 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
           <div className="keys-unlock-group">
             <label className="btn sm" style={{ cursor: 'pointer' }} title="导入备份">
               <Download size={14} style={{ transform: 'rotate(180deg)' }} /> 导入
-              <input type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={e => {
+              <input type="file" accept=".json,.csv,.txt,application/json,text/csv" style={{ display: 'none' }} onChange={e => {
                 onImportFile(e.target.files?.[0]); e.target.value = ''
               }} />
             </label>
@@ -1386,6 +1437,94 @@ function UsageModal({ accounts, onClose, onSave }: {
 }
 
 /** 数据导入确认模态框：选择覆盖或合并 */
+/** 导出格式选择弹窗 */
+function ExportModal({ state, onClose, onExport }: {
+  state: AppState; onClose: () => void; onExport: (format: ExportFormat) => void
+}) {
+  const options: { fmt: ExportFormat; icon: React.ReactNode; title: string; desc: string; tag?: string }[] = [
+    { fmt: 'json', icon: <Download size={18} />, title: 'JSON 完整备份', tag: '推荐',
+      desc: `全部数据（${state.accounts.length} 账户 / ${state.quotas.length} 额度 / ${state.usage.length} 用量），可完整导回，不含密钥` },
+    { fmt: 'accounts-csv', icon: <KeyRound size={18} />, title: '账户 CSV',
+      desc: `平台、名称、模式、API 地址、备注（${state.accounts.length} 条），Excel 可直接打开，不含密钥` },
+    { fmt: 'quotas-csv', icon: <Wallet size={18} />, title: '额度 CSV',
+      desc: '每个账户最新额度（单位/总额/已用/重置日），可导回匹配账户' },
+    { fmt: 'usage-csv', icon: <BarChart3 size={18} />, title: '用量 CSV',
+      desc: `日期、账户、输入/输出 Tokens、费用、模型（${state.usage.length} 条），可导回` },
+  ]
+  return (
+    <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal" style={{ maxWidth: 520 }}>
+        <div className="modal-head"><h3>选择导出格式</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
+        <div className="modal-body">
+          <div className="provider-picker" style={{ gridTemplateColumns: '1fr', maxHeight: 'none', gap: 8 }}>
+            {options.map(o => (
+              <button key={o.fmt} className="provider-opt" style={{ padding: 13, alignItems: 'flex-start' }} onClick={() => onExport(o.fmt)}>
+                <span style={{ color: 'var(--primary)', marginTop: 2 }}>{o.icon}</span>
+                <div style={{ textAlign: 'left', flex: 1 }}>
+                  <div className="p-name">{o.title}{o.tag && <span className="tag green" style={{ marginLeft: 8, fontSize: 10 }}>{o.tag}</span>}</div>
+                  <div className="desc" style={{ marginTop: 4 }}>{o.desc}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="modal-foot"><button className="btn" onClick={onClose}>取消</button></div>
+      </div>
+    </div>
+  )
+}
+
+/** CSV 导入预览弹窗：显示解析结果，确认后追加 */
+function CsvImportModal({ preview, current, onClose, onImport }: {
+  preview: CsvImportPreview; current: AppState; onClose: () => void; onImport: (count: number) => void
+}) {
+  const title = preview.kind === 'accounts' ? '账户' : preview.kind === 'quotas' ? '额度' : '用量'
+  const count = preview.kind === 'accounts'
+    ? preview.accounts.accounts.length
+    : preview.kind === 'quotas'
+      ? preview.quotas.quotas.length
+      : preview.events.length
+  const rows: string[][] = preview.kind === 'accounts'
+    ? preview.accounts.accounts.slice(0, 8).map(a => [a.label, PROVIDER_MAP[a.providerId]?.shortName ?? a.providerId, MODE_LABEL[a.mode], a.note ?? ''])
+    : preview.kind === 'quotas'
+      ? preview.quotas.quotas.slice(0, 8).map(q => [current.accounts.find(a => a.id === q.accountId)?.label ?? q.accountId, UNIT_LABEL[q.unit], String(q.total), String(q.used)])
+      : preview.events.slice(0, 8).map(e => [e.date, current.accounts.find(a => a.id === e.accountId)?.label ?? e.accountId, String(e.inputTokens), String(e.outputTokens), `¥${e.estimatedCost}`])
+  const heads = preview.kind === 'accounts' ? ['名称', '平台', '模式', '备注']
+    : preview.kind === 'quotas' ? ['账户', '单位', '总额', '已用']
+      : ['日期', '账户', '输入', '输出', '费用']
+  return (
+    <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal" style={{ maxWidth: 560 }}>
+        <div className="modal-head"><h3>导入{title} CSV</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
+        <div className="modal-body">
+          <div style={{ fontSize: 13, marginBottom: 12 }}>识别到 <b>{count}</b> 条{title}记录，将追加到现有数据（不会删除已有内容）：</div>
+          {count === 0 ? (
+            <div style={{ color: 'var(--text-3)', fontSize: 12.5, padding: 20, textAlign: 'center' }}>未解析到有效数据行，请检查表头格式</div>
+          ) : (
+            <div style={{ maxHeight: 260, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+              <table className="key-table" style={{ fontSize: 12 }}>
+                <thead><tr>{heads.map(h => <th key={h}>{h}</th>)}</tr></thead>
+                <tbody>{rows.map((r, i) => <tr key={i}>{r.map((c, j) => <td key={j}>{c}</td>)}</tr>)}</tbody>
+              </table>
+            </div>
+          )}
+          {count > 8 && <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 8 }}>仅预览前 8 条，共 {count} 条</div>}
+          {preview.kind === 'accounts' && preview.accounts.unknownProviders.length > 0 && (
+            <div style={{ fontSize: 11.5, color: 'var(--amber)', marginTop: 8 }}>未识别平台：{preview.accounts.unknownProviders.join('、')}（将按原 id 保存）</div>
+          )}
+          {preview.kind === 'quotas' && preview.quotas.unmatched.length > 0 && (
+            <div style={{ fontSize: 11.5, color: 'var(--amber)', marginTop: 8 }}>未匹配账户：{preview.quotas.unmatched.slice(0, 5).join('、')}{preview.quotas.unmatched.length > 5 ? '…' : ''}（这些行已跳过）</div>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button className="btn" onClick={onClose}>取消</button>
+          <button className="btn primary" disabled={count === 0} onClick={() => onImport(count)}>确认导入 {count} 条</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ImportModal({ incoming, current, onClose, onImport }: {
   incoming: AppState; current: AppState; onClose: () => void; onImport: (mode: 'replace' | 'merge') => void
 }) {
