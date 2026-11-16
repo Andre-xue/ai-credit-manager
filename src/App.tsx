@@ -282,12 +282,12 @@ function App() {
               if (state.settings.unlockMethod === 'biometric') saveBiometricPassword(newPwd)
             }}
             onResetVault={() => {
-              if (!window.confirm('重置保险箱将永久删除所有密钥，且不可恢复。确定继续？')) return
+              clearBiometricPassword()
               resetVault()
               setState(s => ({
                 ...s,
                 accounts: s.accounts.map(a => ({ ...a, encryptedKey: undefined, keyFingerprint: undefined })),
-                settings: { ...s.settings, vaultInitialized: false },
+                settings: { ...s.settings, vaultInitialized: false, unlockMethod: 'password' },
               }))
               notify('保险箱已重置')
             }}
@@ -1490,11 +1490,29 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
 }) {
   const s = state.settings
   const [confirmClear, setConfirmClear] = useState(false)
+  const [confirmReset, setConfirmReset] = useState(false)
   const [pwdOpen, setPwdOpen] = useState(false)
   const [oldPwd, setOldPwd] = useState('')
   const [newPwd, setNewPwd] = useState('')
   const [confirmPwd, setConfirmPwd] = useState('')
   const [pwdBusy, setPwdBusy] = useState(false)
+  const [bioSwitchOpen, setBioSwitchOpen] = useState(false)
+  const [bioSwitchPwd, setBioSwitchPwd] = useState('')
+  const [bioSwitchBusy, setBioSwitchBusy] = useState(false)
+
+  /** 切换到指纹解锁：验证主密码后保存到本机，再更新设置 */
+  const enableBio = async () => {
+    setBioSwitchBusy(true)
+    try {
+      const ok = await verifyVault(bioSwitchPwd)
+      if (!ok) { notify('主密码错误，未切换'); return }
+      saveBiometricPassword(bioSwitchPwd)
+      onChange({ unlockMethod: 'biometric' })
+      setBioSwitchOpen(false)
+      setBioSwitchPwd('')
+      notify('已切换为指纹解锁')
+    } finally { setBioSwitchBusy(false) }
+  }
 
   return (
     <>
@@ -1545,45 +1563,49 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
               <button className="btn sm" onClick={onOpenVault}>{s.vaultInitialized ? '管理' : '创建'}</button>
             </SettingsRow>
             <SettingsRow title="解锁方式" desc={onBioAvailable ? '选择后仅显示对应解锁方式' : '当前设备不支持指纹，仅可用密码'}>
-              <select className="select" style={{ width: 120 }} value={s.unlockMethod}
-                onChange={async e => {
+              <select className="select" style={{ width: 120 }} value={bioSwitchOpen ? 'biometric' : s.unlockMethod}
+                onChange={e => {
                   const m = e.target.value as 'biometric' | 'password'
-                  if (m === 'biometric' && onBioAvailable) {
-                    const pwd = window.prompt('启用指纹解锁需验证主密码，请输入：')
-                    if (!pwd) return
-                    const ok = await verifyVault(pwd)
-                    if (!ok) { notify('主密码错误，未切换'); return }
-                    saveBiometricPassword(pwd)
-                  } else if (m === 'password') clearBiometricPassword()
-                  onChange({ unlockMethod: m })
+                  if (m === 'password') {
+                    clearBiometricPassword()
+                    onChange({ unlockMethod: 'password' })
+                    setBioSwitchOpen(false)
+                  } else if (m === 'biometric' && onBioAvailable) {
+                    setBioSwitchPwd('')
+                    setBioSwitchOpen(true)
+                  }
                 }}>
                 <option value="password">密码解锁</option>
                 {onBioAvailable && <option value="biometric">指纹解锁</option>}
               </select>
             </SettingsRow>
-            <SettingsRow title="修改主密码" desc="需用原密码验证，所有密钥将重新加密">
-              <button className="btn sm" onClick={() => setPwdOpen(true)} disabled={!s.vaultInitialized}>修改</button>
-            </SettingsRow>
-            <SettingsRow title="重置保险箱" desc="清除所有密钥与密码，不可恢复">
-              <button className="btn sm danger" onClick={onResetVault} disabled={!s.vaultInitialized}>重置</button>
-            </SettingsRow>
-            {pwdOpen && (
-              <div className="panel" style={{ padding: 14, marginTop: 12, background: 'var(--panel-2)' }}>
-                <div className="field"><label>原主密码</label><input className="input" type="password" value={oldPwd} onChange={e => setOldPwd(e.target.value)} /></div>
-                <div className="field"><label>新主密码（至少 6 位）</label><input className="input" type="password" value={newPwd} onChange={e => setNewPwd(e.target.value)} /></div>
-                <div className="field"><label>确认新密码</label><input className="input" type="password" value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)} /></div>
+            {bioSwitchOpen && (
+              <div className="panel" style={{ padding: 14, marginTop: 4, background: 'var(--panel-2)' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 10 }}>输入主密码以启用指纹解锁（验证后本机保存）</div>
+                <div className="field">
+                  <input className="input" type="password" autoFocus placeholder="主密码" value={bioSwitchPwd}
+                    onChange={e => setBioSwitchPwd(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && bioSwitchPwd) void enableBio() }} />
+                </div>
                 <div className="row" style={{ gap: 8 }}>
-                  <button className="btn sm primary" disabled={pwdBusy || !oldPwd || !newPwd} onClick={async () => {
-                    if (newPwd !== confirmPwd) { notify('两次新密码不一致'); return }
-                    setPwdBusy(true)
-                    try { await onChangePassword(oldPwd, newPwd); setPwdOpen(false); setOldPwd(''); setNewPwd(''); setConfirmPwd(''); notify('主密码已修改，密钥已重新加密') }
-                    catch (e: any) { notify(e.message ?? '修改失败') }
-                    finally { setPwdBusy(false) }
-                  }}>确认修改</button>
-                  <button className="btn sm" onClick={() => { setPwdOpen(false); setOldPwd(''); setNewPwd(''); setConfirmPwd('') }}>取消</button>
+                  <button className="btn sm primary" disabled={bioSwitchBusy || !bioSwitchPwd} onClick={() => void enableBio()}>确认启用</button>
+                  <button className="btn sm" onClick={() => { setBioSwitchOpen(false); setBioSwitchPwd('') }}>取消</button>
                 </div>
               </div>
             )}
+            <SettingsRow title="修改主密码" desc="需用原密码验证，所有密钥将重新加密">
+              <button className="btn sm" onClick={() => { setOldPwd(''); setNewPwd(''); setConfirmPwd(''); setPwdOpen(true) }} disabled={!s.vaultInitialized}>修改</button>
+            </SettingsRow>
+            <SettingsRow title="重置保险箱" desc="清除所有密钥与密码，不可恢复">
+              {confirmReset ? (
+                <span style={{ display: 'flex', gap: 6 }}>
+                  <button className="btn sm danger" onClick={() => { onResetVault(); setConfirmReset(false) }}>确认重置</button>
+                  <button className="btn sm ghost" onClick={() => setConfirmReset(false)}>取消</button>
+                </span>
+              ) : (
+                <button className="btn sm danger" onClick={() => setConfirmReset(true)} disabled={!s.vaultInitialized}>重置</button>
+              )}
+            </SettingsRow>
           </SettingsSection>
         </div>
 
@@ -1615,6 +1637,42 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
           </SettingsSection>
         </div>
       </div>
+
+      {pwdOpen && (
+        <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) { setPwdOpen(false); setOldPwd(''); setNewPwd(''); setConfirmPwd('') } }}>
+          <div className="modal" style={{ maxWidth: 400 }}>
+            <div className="modal-head"><h3>修改主密码</h3><button className="icon-btn" onClick={() => { setPwdOpen(false); setOldPwd(''); setNewPwd(''); setConfirmPwd('') }}><X size={18} /></button></div>
+            <div className="modal-body">
+              <div className="field">
+                <label>原主密码</label>
+                <input className="input" type="text" autoFocus placeholder="输入当前主密码" value={oldPwd} onChange={e => setOldPwd(e.target.value)} />
+              </div>
+              <div className="field">
+                <label>新主密码（至少 6 位）</label>
+                <input className="input" type="password" placeholder="输入新主密码" value={newPwd} onChange={e => setNewPwd(e.target.value)} />
+              </div>
+              <div className="field">
+                <label>确认新密码</label>
+                <input className="input" type="password" placeholder="再次输入新主密码" value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)} />
+              </div>
+            </div>
+            <div className="modal-foot" style={{ justifyContent: 'flex-end' }}>
+              <button className="btn" onClick={() => { setPwdOpen(false); setOldPwd(''); setNewPwd(''); setConfirmPwd('') }}>取消</button>
+              <button className="btn primary" disabled={pwdBusy || !oldPwd || !newPwd} onClick={async () => {
+                if (newPwd.length < 6) { notify('新密码至少 6 位'); return }
+                if (newPwd !== confirmPwd) { notify('两次新密码不一致'); return }
+                setPwdBusy(true)
+                try {
+                  await onChangePassword(oldPwd, newPwd)
+                  setPwdOpen(false); setOldPwd(''); setNewPwd(''); setConfirmPwd('')
+                  notify('主密码已修改，密钥已重新加密')
+                } catch (e: any) { notify(e.message ?? '修改失败') }
+                finally { setPwdBusy(false) }
+              }}>确认修改</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
