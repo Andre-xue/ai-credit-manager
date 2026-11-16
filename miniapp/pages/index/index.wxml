@@ -1,0 +1,152 @@
+<view class="container">
+  <view class="banner">
+    <view>🔒</view>
+    <view>管理你自己的 AI 平台额度。数据仅存本机，签到只提醒、跳转由你本人操作，不模拟登录、不自动领取。</view>
+  </view>
+
+  <view class="stats card">
+    <view class="stat">
+      <view class="stat-num">{{stats.accounts}}</view>
+      <view class="stat-label">账户</view>
+    </view>
+    <view class="stat">
+      <view class="stat-num">{{stats.platforms}}</view>
+      <view class="stat-label">平台</view>
+    </view>
+    <view class="stat">
+      <view class="stat-num" style="color:#dc2626">{{stats.low}}</view>
+      <view class="stat-label">额度告急</view>
+    </view>
+    <view class="stat" bindtap="goCheckin">
+      <view class="stat-num" style="color:#d97706">{{stats.pending}}</view>
+      <view class="stat-label">待签到 ›</view>
+    </view>
+  </view>
+
+  <view class="section-head">
+    <view class="title">账户额度</view>
+    <view class="btn primary" bindtap="openAdd">+ 添加</view>
+  </view>
+
+  <block wx:if="{{accounts.length === 0}}">
+    <view class="card empty">
+      <view style="font-size:60rpx">📊</view>
+      <view style="margin-top:16rpx">还没有账户</view>
+      <view class="hint" style="margin-top:8rpx">添加一个你自己的 AI 平台账户</view>
+      <view class="btn primary" style="margin-top:28rpx;display:inline-flex" bindtap="openAdd">添加第一个账户</view>
+    </view>
+  </block>
+
+  <view class="card account" wx:for="{{accounts}}" wx:key="id">
+    <view class="row between">
+      <view class="row">
+        <view class="logo" style="background:{{item.color}}">{{item.initials}}</view>
+        <view>
+          <view style="font-size:28rpx;font-weight:600">{{item.label}}</view>
+          <view class="hint" style="margin-top:6rpx">{{item.providerName}}</view>
+        </view>
+      </view>
+      <view class="btn ghost" data-id="{{item.id}}" bindtap="removeAccount" style="color:#dc2626;font-size:24rpx">移除</view>
+    </view>
+
+    <block wx:if="{{item.hasQuota}}">
+      <view class="row between" style="margin-top:24rpx">
+        <view style="font-size:36rpx;font-weight:650">{{item.remaining}} <text style="font-size:22rpx;color:#9ca3af">剩余</text></view>
+        <view class="hint">已用 {{item.pct}}%</view>
+      </view>
+      <view class="progress" style="margin-top:14rpx">
+        <view class="progress-bar" style="width:{{item.pct > 2 ? item.pct : 2}}%;background:{{item.barColor}}"></view>
+      </view>
+      <view wx:if="{{item.forecastText}}" class="forecast {{item.forecastLevel}}">{{item.forecastText}}</view>
+    </block>
+    <block wx:else>
+      <view class="hint" style="margin-top:20rpx">尚未录入额度</view>
+    </block>
+
+    <view class="row" style="margin-top:20rpx;gap:16rpx">
+      <view class="btn" data-id="{{item.providerId}}" bindtap="openOfficial">官方用量页 ›</view>
+      <view class="btn ghost" data-id="{{item.id}}" bindtap="editQuota">{{item.hasQuota ? '编辑额度' : '录入额度'}}</view>
+    </view>
+  </view>
+
+  <!-- 添加账户弹层 -->
+  <view class="mask" wx:if="{{showAdd}}" bindtap="closeAdd">
+    <view class="sheet" catchtap="noop">
+      <view class="row between" style="margin-bottom:28rpx">
+        <view class="title">添加账户</view>
+        <view class="btn ghost" bindtap="closeAdd">✕</view>
+      </view>
+
+      <block wx:if="{{!pickProvider}}">
+        <view class="field-label">平台</view>
+        <view class="btn" style="width:100%;justify-content:flex-start" bindtap="chooseProvider">
+          {{selectedProvider ? providerMap[selectedProvider].name : '请选择平台 ▾'}}
+        </view>
+        <view class="field-label">账户名称</view>
+        <input class="input" placeholder="例如：我的 OpenAI 账户" value="{{formLabel}}" bindinput="onLabel" />
+        <view class="field-row">
+          <view style="flex:1">
+            <view class="field-label">总额度</view>
+            <input class="input" type="number" placeholder="如 100" value="{{formTotal}}" bindinput="onTotal" />
+          </view>
+          <view style="flex:1;margin-left:16rpx">
+            <view class="field-label">已用</view>
+            <input class="input" type="number" placeholder="如 20" value="{{formUsed}}" bindinput="onUsed" />
+          </view>
+        </view>
+        <view class="hint" style="margin:16rpx 0">小程序仅支持手动录入额度；密钥请在桌面端管理。</view>
+        <view class="btn primary" style="width:100%" bindtap="saveAccount">保存账户</view>
+      </block>
+
+      <block wx:else>
+        <view class="field-label">选择平台</view>
+        <scroll-view scroll-y style="max-height:600rpx">
+          <view class="provider-opt" wx:for="{{providerList}}" wx:key="id" data-id="{{item.id}}" bindtap="selectProvider">
+            <view class="logo" style="background:{{item.color}}">{{item.initials}}</view>
+            <view style="margin-left:16rpx;font-size:26rpx">{{item.name}}</view>
+          </view>
+        </scroll-view>
+      </block>
+    </view>
+  </view>
+
+  <!-- 编辑额度弹层 -->
+  <view class="mask" wx:if="{{showEdit}}" bindtap="closeEdit">
+    <view class="sheet" catchtap="noop">
+      <view class="row between" style="margin-bottom:28rpx">
+        <view class="title">编辑额度</view>
+        <view class="btn ghost" bindtap="closeEdit">✕</view>
+      </view>
+      <view class="hint" style="margin-bottom:12rpx">{{editLabel}}</view>
+      <view class="field-row">
+        <view style="flex:1">
+          <view class="field-label">单位</view>
+          <picker mode="selector" range="{{['credit','token','request','currency','day']}}" bindchange="onEditUnit" value="{{editUnit === 'credit' ? 0 : editUnit === 'token' ? 1 : editUnit === 'request' ? 2 : editUnit === 'currency' ? 3 : 4}}">
+            <view class="btn" style="width:100%;justify-content:flex-start">{{editUnitLabel}} ▾</view>
+          </picker>
+        </view>
+        <view style="flex:1;margin-left:16rpx">
+          <view class="field-label">重置/到期日</view>
+          <picker mode="date" value="{{editResetAt}}" bindchange="onEditReset">
+            <view class="btn" style="width:100%;justify-content:flex-start">{{editResetAt || '未设置'}} ▾</view>
+          </picker>
+        </view>
+      </view>
+      <view class="field-row">
+        <view style="flex:1">
+          <view class="field-label">总额度</view>
+          <input class="input" type="number" placeholder="如 100" value="{{editTotal}}" bindinput="onEditTotal" />
+        </view>
+        <view style="flex:1;margin-left:16rpx">
+          <view class="field-label">已用</view>
+          <input class="input" type="number" placeholder="如 20" value="{{editUsed}}" bindinput="onEditUsed" />
+        </view>
+      </view>
+      <view class="hint" style="margin:16rpx 0">请到官方用量页查看后录入，数据仅存本机。</view>
+      <view class="row" style="gap:16rpx">
+        <view class="btn primary" style="flex:1" bindtap="saveQuota">保存</view>
+        <view class="btn" bindtap="clearQuota" style="color:#dc2626">清除额度</view>
+      </view>
+    </view>
+  </view>
+</view>

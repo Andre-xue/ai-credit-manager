@@ -1,0 +1,19 @@
+{
+  "name": "ai-credit-manager-android",
+  "version": "0.1.0",
+  "private": true,
+  "description": "安卓端 - 复用 Web 构建产物，通过 Capacitor 打包",
+  "scripts": {
+    "sync": "npm run build --prefix .. && cap sync",
+    "open": "cap open android",
+    "build": "cap build android"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/splash-screen": "^6.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.2.0"
+  }
+}

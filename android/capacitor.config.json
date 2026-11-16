@@ -1,0 +1,15 @@
+{
+  "name": "ai-credit-manager",
+  "appId": "com.example.aicredit",
+  "appName": "AI 积分管家",
+  "webDir": "../dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "backgroundColor": "#4f46e5"
+    }
+  }
+}
