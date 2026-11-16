@@ -23,8 +23,8 @@ import {
 import { getAdapter } from './core/adapters'
 import { parseUsageCsv, type UsageEventInput } from './core/csv'
 import {
-  type ExportFormat, exportByFormat, detectCsvKind, isJsonImport,
-  parseAccountsCsv, parseQuotasCsv,
+  type ExportFormat, type ServiceEntry, exportByFormat, detectCsvKind, isJsonImport,
+  parseAccountsCsv, parseQuotasCsv, isServiceList, parseServiceList,
 } from './core/io'
 import { openExternal, isDesktopApp, biometricAvailable, biometricAuth } from './core/openExternal'
 
@@ -57,6 +57,7 @@ function App() {
   const [usageOpen, setUsageOpen] = useState(false)
   const [importData, setImportData] = useState<AppState | null>(null)
   const [csvPreview, setCsvPreview] = useState<CsvImportPreview | null>(null)
+  const [servicePreview, setServicePreview] = useState<ServiceEntry[] | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [bioAvailableGlobal, setBioAvailableGlobal] = useState(false)
@@ -84,6 +85,11 @@ function App() {
     reader.onload = () => {
       const text = String(reader.result ?? '')
       try {
+        // 第三方 API 服务清单（数组格式，含明文 Key）
+        if (isServiceList(text)) {
+          setServicePreview(parseServiceList(text))
+          return
+        }
         if (isJsonImport(file.name, text)) {
           setImportData(importState(text))
           return
@@ -412,6 +418,25 @@ function App() {
           })
           notify(`已导入 ${counts} 条${p.kind === 'accounts' ? '账户' : p.kind === 'quotas' ? '额度' : '用量'}记录`)
           setCsvPreview(null)
+        }}
+      />}
+      {servicePreview && <ServiceImportModal
+        entries={servicePreview} current={state} sessionPwd={sessionPwd}
+        onClose={() => setServicePreview(null)}
+        onImport={(accounts, quotas, pwd) => {
+          setState(s => {
+            const existing = new Set(s.accounts.map(a => `${a.providerId}|${a.label}`))
+            const fresh = accounts.filter(a => !existing.has(`${a.providerId}|${a.label}`))
+            const freshIds = new Set(fresh.map(a => a.id))
+            return {
+              ...s,
+              accounts: [...s.accounts, ...fresh],
+              quotas: [...s.quotas, ...quotas.filter(q => freshIds.has(q.accountId))],
+            }
+          })
+          if (pwd) setSessionPwd(pwd)
+          setServicePreview(null)
+          notify(`已安全导入 ${accounts.length} 个服务（密钥已加密）`)
         }}
       />}
       {exportOpen && <ExportModal state={state} onClose={() => setExportOpen(false)} onExport={(fmt) => { doExport(fmt); setExportOpen(false); notify('已导出文件') }} />}
@@ -1519,6 +1544,105 @@ function CsvImportModal({ preview, current, onClose, onImport }: {
         <div className="modal-foot">
           <button className="btn" onClick={onClose}>取消</button>
           <button className="btn primary" disabled={count === 0} onClick={() => onImport(count)}>确认导入 {count} 条</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** 第三方 API 服务清单导入：预览 + 主密码加密入库 */
+function ServiceImportModal({ entries, current, sessionPwd, onClose, onImport }: {
+  entries: ServiceEntry[]; current: AppState; sessionPwd: string; onClose: () => void;
+  onImport: (accounts: AppState['accounts'], quotas: QuotaSnapshot[], pwd: string) => void
+}) {
+  const [selected, setSelected] = useState<Set<number>>(() => new Set(entries.map((_, i) => i)))
+  const [pwd, setPwd] = useState(sessionPwd || getBiometricPassword() || '')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const known = new Set(current.accounts.map(a => `${a.providerId}|${a.label}`))
+  const dupCount = entries.filter(e => known.has(`${e.providerId}|${e.label}`)).length
+
+  const maskKey = (k: string) => k.length > 12 ? `${k.slice(0, 6)}…${k.slice(-4)}` : (k ? '••••' : '（空）')
+
+  const doImport = async () => {
+    setErr('')
+    if (!isVaultInitialized()) { setErr('请先在「设置 → 安全」创建保险箱，再导入含密钥的清单'); return }
+    if (!pwd) { setErr('请输入主密码用于加密密钥'); return }
+    setBusy(true)
+    try {
+      const ok = await verifyVault(pwd)
+      if (!ok) { setErr('主密码错误'); return }
+      const now = new Date().toISOString()
+      const accounts: AppState['accounts'] = []
+      const quotas: QuotaSnapshot[] = []
+      for (const i of selected) {
+        const e = entries[i]
+        if (!e.plainKey) continue // 空密钥跳过（如本地服务可能无需密钥）
+        const enc = await encryptSecret(e.plainKey, pwd)
+        const accId = uid('acc')
+        accounts.push({
+          id: accId, providerId: e.providerId, label: e.label, mode: 'api',
+          encryptedKey: enc, keyFingerprint: fingerprint(e.plainKey),
+          apiUrl: e.apiBase || undefined, note: e.note,
+          createdAt: now, updatedAt: now,
+        })
+        if (e.quota) {
+          quotas.push({
+            id: uid('q'), accountId: accId, unit: 'currency',
+            total: e.quota.total, used: 0,
+            capturedAt: now, source: 'import',
+          })
+        }
+      }
+      onImport(accounts, quotas, pwd)
+    } catch (e: any) { setErr(e.message ?? '导入失败') }
+    finally { setBusy(false) }
+  }
+
+  const toggle = (i: number) => setSelected(prev => {
+    const next = new Set(prev); if (next.has(i)) next.delete(i); else next.add(i); return next
+  })
+
+  return (
+    <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal" style={{ maxWidth: 660 }}>
+        <div className="modal-head"><h3>导入 API 服务清单</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
+        <div className="modal-body">
+          <div style={{ fontSize: 12.5, color: 'var(--text-2)', marginBottom: 10 }}>
+            识别到 <b>{entries.length}</b> 个服务（含密钥）。请选择要导入的项，密钥将用主密码 <b>AES-256-GCM 加密</b>后仅存本机。
+          </div>
+          {dupCount > 0 && <div style={{ fontSize: 11.5, color: 'var(--amber)', marginBottom: 8 }}>{dupCount} 项与现有账户重名，将自动跳过。</div>}
+          <div style={{ maxHeight: 280, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+            <table className="key-table" style={{ fontSize: 12 }}>
+              <thead><tr><th style={{ width: 34 }}></th><th>名称 / 用途</th><th>平台</th><th>API Key</th><th>额度</th></tr></thead>
+              <tbody>
+                {entries.map((e, i) => {
+                  const p = PROVIDER_MAP[e.providerId]
+                  const isDup = known.has(`${e.providerId}|${e.label}`)
+                  return (
+                    <tr key={i} style={{ opacity: isDup ? 0.5 : 1 }} onClick={() => !isDup && toggle(i)}>
+                      <td><input type="checkbox" checked={selected.has(i) && !isDup} disabled={isDup} onChange={() => toggle(i)} onClick={ev => ev.stopPropagation()} /></td>
+                      <td><div style={{ fontWeight: 500 }}>{e.label}</div><div style={{ color: 'var(--text-3)', fontSize: 11 }}>{e.note} · {e.model}</div></td>
+                      <td>{p?.shortName ?? e.name}</td>
+                      <td className="mono" style={{ fontSize: 11 }}>{maskKey(e.plainKey)}</td>
+                      <td>{e.quota ? `¥${e.quota.total}` : '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="field" style={{ marginTop: 14 }}>
+            <label>主密码（用于加密密钥{isVaultInitialized() ? '' : ' · 保险箱尚未创建'}）</label>
+            <input className="input" type="text" placeholder="输入主密码" value={pwd} onChange={e => setPwd(e.target.value)} />
+          </div>
+          {err && <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 8 }}>{err}</div>}
+        </div>
+        <div className="modal-foot">
+          <button className="btn" onClick={onClose}>取消</button>
+          <button className="btn primary" disabled={busy || selected.size === 0} onClick={() => void doImport()}>
+            {busy ? '加密导入中…' : `安全导入 ${selected.size} 项`}
+          </button>
         </div>
       </div>
     </div>

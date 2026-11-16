@@ -106,6 +106,27 @@ export const PROVIDERS: ProviderDefinition[] = [
     apiBaseUrl: 'https://api.figma.com/v1',
     note: '订阅账户查看 AI 额度。',
   },
+  {
+    id: 'siliconflow', name: 'SiliconFlow 硅基流动', shortName: '硅基流动', category: 'llm',
+    officialUrl: 'https://www.siliconflow.cn/', usageUrl: 'https://cloud.siliconflow.cn/account/ak',
+    color: '#7c3aed', initials: 'SF', modes: ['manual'],
+    apiBaseUrl: 'https://api.siliconflow.cn/v1',
+    note: '聚合多模型平台，控制台查看余额，无公开用量 API。',
+  },
+  {
+    id: 'comfyui', name: 'ComfyUI 本地', shortName: 'ComfyUI', category: 'image',
+    officialUrl: 'https://www.comfy.org/', usageUrl: 'https://www.comfy.org/download',
+    color: '#0ea5e9', initials: 'CF', modes: ['manual'],
+    apiBaseUrl: 'http://127.0.0.1:8188',
+    note: '本地部署的图像生成服务，通常无额度概念。',
+  },
+  {
+    id: 'ollama', name: 'Ollama 本地', shortName: 'Ollama', category: 'llm',
+    officialUrl: 'https://ollama.com/', usageUrl: 'https://ollama.com/download',
+    color: '#f59e0b', initials: 'OL', modes: ['manual'],
+    apiBaseUrl: 'http://127.0.0.1:11434/v1',
+    note: '本地运行的大模型服务，通常无额度概念。',
+  },
 ]
 
 export const PROVIDER_MAP: Record<string, ProviderDefinition> = Object.fromEntries(

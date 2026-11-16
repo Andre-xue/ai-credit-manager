@@ -4,6 +4,7 @@ import {
   csvCell, toCsv, detectCsvKind, isJsonImport,
   exportAccountsCsv, exportQuotasCsv, exportUsageCsv, exportJson,
   parseAccountsCsv, parseQuotasCsv, exportByFormat,
+  isServiceList, parseServiceList, parseQuotaString, mapServiceProvider,
 } from './io'
 
 function latestQuota(quotas: QuotaSnapshot[], id: string): QuotaSnapshot | undefined {
@@ -135,5 +136,61 @@ describe('导出/导入往返', () => {
     const json = exportJson(s)
     expect(json).not.toContain('SECRET_CIPHER')
     expect(json).toContain('工作号')
+  })
+})
+
+describe('第三方服务清单', () => {
+  const sample = JSON.stringify([
+    { name: 'DeepSeek 深度求索', note: '翻译/对话', apiBase: 'https://api.deepseek.com/v1', api: 'sk-test-1', model: 'deepseek-v3', endpoint: 'https://platform.deepseek.com/api_keys', modelCategory: 'text', quota: '7.51 CNY', kid: 'K1' },
+    { name: '智谱 GLM', note: '通用对话', apiBase: 'https://open.bigmodel.cn/api/paas/v4', api: 'test-key-2', model: 'glm-4', endpoint: 'https://bigmodel.cn/usercenter/apikeys', modelCategory: 'text', quota: '暂不支持自动查询', kid: 'K2' },
+    { name: 'SiliconFlow 硅基流动', note: '图片', apiBase: 'https://api.siliconflow.cn/v1', api: 'sk-test-3', model: 'Qwen/Image', modelCategory: 'image', quota: '¥24.88', kid: 'K3' },
+    { name: 'SiliconFlow 硅基流动', note: '视频', apiBase: 'https://api.siliconflow.cn/v1', api: 'sk-test-3', model: 'Wan2.2', modelCategory: 'video', quota: '', kid: 'K4' },
+    { name: 'ComfyUI 本地', note: '本地 SD', apiBase: 'http://127.0.0.1:8188', api: 'none', model: 'v1-5', modelCategory: 'image', quota: '', kid: 'K5', localOnly: true },
+  ])
+
+  it('识别服务清单数组', () => {
+    expect(isServiceList(sample)).toBe(true)
+    expect(isServiceList('{"accounts":[]}')).toBe(false)
+    expect(isServiceList('[]')).toBe(false)
+    expect(isServiceList('not json')).toBe(false)
+  })
+
+  it('解析额度字符串', () => {
+    expect(parseQuotaString('7.51 CNY')).toEqual({ total: 7.51, unit: 'currency' })
+    expect(parseQuotaString('¥24.88713')).toEqual({ total: 24.88713, unit: 'currency' })
+    expect(parseQuotaString('1,000.5 tokens')).toEqual({ total: 1000.5, unit: 'currency' })
+    expect(parseQuotaString('暂不支持自动查询')).toBeNull()
+    expect(parseQuotaString('')).toBeNull()
+  })
+
+  it('平台名称映射', () => {
+    expect(mapServiceProvider('DeepSeek 深度求索')).toBe('deepseek')
+    expect(mapServiceProvider('智谱 GLM')).toBe('glm')
+    expect(mapServiceProvider('SiliconFlow 硅基流动')).toBe('siliconflow')
+    expect(mapServiceProvider('Moonshot Kimi')).toBe('kim')
+    expect(mapServiceProvider('ComfyUI 本地')).toBe('comfyui')
+    expect(mapServiceProvider('Ollama 本地')).toBe('ollama')
+    expect(mapServiceProvider('未知服务 Foo')).toMatch(/^custom-/)
+  })
+
+  it('解析服务清单条目并归一化分类', () => {
+    const entries = parseServiceList(sample)
+    expect(entries).toHaveLength(5)
+    expect(entries[0].providerId).toBe('deepseek')
+    expect(entries[0].plainKey).toBe('sk-test-1')
+    expect(entries[0].quota?.total).toBe(7.51)
+    expect(entries[0].note).toBe('[文本] 翻译/对话')
+    expect(entries[1].quota).toBeNull() // 暂不支持自动查询
+    expect(entries[2].note).toBe('[图片] 图片')
+    expect(entries[4].localOnly).toBe(true)
+  })
+
+  it('同名多用途生成区分 label', () => {
+    const entries = parseServiceList(sample)
+    const sf = entries.filter(e => e.name.includes('SiliconFlow'))
+    expect(sf).toHaveLength(2)
+    expect(sf[0].label).toContain('图片')
+    expect(sf[1].label).toContain('视频')
+    expect(sf[0].label).not.toBe(sf[1].label)
   })
 })
