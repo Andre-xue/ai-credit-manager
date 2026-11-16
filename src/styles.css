@@ -289,6 +289,12 @@ tbody tr:hover { background: var(--panel-2); }
 .key-table .icon-btn:hover svg:first-child { display: none; }
 .key-table .icon-btn:hover svg:last-child { display: block; }
 
+.secret-reveal {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 14px; word-break: break-all; color: var(--text); line-height: 1.6;
+}
+
 @media (max-width: 1000px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .account-grid { grid-template-columns: repeat(2, 1fr); }

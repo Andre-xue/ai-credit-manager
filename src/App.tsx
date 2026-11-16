@@ -3,7 +3,7 @@ import {
   LayoutDashboard, CalendarCheck2, KeyRound, BarChart3, Plus, ShieldCheck,
   ExternalLink, Trash2, RefreshCw, AlertTriangle, Info, Check,
   Wallet, Flame, Clock, TrendingUp, Lock, Unlock, Download, X, Copy, CircleHelp,
-  Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Gift, Eye, EyeOff, Pencil,
+  Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Gift, Eye, EyeOff, Pencil, Fingerprint,
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { PROVIDERS, PROVIDER_MAP, CATEGORY_LABEL } from './data/providers'
@@ -21,7 +21,7 @@ import {
 } from './core/crypto'
 import { getAdapter, isDesktopProxyAvailable } from './core/adapters'
 import { parseUsageCsv, type UsageEventInput } from './core/csv'
-import { openExternal, isDesktopApp } from './core/openExternal'
+import { openExternal, isDesktopApp, biometricAvailable, biometricAuth } from './core/openExternal'
 
 type Tab = 'dashboard' | 'checkin' | 'benefits' | 'keys' | 'usage' | 'settings'
 
@@ -541,12 +541,16 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
   onUpdateAccount: (id: string, patch: Partial<AppState['accounts'][number]>) => void
 }) {
   const [unlockPwd, setUnlockPwd] = useState('')
+  const [vaultPwd, setVaultPwd] = useState('') // 已验证的主密码，仅内存
   const [revealed, setRevealed] = useState<Record<string, string>>({})
-  const [showKey, setShowKey] = useState<Record<string, boolean>>({})
   const [showBalance, setShowBalance] = useState<Record<string, boolean>>({})
+  const [revealTarget, setRevealTarget] = useState<AppState['accounts'][number] | null>(null)
+  const [bioAvailable, setBioAvailable] = useState(false)
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
   const keyAccounts = state.accounts.filter(a => a.encryptedKey)
+
+  useEffect(() => { void biometricAvailable().then(setBioAvailable) }, [])
 
   const unlock = async () => {
     setBusy(true)
@@ -558,6 +562,8 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
         try { decrypted[a.id] = await decryptSecret(a.encryptedKey!, unlockPwd) } catch { /* skip */ }
       }
       setRevealed(decrypted)
+      setVaultPwd(unlockPwd)
+      setUnlockPwd('')
       notify('已解锁（仅本次会话）')
     } finally { setBusy(false) }
   }
@@ -601,8 +607,8 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
                 onChange={e => setUnlockPwd(e.target.value)} style={{ width: 150 }}
                 onKeyDown={e => { if (e.key === 'Enter') void unlock() }} />
               <button className="btn sm primary" onClick={unlock} disabled={busy || !unlockPwd}><Unlock size={14} /> 解锁</button>
-              <button className="btn sm" onClick={() => { setRevealed({}); setShowKey({}); setUnlockPwd(''); notify('已锁定') }}
-                disabled={Object.keys(revealed).length === 0}><Lock size={14} /> 锁定</button>
+              <button className="btn sm" onClick={() => { setRevealed({}); setVaultPwd(''); setUnlockPwd(''); setRevealTarget(null); notify('已锁定') }}
+                disabled={!vaultPwd}><Lock size={14} /> 锁定</button>
             </>
           ) : <button className="btn sm primary" onClick={onOpenVault}><Lock size={14} /> 创建保险箱</button>}
         </div>
@@ -650,7 +656,7 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
                       </span>
                       <button className="icon-btn" title={showBalance[a.id] ? '隐藏余额' : '显示余额'}
                         onClick={() => setShowBalance(s => ({ ...s, [a.id]: !s[a.id] }))}>
-                        <Eye size={13} /><EyeOff size={13} />
+                        <Eye size={13} />
                       </button>
                     </div>
                   </td>
@@ -662,13 +668,10 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
                   <td>
                     <div className="row" style={{ gap: 5 }}>
                       <span className="mono" style={{ fontSize: 11.5, maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {!plain ? '••••' : showKey[a.id] ? plain : a.keyFingerprint ?? '••••'}
+                        {a.keyFingerprint ?? (plain ? '已配置' : '••••')}
                       </span>
-                      <button className="icon-btn" title={!plain ? '请先解锁' : showKey[a.id] ? '隐藏 Key' : '显示 Key'}
-                        onClick={() => {
-                          if (!plain) { notify('请先解锁保险箱'); return }
-                          setShowKey(s => ({ ...s, [a.id]: !s[a.id] }))
-                        }}><Eye size={13} /><EyeOff size={13} /></button>
+                      <button className="icon-btn" title="点击查看完整 Key（支持指纹解锁）"
+                        onClick={() => setRevealTarget(a)}><Eye size={13} /></button>
                     </div>
                   </td>
                   <td>
@@ -719,7 +722,7 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
             if (newKey !== undefined && newKey !== '') {
               // 密钥变更：需要主密码重新加密
               void (async () => {
-                const pwd = newKey === '' ? '' : unlockPwd
+                const pwd = vaultPwd
                 if (!pwd) { notify('修改密钥请先解锁保险箱'); return }
                 const enc = await encryptSecret(newKey, pwd)
                 onUpdateAccount(acc.id, { encryptedKey: enc, keyFingerprint: fingerprint(newKey) })
@@ -732,10 +735,108 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
           notify={notify}
         />
       })()}
+
+      {revealTarget && <SecretRevealModal
+        account={revealTarget} provider={PROVIDER_MAP[revealTarget.providerId]}
+        plain={revealed[revealTarget.id]}
+        vaultPwd={vaultPwd} bioAvailable={bioAvailable}
+        onClose={() => setRevealTarget(null)}
+        onUnlocked={(pwd) => {
+          void (async () => {
+            try {
+              const plain = await decryptSecret(revealTarget.encryptedKey!, pwd)
+              setRevealed(s => ({ ...s, [revealTarget.id]: plain }))
+              setVaultPwd(pwd)
+              notify('已验证，密钥已解锁')
+            } catch { notify('解密失败，主密码可能不正确') }
+          })()
+        }}
+        notify={notify}
+      />}
     </>
   )
 }
 
+
+/** 查看密钥明文弹窗：已解锁会话内可用 Touch ID 验证查看 */
+function SecretRevealModal({ account, provider, plain, vaultPwd, bioAvailable, onClose, onUnlocked, notify }: {
+  account: AppState['accounts'][number]; provider: ProviderDefinition; plain?: string;
+  vaultPwd: string; bioAvailable: boolean; onClose: () => void;
+  onUnlocked: (pwd: string) => void; notify: (m: string) => void
+}) {
+  const [show, setShow] = useState(false)
+  const [pwd, setPwd] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const doBiometric = async () => {
+    setBusy(true)
+    try {
+      const ok = await biometricAuth()
+      if (!ok) { notify('指纹验证未通过'); return }
+      if (vaultPwd) { setShow(true); notify('指纹验证通过') }
+      else notify('指纹验证通过，请输入主密码解密')
+    } finally { setBusy(false) }
+  }
+
+  const doPassword = async () => {
+    setBusy(true)
+    try {
+      const ok = await verifyVault(pwd)
+      if (!ok) { notify('主密码错误'); return }
+      onUnlocked(pwd)
+      setShow(true)
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal" style={{ maxWidth: 460 }}>
+        <div className="modal-head">
+          <h3>查看 API Key</h3>
+          <button className="icon-btn" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="modal-body">
+          <div className="banner info" style={{ marginBottom: 16 }}>
+            <ProviderLogo provider={provider} size={28} />
+            <div>{account.label} · {provider.name}<br />密钥仅在本机解密显示，不会上传。</div>
+          </div>
+
+          {show && plain ? (
+            <>
+              <div className="field">
+                <label>API Key 明文</label>
+                <div className="secret-reveal">{plain}</div>
+              </div>
+              <div className="row" style={{ gap: 8 }}>
+                <button className="btn sm primary" onClick={() => { navigator.clipboard.writeText(plain); notify('已复制，请妥善保管') }}><Copy size={14} /> 复制密钥</button>
+                <button className="btn sm" onClick={() => setShow(false)}><EyeOff size={14} /> 隐藏</button>
+              </div>
+            </>
+          ) : (
+            <>
+              {bioAvailable && (
+                <button className="btn primary" style={{ width: '100%', marginBottom: 14 }} onClick={doBiometric} disabled={busy}>
+                  <Fingerprint size={16} /> 用指纹解锁查看
+                </button>
+              )}
+              <div className="field">
+                <label>或使用主密码</label>
+                <input className="input" type="password" placeholder="输入主密码" value={pwd}
+                  onChange={e => setPwd(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') void doPassword() }} />
+              </div>
+              <button className="btn" style={{ width: '100%' }} onClick={doPassword} disabled={busy || !pwd}>
+                <Unlock size={15} /> 解锁查看
+              </button>
+              {vaultPwd && <div className="hint" style={{ marginTop: 12, fontSize: 11.5 }}>当前会话已解锁，可用指纹快速查看。</div>}
+            </>
+          )}
+        </div>
+        <div className="modal-foot"><button className="btn" onClick={onClose}>关闭</button></div>
+      </div>
+    </div>
+  )
+}
 
 /** 密钥条目编辑弹窗 */
 function KeyEditModal({ account, provider, currentKey, onClose, onSave, notify }: {

@@ -4,6 +4,53 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 官方只读用量代理：仅允许白名单官方端点，绕过桌面端 CORS 限制。
 /// 不接收任意 URL，防止被用作开放代理（SSRF）；不存储任何凭证。
+/// 定位 Touch ID helper 二进制（开发态与打包态）
+fn biometric_helper_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    use tauri::Manager;
+    if let Ok(dir) = app.path().resource_dir() {
+        let p = dir.join("binaries").join("acm-biometric-aarch64-apple-darwin");
+        if p.exists() { return Some(p) }
+        let p2 = dir.join("acm-biometric-aarch64-apple-darwin");
+        if p2.exists() { return Some(p2) }
+    }
+    // 开发态：从 exe 目录向上找 src-tauri/binaries
+    if let Ok(exe) = std::env::current_exe() {
+        let mut dir = exe.parent();
+        while let Some(d) = dir {
+            let p = d.join("binaries").join("acm-biometric-aarch64-apple-darwin");
+            if p.exists() { return Some(p) }
+            dir = d.parent();
+        }
+    }
+    None
+}
+
+#[tauri::command]
+async fn biometric_available(app: tauri::AppHandle) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let p = biometric_helper_path(&app).ok_or("未找到指纹验证组件")?;
+        let out = std::process::Command::new(p).arg("check").output()
+            .map_err(|e| format!("指纹检测失败：{}", e))?;
+        Ok(out.status.success())
+    }
+    #[cfg(not(target_os = "macos"))]
+    { let _ = app; Ok(false) }
+}
+
+#[tauri::command]
+async fn biometric_auth(app: tauri::AppHandle) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let p = biometric_helper_path(&app).ok_or("未找到指纹验证组件")?;
+        let out = std::process::Command::new(p).arg("auth").output()
+            .map_err(|e| format!("指纹验证失败：{}", e))?;
+        Ok(out.status.success())
+    }
+    #[cfg(not(target_os = "macos"))]
+    { let _ = app; Ok(false) }
+}
+
 /// 在系统默认浏览器打开外部链接。仅允许 http(s)，防止被滥用。
 #[tauri::command]
 async fn open_url(url: String) -> Result<(), String> {
@@ -82,7 +129,7 @@ async fn proxy_usage(provider: String, api_key: String) -> Result<serde_json::Va
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![proxy_usage, send_notification, open_url])
+        .invoke_handler(tauri::generate_handler![proxy_usage, send_notification, open_url, biometric_available, biometric_auth])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
