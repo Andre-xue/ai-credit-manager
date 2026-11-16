@@ -6,12 +6,14 @@ export const PROVIDERS: ProviderDefinition[] = [
     id: 'openai', name: 'OpenAI', shortName: 'OpenAI', category: 'llm',
     officialUrl: 'https://platform.openai.com/', usageUrl: 'https://platform.openai.com/usage',
     color: '#10a37f', initials: 'OA', modes: ['api', 'manual'],
+    apiBaseUrl: 'https://api.openai.com/v1',
     note: '官方 Usage API 可用（需 Admin Key），仅只读查询。',
   },
   {
     id: 'anthropic', name: 'Anthropic Claude', shortName: 'Claude', category: 'llm',
     officialUrl: 'https://console.anthropic.com/', usageUrl: 'https://console.anthropic.com/settings/usage',
     color: '#d97757', initials: 'CL', modes: ['api', 'manual'],
+    apiBaseUrl: 'https://api.anthropic.com/v1',
     note: '控制台可查看用量；Admin API 需单独申请。',
   },
   {
@@ -19,6 +21,7 @@ export const PROVIDERS: ProviderDefinition[] = [
     officialUrl: 'https://ai.google.dev/', usageUrl: 'https://aistudio.google.com/app/apikey',
     color: '#4285f4', initials: 'GE', modes: ['manual'],
     checkinUrl: 'https://aistudio.google.com/app/apikey',
+    apiBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     note: 'AI Studio 提供免费额度，无公开用量 API，走手动录入。',
   },
   {
@@ -26,6 +29,7 @@ export const PROVIDERS: ProviderDefinition[] = [
     officialUrl: 'https://platform.deepseek.com/', usageUrl: 'https://platform.deepseek.com/usage',
     color: '#4d6bfe', initials: 'DS', modes: ['manual'],
     checkinUrl: 'https://platform.deepseek.com/top_up',
+    apiBaseUrl: 'https://api.deepseek.com/v1',
     note: '控制台查看余额，无公开用量 API。',
   },
   {
@@ -33,6 +37,7 @@ export const PROVIDERS: ProviderDefinition[] = [
     officialUrl: 'https://dashscope.console.aliyun.com/', usageUrl: 'https://dashscope.console.aliyun.com/overview',
     color: '#615ced', initials: '通', modes: ['manual'],
     checkinUrl: 'https://dashscope.console.aliyun.com/coupon',
+    apiBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     note: '阿里云百炼控制台查看额度。',
   },
   {
@@ -40,6 +45,7 @@ export const PROVIDERS: ProviderDefinition[] = [
     officialUrl: 'https://platform.moonshot.cn/', usageUrl: 'https://platform.moonshot.cn/console/info',
     color: '#1a1a1a', initials: 'K', modes: ['manual'],
     checkinUrl: 'https://platform.moonshot.cn/console/info',
+    apiBaseUrl: 'https://api.moonshot.cn/v1',
     note: '控制台查看余额与用量。',
   },
   {
@@ -47,6 +53,7 @@ export const PROVIDERS: ProviderDefinition[] = [
     officialUrl: 'https://console.volcengine.com/ark', usageUrl: 'https://console.volcengine.com/ark',
     color: '#f04142', initials: '豆', modes: ['manual'],
     checkinUrl: 'https://console.volcengine.com/ark',
+    apiBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
     note: '火山方舟控制台查看用量。',
   },
   {
@@ -54,18 +61,21 @@ export const PROVIDERS: ProviderDefinition[] = [
     officialUrl: 'https://open.bigmodel.cn/', usageUrl: 'https://open.bigmodel.cn/usercenter',
     color: '#3859ff', initials: 'G', modes: ['manual'],
     checkinUrl: 'https://open.bigmodel.cn/usercenter',
+    apiBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     note: '开放平台查看余额。',
   },
   {
     id: 'cursor', name: 'Cursor', shortName: 'Cursor', category: 'code',
     officialUrl: 'https://cursor.com/', usageUrl: 'https://www.cursor.com/account/usage',
     color: '#111827', initials: 'CU', modes: ['subscription', 'manual'],
+    apiBaseUrl: 'https://api.cursor.com/v1',
     note: '订阅账户在 Account 页查看用量。',
   },
   {
     id: 'copilot', name: 'GitHub Copilot', shortName: 'Copilot', category: 'code',
     officialUrl: 'https://github.com/features/copilot', usageUrl: 'https://github.com/settings/copilot',
     color: '#24292f', initials: 'GH', modes: ['subscription', 'manual'],
+    apiBaseUrl: 'https://api.github.com',
     note: 'GitHub Settings 查看请求配额。',
   },
   {
@@ -78,6 +88,7 @@ export const PROVIDERS: ProviderDefinition[] = [
     id: 'perplexity', name: 'Perplexity', shortName: 'PPLX', category: 'search',
     officialUrl: 'https://www.perplexity.ai/', usageUrl: 'https://www.perplexity.ai/settings/api',
     color: '#20808d', initials: 'PX', modes: ['api', 'manual'],
+    apiBaseUrl: 'https://api.perplexity.ai',
     note: 'API 账户可查看余额。',
   },
   {
@@ -85,12 +96,14 @@ export const PROVIDERS: ProviderDefinition[] = [
     officialUrl: 'https://elevenlabs.io/', usageUrl: 'https://elevenlabs.io/app/settings/usage',
     color: '#111827', initials: 'EL', modes: ['manual'],
     checkinUrl: 'https://elevenlabs.io/app/subscription',
+    apiBaseUrl: 'https://api.elevenlabs.io/v1',
     note: '控制台查看字符额度。',
   },
   {
     id: 'figma', name: 'Figma AI', shortName: 'Figma', category: 'design',
     officialUrl: 'https://www.figma.com/', usageUrl: 'https://www.figma.com/settings',
     color: '#f24e1e', initials: 'FG', modes: ['subscription', 'manual'],
+    apiBaseUrl: 'https://api.figma.com/v1',
     note: '订阅账户查看 AI 额度。',
   },
 ]

@@ -24,6 +24,8 @@ export interface ProviderDefinition {
   usageUrl: string
   /** 官方签到/福利页面（如有），仅跳转，不自动操作 */
   checkinUrl?: string
+  /** 官方 API base_url（自动填充到账户的链接地址） */
+  apiBaseUrl?: string
   color: string
   initials: string
   /** 该平台账户支持的数据获取方式 */

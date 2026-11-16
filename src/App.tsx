@@ -19,7 +19,7 @@ import { todayISO } from './core/store'
 import {
   isVaultInitialized, initVault, verifyVault, encryptSecret, decryptSecret, fingerprint, resetVault,
 } from './core/crypto'
-import { getAdapter, isDesktopProxyAvailable } from './core/adapters'
+import { getAdapter } from './core/adapters'
 import { parseUsageCsv, type UsageEventInput } from './core/csv'
 import { openExternal, isDesktopApp, biometricAvailable, biometricAuth } from './core/openExternal'
 
@@ -541,16 +541,22 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
   onUpdateAccount: (id: string, patch: Partial<AppState['accounts'][number]>) => void
 }) {
   const [unlockPwd, setUnlockPwd] = useState('')
-  const [vaultPwd, setVaultPwd] = useState('') // 已验证的主密码，仅内存
+  const [vaultPwd, setVaultPwd] = useState('')
   const [revealed, setRevealed] = useState<Record<string, string>>({})
   const [showBalance, setShowBalance] = useState<Record<string, boolean>>({})
   const [revealTarget, setRevealTarget] = useState<AppState['accounts'][number] | null>(null)
   const [bioAvailable, setBioAvailable] = useState(false)
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
+  const [unlockOpen, setUnlockOpen] = useState(false)
+  const [category, setCategory] = useState('__all__')
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 8
   const keyAccounts = state.accounts.filter(a => a.encryptedKey)
 
   useEffect(() => { void biometricAvailable().then(setBioAvailable) }, [])
+  // 筛选条件变化时重置页码
+  useEffect(() => { setPage(1) }, [category])
 
   const unlock = async () => {
     setBusy(true)
@@ -564,6 +570,7 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
       setRevealed(decrypted)
       setVaultPwd(unlockPwd)
       setUnlockPwd('')
+      setUnlockOpen(false)
       notify('已解锁（仅本次会话）')
     } finally { setBusy(false) }
   }
@@ -572,11 +579,10 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
     const provider = PROVIDER_MAP[a.providerId]
     const q = latestQuota(state.quotas, a.id)
     const data = {
-      platform: provider?.name ?? a.providerId, label: a.label, apiUrl: a.apiUrl ?? '',
-      fingerprint: a.keyFingerprint ?? '', note: a.note ?? '',
-      balance: q ? `${q.total - q.used} ${UNIT_LABEL[q.unit]}` : '未录入',
+      platform: provider?.name ?? a.providerId, label: a.label,
+      apiUrl: a.apiUrl ?? provider?.apiBaseUrl ?? '', fingerprint: a.keyFingerprint ?? '',
+      note: a.note ?? '', balance: q ? `${q.total - q.used} ${UNIT_LABEL[q.unit]}` : '未录入',
       exportedAt: new Date().toISOString(),
-      // 注意：备份文件不含明文密钥与密文，避免泄露
     }
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -586,35 +592,54 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
     notify('已导出密钥信息（不含密钥本身）')
   }
 
+  /** 从备注提取分类：取 [ xxx ] 或冒号前的部分 */
+  const categoryOf = (note?: string): string => {
+    if (!note) return '未分类'
+    const m = note.match(/^\[([^\]]+)\]/) || note.match(/^[^:：]{1,8}[:：]\s*([^:：]+)/)
+    if (m) return m[1].trim()
+    const colon = note.split(/[:：]/)[0].trim()
+    return colon && colon !== note ? colon : '未分类'
+  }
+  const categories = Array.from(new Set(keyAccounts.map(a => categoryOf(a.note)))).sort()
+  const filtered = keyAccounts.filter(a => category === '__all__' || categoryOf(a.note) === category)
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const pageItems = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
   return (
     <>
-      <div className="banner info">
-        <ShieldCheck size={16} />
-        <div>API Key 使用 <b>AES-256-GCM</b> 加密、PBKDF2 派生密钥，仅存本地。导出不含密钥明文。遗忘主密码无法恢复。</div>
-      </div>
-
-      <div className="panel key-vault-bar">
-        <div className="row" style={{ gap: 12 }}>
-          <span className={`tag ${isVaultInitialized() ? 'green' : 'gray'}`}>
-            {isVaultInitialized() ? '保险箱已启用' : '保险箱未创建'}
-          </span>
-          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{keyAccounts.length} 个密钥 · 仅此设备</span>
+      <div className="keys-header">
+        <div>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>API Key 管理</h2>
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 3 }}>{keyAccounts.length} 个密钥 · 本地加密存储</div>
         </div>
         <div className="row" style={{ gap: 8 }}>
-          {isVaultInitialized() ? (
-            <>
-              <input className="input" type="password" placeholder="主密码解锁" value={unlockPwd}
-                onChange={e => setUnlockPwd(e.target.value)} style={{ width: 150 }}
-                onKeyDown={e => { if (e.key === 'Enter') void unlock() }} />
-              <button className="btn sm primary" onClick={unlock} disabled={busy || !unlockPwd}><Unlock size={14} /> 解锁</button>
-              <button className="btn sm" onClick={() => { setRevealed({}); setVaultPwd(''); setUnlockPwd(''); setRevealTarget(null); notify('已锁定') }}
-                disabled={!vaultPwd}><Lock size={14} /> 锁定</button>
-            </>
-          ) : <button className="btn sm primary" onClick={onOpenVault}><Lock size={14} /> 创建保险箱</button>}
+          {categories.length > 0 && (
+            <select className="select" style={{ width: 150 }} value={category} onChange={e => setCategory(e.target.value)}>
+              <option value="__all__">全部分类 ({keyAccounts.length})</option>
+              {categories.map(c => <option key={c} value={c}>{c} ({keyAccounts.filter(a => categoryOf(a.note) === c).length})</option>)}
+            </select>
+          )}
+          {vaultPwd ? (
+            <button className="btn sm" onClick={() => { setRevealed({}); setVaultPwd(''); setUnlockPwd(''); setRevealTarget(null); notify('已锁定') }}><Lock size={14} /> 锁定</button>
+          ) : (
+            <button className="btn sm primary" onClick={() => setUnlockOpen(true)}><Unlock size={14} /> 解锁</button>
+          )}
+          {!isVaultInitialized() && <button className="btn sm" onClick={onOpenVault}><ShieldCheck size={14} /> 创建保险箱</button>}
         </div>
       </div>
 
-      <div className="section-head"><h2>密钥管理 <span className="hint">{keyAccounts.length} 项</span></h2></div>
+      {unlockOpen && !vaultPwd && (
+        <div className="panel key-unlock-bar">
+          <input className="input" type="password" placeholder="输入主密码解锁" value={unlockPwd}
+            onChange={e => setUnlockPwd(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') void unlock() }} style={{ width: 200 }} />
+          <button className="btn sm primary" onClick={unlock} disabled={busy || !unlockPwd}><Unlock size={14} /> 解锁</button>
+          <button className="btn sm ghost" onClick={() => { setUnlockOpen(false); setUnlockPwd('') }}>取消</button>
+          <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>解锁后可点击眼睛查看明文</span>
+        </div>
+      )}
+
       <div className="panel key-table-wrap">
         <table className="key-table">
           <thead>
@@ -628,15 +653,16 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
             </tr>
           </thead>
           <tbody>
-            {keyAccounts.length === 0 ? (
+            {pageItems.length === 0 ? (
               <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 40 }}>
-                暂无密钥。添加账户时选择「官方 API」模式即可保存。
+                {keyAccounts.length === 0 ? '暂无密钥。添加账户时选择「官方 API」模式即可保存。' : '当前分类下没有密钥'}
               </td></tr>
-            ) : keyAccounts.map(a => {
+            ) : pageItems.map(a => {
               const provider = PROVIDER_MAP[a.providerId]
               const plain = revealed[a.id]
               const q = latestQuota(state.quotas, a.id)
               const balance = q ? `${(q.total - q.used).toLocaleString()} ${UNIT_LABEL[q.unit]}` : '未录入'
+              const apiUrl = a.apiUrl || provider?.apiBaseUrl || ''
               const adapter = getAdapter(a.providerId)
               return (
                 <tr key={a.id}>
@@ -655,14 +681,12 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
                         {showBalance[a.id] ? balance : '••••••'}
                       </span>
                       <button className="icon-btn" title={showBalance[a.id] ? '隐藏余额' : '显示余额'}
-                        onClick={() => setShowBalance(s => ({ ...s, [a.id]: !s[a.id] }))}>
-                        <Eye size={13} />
-                      </button>
+                        onClick={() => setShowBalance(s => ({ ...s, [a.id]: !s[a.id] }))}><Eye size={13} /></button>
                     </div>
                   </td>
                   <td>
-                    {a.apiUrl
-                      ? <button className="key-link" onClick={() => { navigator.clipboard.writeText(a.apiUrl!); notify('API 地址已复制') }}>{a.apiUrl}</button>
+                    {apiUrl
+                      ? <button className="key-link" title={apiUrl} onClick={() => { navigator.clipboard.writeText(apiUrl); notify('API 地址已复制') }}>{apiUrl}</button>
                       : <button className="key-link muted" onClick={() => setEditing(a.id)}>+ 添加地址</button>}
                   </td>
                   <td>
@@ -670,13 +694,10 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
                       <span className="mono" style={{ fontSize: 11.5, maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {a.keyFingerprint ?? (plain ? '已配置' : '••••')}
                       </span>
-                      <button className="icon-btn" title="点击查看完整 Key（支持指纹解锁）"
-                        onClick={() => setRevealTarget(a)}><Eye size={13} /></button>
+                      <button className="icon-btn" title="点击查看完整 Key（支持指纹解锁）" onClick={() => setRevealTarget(a)}><Eye size={13} /></button>
                     </div>
                   </td>
-                  <td>
-                    <span className="key-note" title={a.note ?? ''}>{a.note ?? '—'}</span>
-                  </td>
+                  <td><span className="key-note" title={a.note ?? ''}>{a.note ?? '—'}</span></td>
                   <td>
                     <div className="key-actions">
                       <button className="key-action" title="编辑" onClick={() => setEditing(a.id)}><Pencil size={13} /> 编辑</button>
@@ -703,12 +724,19 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
           </tbody>
         </table>
       </div>
-      <p style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 14 }}>
-        注：{isDesktopProxyAvailable()
-          ? '当前为桌面端，官方只读请求经本地后端代理（域名白名单），不受 CORS 限制。'
-          : '当前为 Web 端，直接调用官方 API 可能受浏览器 CORS 限制；可改用桌面端或手动录入。'}
-        备份仅导出名称/地址/备注等非敏感信息，不含密钥本身。
-      </p>
+
+      {filtered.length > 0 && (
+        <div className="keys-pagination">
+          <span>共 {filtered.length} 条 · 第 {currentPage}/{totalPages} 页</span>
+          <div className="row" style={{ gap: 6 }}>
+            <button className="btn sm" disabled={currentPage <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>上一页</button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
+              <button key={n} className={`btn sm ${n === currentPage ? 'primary' : ''}`} onClick={() => setPage(n)}>{n}</button>
+            ))}
+            <button className="btn sm" disabled={currentPage >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>下一页</button>
+          </div>
+        </div>
+      )}
 
       {editing && (() => {
         const acc = state.accounts.find(a => a.id === editing)
@@ -720,11 +748,9 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
           onSave={(patch, newKey) => {
             onUpdateAccount(acc.id, patch)
             if (newKey !== undefined && newKey !== '') {
-              // 密钥变更：需要主密码重新加密
               void (async () => {
-                const pwd = vaultPwd
-                if (!pwd) { notify('修改密钥请先解锁保险箱'); return }
-                const enc = await encryptSecret(newKey, pwd)
+                if (!vaultPwd) { notify('修改密钥请先解锁保险箱'); return }
+                const enc = await encryptSecret(newKey, vaultPwd)
                 onUpdateAccount(acc.id, { encryptedKey: enc, keyFingerprint: fingerprint(newKey) })
                 setRevealed(s => ({ ...s, [acc.id]: newKey }))
                 notify('密钥已更新')
@@ -865,11 +891,16 @@ function KeyEditModal({ account, provider, currentKey, onClose, onSave, notify }
           </div>
           <div className="field">
             <label>链接地址 (API)</label>
-            <input className="input" placeholder="https://api.example.com/v1" value={apiUrl} onChange={e => setApiUrl(e.target.value)} />
+            <div className="row" style={{ gap: 6 }}>
+              <input className="input" placeholder={provider.apiBaseUrl ?? 'https://api.example.com/v1'} value={apiUrl} onChange={e => setApiUrl(e.target.value)} />
+              {provider.apiBaseUrl && <button className="btn sm" title="恢复官方地址" onClick={() => setApiUrl(provider.apiBaseUrl!)}>官方</button>}
+            </div>
+            {provider.apiBaseUrl && <div className="desc">官方地址：{provider.apiBaseUrl}（留空则自动使用此地址）</div>}
           </div>
           <div className="field">
             <label>备注 (用途)</label>
-            <input className="input" placeholder="如：文本对话 / 图片生成" value={note} onChange={e => setNote(e.target.value)} />
+            <input className="input" placeholder="[分类] 说明，如 [文本] 对话" value={note} onChange={e => setNote(e.target.value)} />
+            <div className="desc">用方括号包裹分类（如 [文本]、[图片]、[语音]），即可在列表页按分类快速筛选。</div>
           </div>
           <div className="field">
             <label>更换 API Key（留空表示不修改）</label>
@@ -1051,7 +1082,7 @@ function UsageView({ state, notify, onBudget, onAddUsage, onImport, onPriceChang
 
 function AddAccountModal({ onClose, onSubmit }: {
   onClose: () => void;
-  onSubmit: (input: { providerId: string; label: string; mode: AccountMode; encryptedKey?: string; keyFingerprint?: string }) => void
+  onSubmit: (input: { providerId: string; label: string; mode: AccountMode; encryptedKey?: string; keyFingerprint?: string; apiUrl?: string }) => void
 }) {
   const [providerId, setProviderId] = useState('')
   const [label, setLabel] = useState('')
@@ -1078,7 +1109,10 @@ function AddAccountModal({ onClose, onSubmit }: {
         encryptedKey = await encryptSecret(secret, pwd)
         keyFingerprint = fingerprint(secret)
       }
-      onSubmit({ providerId, label: label.trim() || provider!.shortName, mode, encryptedKey, keyFingerprint })
+      onSubmit({
+        providerId, label: label.trim() || provider!.shortName, mode, encryptedKey, keyFingerprint,
+        apiUrl: provider?.apiBaseUrl, // 自动填入官方 API 地址
+      })
     } catch (e: any) { alert(e.message ?? '保存失败') } finally { setBusy(false) }
   }
 
