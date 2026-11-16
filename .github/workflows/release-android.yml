@@ -28,8 +28,12 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      # ubuntu-latest 已预装 Android SDK 与 platform-tools，无需 setup-android action
+      - name: Verify Android SDK
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          ls "$ANDROID_HOME/platforms" 2>/dev/null | head -5 || true
+          which sdkmanager || true
 
       - name: Install root deps & build web
         run: |
