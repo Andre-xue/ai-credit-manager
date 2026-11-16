@@ -216,11 +216,6 @@ function App() {
         </header>
 
         <div className="content">
-          <div className="banner info">
-            <Info size={16} />
-            <div>本工具管理的是你<b>自己账户</b>的积分与额度。所有数据本地加密存储；签到仅提醒并跳转官方页面，领取动作由你本人完成。</div>
-          </div>
-
           {tab === 'dashboard' && <>
           <div className="stats-grid">
             <StatCard icon={<Wallet size={17} />} color="blue" label="资源总估值" value={`¥${portfolioValue.toFixed(0)}`} hint={`${state.accounts.length} 个账户 · 单价可校准`} />
@@ -489,10 +484,6 @@ function CheckinView({ accounts, checkins, notify, onToggle }: {
 
   return (
     <>
-      <div className="banner warn">
-        <AlertTriangle size={16} />
-        <div>签到功能仅做<b>提醒与跳转</b>：点击「前往签到」将打开官方页面，需要你本人登录并完成领取。本工具不模拟登录、不自动点击、不保存你的会话凭证。</div>
-      </div>
       <div className="section-head"><h2>今日签到 <span className="hint">{doneCount}/{all.length} 已完成</span></h2></div>
       <div className="panel">
         {all.length === 0 ? (
@@ -824,9 +815,9 @@ function SecretRevealModal({ account, provider, plain, vaultPwd, bioAvailable, o
           <button className="icon-btn" onClick={onClose}><X size={18} /></button>
         </div>
         <div className="modal-body">
-          <div className="banner info" style={{ marginBottom: 16 }}>
+          <div className="row" style={{ gap: 10, marginBottom: 16 }}>
             <ProviderLogo provider={provider} size={28} />
-            <div>{account.label} · {provider.name}<br />密钥仅在本机解密显示，不会上传。</div>
+            <div style={{ fontSize: 13, fontWeight: 500 }}>{account.label} · {provider.name}</div>
           </div>
 
           {show && plain ? (
@@ -883,9 +874,9 @@ function KeyEditModal({ account, provider, currentKey, onClose, onSave, notify }
       <div className="modal" style={{ maxWidth: 480 }}>
         <div className="modal-head"><h3>编辑密钥条目</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
         <div className="modal-body">
-          <div className="banner info" style={{ marginBottom: 16 }}>
+          <div className="row" style={{ gap: 10, marginBottom: 16 }}>
             <ProviderLogo provider={provider} size={28} />
-            <div>{provider.name} · {currentKey ? '已配置密钥' : '未配置'}</div>
+            <div style={{ fontSize: 13, fontWeight: 500 }}>{provider.name} · {currentKey ? '已配置密钥' : '未配置'}</div>
           </div>
           <div className="field">
             <label>名称</label>
@@ -950,10 +941,6 @@ function UsageView({ state, notify, onBudget, onAddUsage, onImport, onPriceChang
 
   return (
     <>
-      <div className="banner info">
-        <Info size={16} />
-        <div>费用为<b>本地估算值</b>，仅供参考，以平台官方账单为准。可手动录入每日用量，或（在支持的平台）通过官方 API 只读查询。</div>
-      </div>
       <div className="stats-grid">
         <StatCard icon={<Wallet size={17} />} color="blue" label="本月费用" value={`¥${totalCost.toFixed(2)}`} hint="本地估算" />
         <StatCard icon={<BarChart3 size={17} />} color="green" label="本月 Tokens" value={(totalIn + totalOut).toLocaleString()} hint={`输入 ${totalIn.toLocaleString()} · 输出 ${totalOut.toLocaleString()}`} />
@@ -986,7 +973,6 @@ function UsageView({ state, notify, onBudget, onAddUsage, onImport, onPriceChang
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--text-3)', marginTop: 6 }}>
             <span>已用 ¥{totalCost.toFixed(2)}</span><span>预算 ¥{budget.toFixed(0)}</span>
           </div>
-          {budgetPct >= 90 && <div className="banner warn" style={{ marginTop: 16, marginBottom: 0 }}><AlertTriangle size={15} /> 预算即将用尽，建议检查用量</div>}
         </div>
       </div>
 
@@ -1007,10 +993,6 @@ function UsageView({ state, notify, onBudget, onAddUsage, onImport, onPriceChang
 
       <div className="section-head"><h2>额度单价校准 <span className="hint">用于资源总估值</span></h2></div>
       <div className="panel" style={{ padding: 18 }}>
-        <div className="banner info" style={{ fontSize: 11.5, marginBottom: 14 }}>
-          <Info size={14} />
-          <div>下方是<b>参考单价</b>，并非官方定价。请按你实际账单校准；货币(元)单位固定 1:1 无需设置。修改后立即影响"资源总估值"。</div>
-        </div>
         {ownedProviders.length === 0 ? (
           <div style={{ color: 'var(--text-3)', fontSize: 13 }}>添加账户后可校准对应平台的单价</div>
         ) : ownedProviders.map(pid => (
@@ -1153,7 +1135,6 @@ function AddAccountModal({ onClose, onSubmit }: {
               </div>
               {mode === 'api' && (
                 <>
-                  {!isVaultInitialized() && <div className="banner warn" style={{ marginBottom: 14 }}><Lock size={15} /> 请先在「API Key 管理」中创建保险箱，再保存密钥。</div>}
                   <div className="field-row">
                     <div className="field">
                       <label>API Key</label>
@@ -1166,7 +1147,6 @@ function AddAccountModal({ onClose, onSubmit }: {
                   </div>
                 </>
               )}
-              {provider.note && <div className="banner info" style={{ marginBottom: 0 }}><Info size={15} /> {provider.note}</div>}
             </>
           )}
         </div>
@@ -1196,7 +1176,6 @@ function VaultModal({ onClose, onInit, onReset, notify }: {
       <div className="modal" style={{ maxWidth: 440 }}>
         <div className="modal-head"><h3>创建本地保险箱</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
         <div className="modal-body">
-          <div className="banner warn"><AlertTriangle size={16} /> 主密码遗忘后<b>无法恢复</b>已保存的密钥，请务必牢记。密钥仅存本地，不会上传。</div>
           <div className="field"><label>设置主密码（至少 6 位）</label><input className="input" type="password" value={pwd} onChange={e => setPwd(e.target.value)} /></div>
           <div className="field"><label>确认主密码</label><input className="input" type="password" value={confirm} onChange={e => setConfirm(e.target.value)} /></div>
         </div>
@@ -1232,9 +1211,9 @@ function QuotaModal({ account, provider, existing, onClose, onSave }: {
           <button className="icon-btn" onClick={onClose}><X size={18} /></button>
         </div>
         <div className="modal-body">
-          <div className="banner info" style={{ marginBottom: 16 }}>
+          <div className="row" style={{ gap: 10, marginBottom: 16 }}>
             <ProviderLogo provider={provider} size={28} />
-            <div><b>{account.label}</b> · {provider.name}<br />请到官方用量页查看后录入，数据仅存本地。</div>
+            <div style={{ fontSize: 13, fontWeight: 500 }}>{account.label} · {provider.name}</div>
           </div>
           <div className="field-row">
             <div className="field">
@@ -1303,7 +1282,7 @@ function UsageModal({ accounts, onClose, onSave }: {
         <div className="modal-head"><h3>添加用量记录</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
         <div className="modal-body">
           {accounts.length === 0 ? (
-            <div className="banner warn">请先添加一个账户后再录入用量。</div>
+            <div style={{ color: 'var(--text-3)', fontSize: 13 }}>请先添加一个账户后再录入用量。</div>
           ) : (
             <>
               <div className="field-row">
@@ -1365,7 +1344,6 @@ function ImportModal({ incoming, current, onClose, onImport }: {
       <div className="modal" style={{ maxWidth: 480 }}>
         <div className="modal-head"><h3>导入数据</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
         <div className="modal-body">
-          <div className="banner info"><Info size={16} /> 检测到备份文件，包含 <b>{incoming.accounts.length}</b> 个账户、<b>{incoming.quotas.length}</b> 条额度、<b>{incoming.usage.length}</b> 条用量记录。密钥不会被导入。</div>
           <div className="field">
             <label>导入方式</label>
             <div className="provider-picker" style={{ gridTemplateColumns: '1fr', maxHeight: 'none' }}>
@@ -1408,11 +1386,6 @@ function BenefitsView({ state, notify, onMark }: {
 
   return (
     <>
-      <div className="banner warn">
-        <AlertTriangle size={16} />
-        <div>本页只聚合各平台<b>公开</b>的免费层/试用信息并提供官方链接。具体额度频繁变化，请以官方页面为准；领取须由你本人完成，本工具不自动领取、不模拟登录、不保存领取凭证。</div>
-      </div>
-
       <div className="stats-grid">
         <StatCard icon={<Gift size={17} />} color="blue" label="收录福利" value={String(BENEFITS.length)} hint={`覆盖 ${new Set(BENEFITS.map(b => b.providerId)).size} 个平台`} />
         <StatCard icon={<Check size={17} />} color="green" label="已处理" value={String(markedCount)} hint={filter === 'owned' ? '我的平台范围内' : '全部平台'} />
@@ -1535,11 +1508,6 @@ function SettingsView({ state, onChange, onOpenVault, onExport, onImportFile, on
 
   return (
     <>
-      <div className="banner info">
-        <Info size={16} />
-        <div>所有设置与数据均保存在<b>本机</b>，不会上传。导出的备份文件不含 API Key 密钥。</div>
-      </div>
-
       <div className="split">
         <div>
           <SettingsSection title="通用" desc="提醒与预警行为">
@@ -1608,11 +1576,6 @@ function SettingsView({ state, onChange, onOpenVault, onExport, onImportFile, on
             <SettingsRow title="备份提醒" desc="超过 7 天未导出时在界面提示">
               <Toggle checked={s.backupReminder} onChange={v => onChange({ backupReminder: v })} />
             </SettingsRow>
-            {s.backupReminder && daysSinceBackup !== null && daysSinceBackup > 7 && (
-              <div className="banner warn" style={{ marginTop: 12, marginBottom: 0 }}>
-                <AlertTriangle size={15} /> 已有 {daysSinceBackup} 天未备份，建议导出以防数据丢失。
-              </div>
-            )}
             <SettingsRow title="清空业务数据" desc="删除全部账户、额度、签到与用量记录；设置与保险箱保留">
               {confirmClear ? (
                 <span style={{ display: 'flex', gap: 6 }}>
@@ -1633,9 +1596,6 @@ function SettingsView({ state, onChange, onOpenVault, onExport, onImportFile, on
           <SettingsSection title="关于" desc="版本与合规说明">
             <div className="kv"><span className="k">版本</span><span className="v mono">v0.1.0</span></div>
             <div className="kv"><span className="k">定位</span><span className="v">本地优先 · 个人资源管理工具</span></div>
-            <div className="banner warn" style={{ marginTop: 12, marginBottom: 0, fontSize: 11.5 }}>
-              <AlertTriangle size={14} /> 本工具不模拟登录、不自动领取、不抓取私有接口。签到仅提醒并跳转官方页面，由你本人完成。
-            </div>
           </SettingsSection>
         </div>
       </div>
