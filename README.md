@@ -57,7 +57,7 @@ npm run dev     # 启动，然后浏览器访问 http://localhost:5173
 
 ### 各平台安装包下载（GitHub Releases）
 
-访问 https://github.com/Andre-xue/ai-credit-manager/releases/latest 下载最新版本（当前 **v0.1.11**）：
+访问 https://github.com/Andre-xue/ai-credit-manager/releases/latest 下载最新版本（当前 **v0.1.12**）：
 
 | 平台 | 文件格式 | 说明 |
 |------|----------|------|
@@ -197,7 +197,9 @@ npx cap open ios      # 用 Xcode 打开，配置签名后 Archive
 - **手动录入**：用量与费用页点「手动添加记录」，填写账户、日期、Tokens、估算费用、模型。
 - **CSV 导入**：支持表头 `date, account, inputTokens, outputTokens, cost, model`（兼容中文表头），按账户名称自动匹配已有账户；可下载模板。
 - **额度录入**：看板卡片点刷新图标，填写总额度、已用、单位与重置日期，带实时进度预览。
-- **数据备份**：顶栏「导出」保存 JSON（不含密钥）；「导入」可「合并」（按 id 去重、追加新账户）或「覆盖」（清空后恢复）。
+- **多格式导入导出**（均在「API Key 管理」页）：
+  - **导出**：点「导出」弹窗选择 4 种格式 —— `JSON 完整备份`（可完整导回）、`账户 CSV`、`额度 CSV`、`用量 CSV`。CSV 带 BOM、Excel 可直接打开，文件名带格式与日期。所有格式都不含密钥。
+  - **导入**：点「导入」选择文件，自动识别格式（扩展名 + 表头，兼容中英文列名）。JSON 走「合并/覆盖」确认；CSV 走预览弹窗，确认后追加到现有数据（不删除已有内容）。**导出什么格式就能导回什么格式**。
 
 ## 安全说明
 
