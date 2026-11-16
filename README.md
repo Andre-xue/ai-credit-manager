@@ -57,7 +57,7 @@ npm run dev     # 启动，然后浏览器访问 http://localhost:5173
 
 ### 各平台安装包下载（GitHub Releases）
 
-访问 https://github.com/Andre-xue/ai-credit-manager/releases/latest 下载最新版本（当前 **v0.1.5**，API Key 页面精简与分页）：
+访问 https://github.com/Andre-xue/ai-credit-manager/releases/latest 下载最新版本（当前 **v0.1.6**）：
 
 | 平台 | 文件格式 | 说明 |
 |------|----------|------|
