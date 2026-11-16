@@ -55,6 +55,26 @@ npm run dev     # 启动，然后浏览器访问 http://localhost:5173
 
 **其他端**：桌面 App（Mac/Windows 独立程序）、安卓、微信小程序、iOS 的构建方式见下方「快速开始」。
 
+### 各平台安装包下载（GitHub Releases）
+
+访问 https://github.com/Andre-xue/ai-credit-manager/releases 可下载：
+
+| 平台 | 文件格式 | 说明 |
+|------|----------|------|
+| macOS Apple Silicon | `.dmg` | M1/M2/M3/M4 |
+| macOS Intel | `.dmg` | Intel 芯片 |
+| Windows | `.msi` / `.exe` | 64 位 |
+| Linux | `.AppImage` / `.deb` | 64 位 |
+| Android | `.apk` | Debug 版，安装时选"允许未知来源" |
+
+这些包由 GitHub Actions 在多平台 runner 上自动编译，打 `v*` 标签时触发。
+
+**关于 iOS**：Apple 要求所有 iOS 应用必须签名才能在真机安装，签名需要加入 Apple Developer 计划（$99/年）。因此无法提供可直接安装的 IPA。可选方案：
+1. **自行编译**（免费）：在有 Xcode 的 Mac 上 `cd android && npx cap add ios && npx cap sync ios && npx cap open ios`，用免费开发者账号签名后安装到自己的设备
+2. **TestFlight 分发**：加入开发者计划后走 App Store Connect 分发给测试者
+3. **使用 Web 版**：把 `http://localhost:8080`（Docker）或 Pages 线上地址添加到 iPhone 主屏幕，体验接近原生 App
+
+
 > **定位说明**：本工具管理的是你**自己账户**的资源。所有数据本地优先存储；签到仅做提醒并跳转官方页面，由你本人登录完成领取。工具**不模拟登录、不自动领取、不共享凭证、不抓取私有接口**，因此可通过各应用商店与小程序审核。
 
 ## 功能

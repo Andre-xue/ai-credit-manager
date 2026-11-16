@@ -1,0 +1,143 @@
+name: Release Installers
+
+# 打 v* 标签时触发：为各平台编译安装包并发布到 GitHub Release
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-desktop:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS-arm64
+            os: macos-14
+            bundles: "app,dmg"
+          - name: macOS-intel
+            os: macos-13
+            bundles: "app,dmg"
+          - name: Windows-x64
+            os: windows-latest
+            bundles: "msi,nsis"
+          - name: Linux-x64
+            os: ubuntu-22.04
+            bundles: "appimage,deb"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: 'desktop/src-tauri -> target'
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y webkit2gtk-4.1 libayatana-appindicator3-dev \
+            librsvg2-dev patchelf libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Install Tauri CLI & build installer
+        working-directory: desktop
+        shell: bash
+        run: |
+          npm ci
+          npx tauri build --bundles "${{ matrix.bundles }}" 2>&1 | tee build.log
+          # macOS 新版 hdiutil 与 Tauri dmg 脚本不兼容时，用 app 手动生成 dmg
+          if [[ "${{ runner.os }}" == "macOS" ]] && ! ls src-tauri/target/release/bundle/dmg/*.dmg >/dev/null 2>&1; then
+            echo "Tauri dmg failed, creating dmg manually..."
+            STAGE=/tmp/acm-dmg-stage && rm -rf "$STAGE" && mkdir -p "$STAGE"
+            cp -R "src-tauri/target/release/bundle/macos/AI Credit Manager.app" "$STAGE/"
+            ln -s /Applications "$STAGE/Applications"
+            hdiutil create -volname "AI 积分管家" -srcfolder "$STAGE" -ov -format UDZO \
+              "src-tauri/target/release/bundle/dmg/AI Credit Manager_${{ github.ref_name }}_${{ matrix.name }}.dmg"
+          fi
+
+      - name: List built artifacts
+        working-directory: desktop
+        shell: bash
+        run: find src-tauri/target/release/bundle -type f \( -name "*.dmg" -o -name "*.app" -o -name "*.msi" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" \) | head -20
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.name }}
+          path: |
+            desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            desktop/src-tauri/target/release/bundle/macos/*.app/**
+            desktop/src-tauri/target/release/bundle/msi/*.msi
+            desktop/src-tauri/target/release/bundle/nsis/*.exe
+            desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+            desktop/src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: warn
+
+  create-release:
+    name: Publish Release
+    needs: build-desktop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release-files
+          find artifacts -type f | while read f; do
+            # 展平目录，文件名加平台前缀避免冲突
+            base=$(basename "$f")
+            platform=$(echo "$f" | cut -d/ -f2 | sed 's/installer-//')
+            cp "$f" "release-files/${platform}-${base}"
+          done
+          find release-files -type f -exec ls -lh {} \;
+
+      - name: Create Release with assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-files/*
+          generate_release_notes: true
+          body: |
+            ## AI 积分管家 ${{ github.ref_name }}
+
+            本地优先的 AI 平台积分/额度管理工具。所有数据保存在你的设备，不上传。
+
+            ### 各平台安装包
+            | 系统 | 文件 | 说明 |
+            |------|------|------|
+            | macOS (Apple Silicon) | `macOS-arm64-*.dmg` | M1/M2/M3/M4 芯片 |
+            | macOS (Intel) | `macOS-intel-*.dmg` | Intel 芯片 Mac |
+            | Windows | `Windows-x64-*.msi` 或 `.exe` | 64 位 Windows |
+            | Linux | `Linux-x64-*.AppImage` 或 `.deb` | 64 位 Linux |
+
+            ### 其他使用方式
+            - **Web / Docker**：见 [README](https://github.com/${{ github.repository }}/blob/main/README.md)
+            - **微信小程序**：用微信开发者工具导入 `miniapp/` 目录
+
+            > macOS 首次打开若提示"无法验证开发者"：右键 App →「打开」→ 弹窗点「打开」（需签名公证才能消除，见 README）。
