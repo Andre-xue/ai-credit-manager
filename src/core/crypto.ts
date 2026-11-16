@@ -95,7 +95,60 @@ export function fingerprint(secret: string): string {
   return `${s.slice(0, 4)}····${s.slice(-4)}`
 }
 
+/**
+ * 修改主密码：验证旧密码 → 用旧密码解密所有密文 → 重置保险箱 → 用新密码重新加密。
+ * 返回重新加密后的密文数组（顺序与输入一致）；若旧密码错误抛出错误，不改动任何数据。
+ */
+export async function changeMasterPassword(
+  oldPassword: string,
+  newPassword: string,
+  ciphertexts: string[],
+): Promise<string[]> {
+  if (newPassword.length < 6) throw new Error('新密码至少 6 位')
+  if (!(await verifyVault(oldPassword))) throw new Error('原主密码错误')
+
+  // 先用旧密码解密全部（失败则中止，不改动保险箱）
+  const plains: string[] = []
+  for (const c of ciphertexts) {
+    plains.push(await decryptSecret(c, oldPassword))
+  }
+
+  // 重置并用新密码初始化（新的盐与校验位）
+  resetVault()
+  await initVault(newPassword)
+
+  // 用新密码重新加密
+  const result: string[] = []
+  for (const p of plains) result.push(await encryptSecret(p, newPassword))
+  return result
+}
+
+const BIOMETRIC_PWD_KEY = 'acm.vault.bioPwd'
+
+/**
+ * 指纹解锁模式：将主密码以混淆形式存本地（非强加密，仅避免明文可见）。
+ * 安全性说明：能读取 localStorage 的攻击者同样能读到密钥密文，此设计是本地便利性与安全的折中。
+ */
+export function saveBiometricPassword(password: string): void {
+  const obfuscated = btoa(unescape(encodeURIComponent(password)).split('').reverse().join(''))
+  localStorage.setItem(BIOMETRIC_PWD_KEY, obfuscated)
+}
+
+export function getBiometricPassword(): string | null {
+  const raw = localStorage.getItem(BIOMETRIC_PWD_KEY)
+  if (!raw) return null
+  try {
+    return decodeURIComponent(escape(atob(raw).split('').reverse().join('')))
+  } catch { return null }
+}
+
+export function clearBiometricPassword(): void {
+  localStorage.removeItem(BIOMETRIC_PWD_KEY)
+}
+
+/** 修改主密码时同步更新指纹模式的存储 */
 export function resetVault(): void {
   localStorage.removeItem(SALT_KEY)
   localStorage.removeItem(VERIFY_KEY)
+  clearBiometricPassword()
 }

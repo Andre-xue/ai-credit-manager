@@ -18,6 +18,7 @@ import { predictExhaustion, forecastText } from './core/forecast'
 import { todayISO } from './core/store'
 import {
   isVaultInitialized, initVault, verifyVault, encryptSecret, decryptSecret, fingerprint, resetVault,
+  changeMasterPassword, saveBiometricPassword, getBiometricPassword, clearBiometricPassword,
 } from './core/crypto'
 import { getAdapter } from './core/adapters'
 import { parseUsageCsv, type UsageEventInput } from './core/csv'
@@ -46,6 +47,8 @@ function App() {
   const [usageOpen, setUsageOpen] = useState(false)
   const [importData, setImportData] = useState<AppState | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [bioAvailableGlobal, setBioAvailableGlobal] = useState(false)
+  useEffect(() => { void biometricAvailable().then(setBioAvailableGlobal) }, [])
 
   useEffect(() => { saveState(state) }, [state])
 
@@ -203,14 +206,6 @@ function App() {
             <div className="subtitle">本地优先存储 · 数据仅保存在此设备</div>
           </div>
           <div className="topbar-actions">
-            <label className="btn" style={{ cursor: 'pointer' }}>
-              <Download size={15} style={{ transform: 'rotate(180deg)' }} /> 导入
-              <input type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={(e) => {
-                handleImportFile(e.target.files?.[0])
-                e.target.value = ''
-              }} />
-            </label>
-            <button className="btn" onClick={() => { handleExport(state); notify('已导出（不含密钥）') }}><Download size={15} /> 导出</button>
             <button className="btn primary" onClick={() => setAddOpen(true)}><Plus size={16} /> 添加账户</button>
           </div>
         </header>
@@ -242,6 +237,8 @@ function App() {
 
           {tab === 'keys' && <KeysView
             state={state} notify={notify}
+            onImportFile={handleImportFile}
+            onExport={() => { handleExport(state); notify('已导出（不含密钥）') }}
             onOpenVault={() => setVaultOpen(true)}
             onQuotaFetched={(accountId, used, total, unit) => {
               setState(s => upsertQuota(s, { accountId, used, total: total ?? used, unit, source: 'api' }))
@@ -271,13 +268,30 @@ function App() {
           {tab === 'settings' && <SettingsView
             state={state}
             onChange={(patch) => setState(s => updateSettings(s, patch))}
+            notify={notify}
             onOpenVault={() => setVaultOpen(true)}
-            onExport={() => {
-              handleExport(state)
-              setState(s => updateSettings(s, { lastExportAt: new Date().toISOString() }))
-              notify('已导出备份（不含密钥）')
+            onChangePassword={async (oldPwd, newPwd) => {
+              const keyAccounts = state.accounts.filter(a => a.encryptedKey)
+              const ciphers = keyAccounts.map(a => a.encryptedKey!)
+              const renewed = await changeMasterPassword(oldPwd, newPwd, ciphers)
+              // 更新每个账户的密文
+              renewed.forEach((cipher, i) => {
+                setState(s => ({ ...s, accounts: s.accounts.map(a => a.id === keyAccounts[i].id ? { ...a, encryptedKey: cipher } : a) }))
+              })
+              // 指纹模式同步更新存储的密码
+              if (state.settings.unlockMethod === 'biometric') saveBiometricPassword(newPwd)
             }}
-            onImportFile={handleImportFile}
+            onResetVault={() => {
+              if (!window.confirm('重置保险箱将永久删除所有密钥，且不可恢复。确定继续？')) return
+              resetVault()
+              setState(s => ({
+                ...s,
+                accounts: s.accounts.map(a => ({ ...a, encryptedKey: undefined, keyFingerprint: undefined })),
+                settings: { ...s.settings, vaultInitialized: false },
+              }))
+              notify('保险箱已重置')
+            }}
+            onBioAvailable={bioAvailableGlobal}
             onTestNotify={async () => {
               if (!state.settings.systemNotify) { notify('请先开启系统通知'); return }
               const ok = await sendNotification({ title: 'AI 积分管家', body: '通知测试：这是一条本地提醒，不会领取任何福利。' })
@@ -305,7 +319,12 @@ function App() {
         }}
       />}
       {vaultOpen && <VaultModal onClose={() => setVaultOpen(false)} notify={notify}
-        onInit={async (pwd) => { await initVault(pwd); setState(s => ({ ...s, settings: { ...s.settings, vaultInitialized: true } })); notify('保险箱已创建') }}
+        onInit={async (pwd) => {
+          await initVault(pwd)
+          if (state.settings.unlockMethod === 'biometric') saveBiometricPassword(pwd)
+          setState(s => ({ ...s, settings: { ...s.settings, vaultInitialized: true } }))
+          notify('保险箱已创建')
+        }}
         onReset={() => { resetVault(); setState(s => ({ ...s, settings: { ...s.settings, vaultInitialized: false } })); notify('保险箱已重置') }}
       />}
       {quotaTarget && (() => {
@@ -527,8 +546,9 @@ function CheckinView({ accounts, checkins, notify, onToggle }: {
   )
 }
 
-function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onUpdateAccount }: {
+function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onUpdateAccount, onImportFile, onExport }: {
   state: AppState; notify: (m: string) => void; onOpenVault: () => void;
+  onImportFile: (file?: File) => void; onExport: () => void;
   onRemoveKey: (id: string) => void;
   onQuotaFetched: (accountId: string, used: number, total: number | undefined, unit: CreditUnit) => void;
   onUpdateAccount: (id: string, patch: Partial<AppState['accounts'][number]>) => void
@@ -536,8 +556,8 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
   const [unlockPwd, setUnlockPwd] = useState('')
   const [vaultPwd, setVaultPwd] = useState('')
   const [revealed, setRevealed] = useState<Record<string, string>>({})
+  const [hiddenKeys, setHiddenKeys] = useState<Record<string, boolean>>({})
   const [showBalance, setShowBalance] = useState<Record<string, boolean>>({})
-  const [revealTarget, setRevealTarget] = useState<AppState['accounts'][number] | null>(null)
   const [bioAvailable, setBioAvailable] = useState(false)
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
@@ -551,20 +571,21 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
   // 筛选条件变化时重置页码
   useEffect(() => { setPage(1) }, [category])
 
-  const unlock = async () => {
+  const unlockWith = async (pwd: string) => {
     setBusy(true)
     try {
-      const ok = await verifyVault(unlockPwd)
+      const ok = await verifyVault(pwd)
       if (!ok) { notify('主密码错误'); return }
       const decrypted: Record<string, string> = {}
       for (const a of keyAccounts) {
-        try { decrypted[a.id] = await decryptSecret(a.encryptedKey!, unlockPwd) } catch { /* skip */ }
+        try { decrypted[a.id] = await decryptSecret(a.encryptedKey!, pwd) } catch { /* skip */ }
       }
       setRevealed(decrypted)
-      setVaultPwd(unlockPwd)
+      setHiddenKeys({})
+      setVaultPwd(pwd)
       setUnlockPwd('')
       setUnlockOpen(false)
-      notify('已解锁（仅本次会话）')
+      notify('已解锁，密钥已明文展示')
     } finally { setBusy(false) }
   }
 
@@ -606,32 +627,30 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
           <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>API Key 管理</h2>
           <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 3 }}>{keyAccounts.length} 个密钥 · 本地加密存储</div>
         </div>
-        <div className="row" style={{ gap: 8 }}>
+        <div className="keys-header-tools">
           {categories.length > 0 && (
             <select className="select" style={{ width: 150 }} value={category} onChange={e => setCategory(e.target.value)}>
               <option value="__all__">全部分类 ({keyAccounts.length})</option>
               {categories.map(c => <option key={c} value={c}>{c} ({keyAccounts.filter(a => categoryOf(a.note) === c).length})</option>)}
             </select>
           )}
-          {vaultPwd ? (
-            <button className="btn sm" onClick={() => { setRevealed({}); setVaultPwd(''); setUnlockPwd(''); setRevealTarget(null); notify('已锁定') }}><Lock size={14} /> 锁定</button>
-          ) : (
-            <button className="btn sm primary" onClick={() => setUnlockOpen(true)}><Unlock size={14} /> 解锁</button>
-          )}
-          {!isVaultInitialized() && <button className="btn sm" onClick={onOpenVault}><ShieldCheck size={14} /> 创建保险箱</button>}
+          <div className="keys-unlock-group">
+            <label className="btn sm" style={{ cursor: 'pointer' }} title="导入备份">
+              <Download size={14} style={{ transform: 'rotate(180deg)' }} /> 导入
+              <input type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={e => {
+                onImportFile(e.target.files?.[0]); e.target.value = ''
+              }} />
+            </label>
+            <button className="btn sm" onClick={onExport} title="导出备份（不含密钥）"><Download size={14} /> 导出</button>
+            {!isVaultInitialized() && <button className="btn sm" onClick={onOpenVault}><ShieldCheck size={14} /> 创建保险箱</button>}
+            {vaultPwd ? (
+              <button className="btn sm" onClick={() => { setRevealed({}); setHiddenKeys({}); setVaultPwd(''); setUnlockPwd(''); notify('已锁定') }}><Lock size={14} /> 锁定</button>
+            ) : (
+              <button className="btn sm primary" onClick={() => setUnlockOpen(true)}><Unlock size={14} /> 解锁</button>
+            )}
+          </div>
         </div>
       </div>
-
-      {unlockOpen && !vaultPwd && (
-        <div className="panel key-unlock-bar">
-          <input className="input" type="password" placeholder="输入主密码解锁" value={unlockPwd}
-            onChange={e => setUnlockPwd(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') void unlock() }} style={{ width: 200 }} />
-          <button className="btn sm primary" onClick={unlock} disabled={busy || !unlockPwd}><Unlock size={14} /> 解锁</button>
-          <button className="btn sm ghost" onClick={() => { setUnlockOpen(false); setUnlockPwd('') }}>取消</button>
-          <span style={{ fontSize: 11.5, color: 'var(--text-3)' }}>解锁后可点击眼睛查看明文</span>
-        </div>
-      )}
 
       <div className="panel key-table-wrap">
         <table className="key-table">
@@ -684,10 +703,14 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
                   </td>
                   <td>
                     <div className="row" style={{ gap: 5 }}>
-                      <span className="mono" style={{ fontSize: 11.5, maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {a.keyFingerprint ?? (plain ? '已配置' : '••••')}
+                      <span className="mono" style={{ fontSize: 11.5, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                            title={plain && !hiddenKeys[a.id] ? plain : undefined}>
+                        {plain && !hiddenKeys[a.id] ? plain : (a.keyFingerprint ?? '••••')}
                       </span>
-                      <button className="icon-btn" title="点击查看完整 Key（支持指纹解锁）" onClick={() => setRevealTarget(a)}><Eye size={13} /></button>
+                      {plain && <button className="icon-btn" title={hiddenKeys[a.id] ? '显示 Key' : '隐藏 Key'}
+                        onClick={() => setHiddenKeys(s => ({ ...s, [a.id]: !s[a.id] }))}>
+                        {hiddenKeys[a.id] ? <Eye size={13} /> : <EyeOff size={13} />}
+                      </button>}
                     </div>
                   </td>
                   <td><span className="key-note" title={a.note ?? ''}>{a.note ?? '—'}</span></td>
@@ -755,107 +778,71 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
         />
       })()}
 
-      {revealTarget && <SecretRevealModal
-        account={revealTarget} provider={PROVIDER_MAP[revealTarget.providerId]}
-        plain={revealed[revealTarget.id]}
-        vaultPwd={vaultPwd} bioAvailable={bioAvailable}
-        onClose={() => setRevealTarget(null)}
-        onUnlocked={(pwd) => {
-          void (async () => {
-            try {
-              const plain = await decryptSecret(revealTarget.encryptedKey!, pwd)
-              setRevealed(s => ({ ...s, [revealTarget.id]: plain }))
-              setVaultPwd(pwd)
-              notify('已验证，密钥已解锁')
-            } catch { notify('解密失败，主密码可能不正确') }
-          })()
+      {unlockOpen && !vaultPwd && <UnlockModal
+        method={state.settings.unlockMethod} bioAvailable={bioAvailable}
+        onClose={() => { setUnlockOpen(false); setUnlockPwd('') }}
+        onPassword={(pwd) => void unlockWith(pwd)}
+        onBiometric={async () => {
+          const ok = await biometricAuth()
+          if (!ok) { notify('指纹验证未通过'); return false }
+          const pwd = getBiometricPassword()
+          if (!pwd) { notify('未配置指纹解锁密码，请在设置中开启'); return false }
+          await unlockWith(pwd)
+          return true
         }}
-        notify={notify}
+        busy={busy} pwd={unlockPwd} setPwd={setUnlockPwd}
       />}
     </>
   )
 }
 
 
-/** 查看密钥明文弹窗：已解锁会话内可用 Touch ID 验证查看 */
-function SecretRevealModal({ account, provider, plain, vaultPwd, bioAvailable, onClose, onUnlocked, notify }: {
-  account: AppState['accounts'][number]; provider: ProviderDefinition; plain?: string;
-  vaultPwd: string; bioAvailable: boolean; onClose: () => void;
-  onUnlocked: (pwd: string) => void; notify: (m: string) => void
+/** 解锁弹窗：按设置只显示指纹或密码一种方式 */
+function UnlockModal({ method, bioAvailable, onClose, onPassword, onBiometric, busy, pwd, setPwd }: {
+  method: 'biometric' | 'password'; bioAvailable: boolean;
+  onClose: () => void; onPassword: (pwd: string) => void; onBiometric: () => Promise<boolean>;
+  busy: boolean; pwd: string; setPwd: (v: string) => void
 }) {
-  const [show, setShow] = useState(false)
-  const [pwd, setPwd] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const doBiometric = async () => {
-    setBusy(true)
-    try {
-      const ok = await biometricAuth()
-      if (!ok) { notify('指纹验证未通过'); return }
-      if (vaultPwd) { setShow(true); notify('指纹验证通过') }
-      else notify('指纹验证通过，请输入主密码解密')
-    } finally { setBusy(false) }
-  }
-
-  const doPassword = async () => {
-    setBusy(true)
-    try {
-      const ok = await verifyVault(pwd)
-      if (!ok) { notify('主密码错误'); return }
-      onUnlocked(pwd)
-      setShow(true)
-    } finally { setBusy(false) }
-  }
-
+  const useBio = method === 'biometric' && bioAvailable
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="modal" style={{ maxWidth: 460 }}>
-        <div className="modal-head">
-          <h3>查看 API Key</h3>
-          <button className="icon-btn" onClick={onClose}><X size={18} /></button>
-        </div>
+      <div className="modal" style={{ maxWidth: 420 }}>
+        <div className="modal-head"><h3>解锁密钥保险箱</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
         <div className="modal-body">
-          <div className="row" style={{ gap: 10, marginBottom: 16 }}>
-            <ProviderLogo provider={provider} size={28} />
-            <div style={{ fontSize: 13, fontWeight: 500 }}>{account.label} · {provider.name}</div>
-          </div>
-
-          {show && plain ? (
-            <>
-              <div className="field">
-                <label>API Key 明文</label>
-                <div className="secret-reveal">{plain}</div>
-              </div>
-              <div className="row" style={{ gap: 8 }}>
-                <button className="btn sm primary" onClick={() => { navigator.clipboard.writeText(plain); notify('已复制，请妥善保管') }}><Copy size={14} /> 复制密钥</button>
-                <button className="btn sm" onClick={() => setShow(false)}><EyeOff size={14} /> 隐藏</button>
-              </div>
-            </>
+          {useBio ? (
+            <div style={{ textAlign: 'center', padding: '12px 0' }}>
+              <div style={{
+                width: 72, height: 72, borderRadius: '50%', margin: '0 auto 18px',
+                background: 'var(--primary-soft)', color: 'var(--primary)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}><Fingerprint size={36} /></div>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>使用指纹解锁</div>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 22 }}>验证 Touch ID 后显示全部 API Key 明文</div>
+              <button className="btn primary" style={{ width: '100%' }} onClick={onBiometric} disabled={busy}>
+                <Fingerprint size={16} /> 验证指纹
+              </button>
+            </div>
           ) : (
             <>
-              {bioAvailable && (
-                <button className="btn primary" style={{ width: '100%', marginBottom: 14 }} onClick={doBiometric} disabled={busy}>
-                  <Fingerprint size={16} /> 用指纹解锁查看
-                </button>
-              )}
+              <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 14 }}>输入主密码解锁，解密后本页所有 API Key 将以明文展示。</div>
               <div className="field">
-                <label>或使用主密码</label>
-                <input className="input" type="password" placeholder="输入主密码" value={pwd}
+                <label>主密码</label>
+                <input className="input" type="password" autoFocus placeholder="输入主密码" value={pwd}
                   onChange={e => setPwd(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') void doPassword() }} />
+                  onKeyDown={e => { if (e.key === 'Enter' && pwd) onPassword(pwd) }} />
               </div>
-              <button className="btn" style={{ width: '100%' }} onClick={doPassword} disabled={busy || !pwd}>
-                <Unlock size={15} /> 解锁查看
+              <button className="btn primary" style={{ width: '100%' }} onClick={() => onPassword(pwd)} disabled={busy || !pwd}>
+                <Unlock size={15} /> 解锁
               </button>
-              {vaultPwd && <div className="hint" style={{ marginTop: 12, fontSize: 11.5 }}>当前会话已解锁，可用指纹快速查看。</div>}
             </>
           )}
         </div>
-        <div className="modal-foot"><button className="btn" onClick={onClose}>关闭</button></div>
+        <div className="modal-foot"><button className="btn" onClick={onClose}>取消</button></div>
       </div>
     </div>
   )
 }
+
 
 /** 密钥条目编辑弹窗 */
 function KeyEditModal({ account, provider, currentKey, onClose, onSave, notify }: {
@@ -1489,22 +1476,25 @@ function SettingsRow({ title, desc, children }: { title: string; desc?: string; 
 }
 
 /** 设置中心 */
-function SettingsView({ state, onChange, onOpenVault, onExport, onImportFile, onTestNotify, onEnableNotify, onClear }: {
+function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEnableNotify, onClear, onChangePassword, onResetVault, onBioAvailable }: {
   state: AppState
   onChange: (patch: Partial<AppState['settings']>) => void
+  notify: (m: string) => void
   onOpenVault: () => void
-  onExport: () => void
-  onImportFile: (file?: File) => void
   onTestNotify: () => void
   onEnableNotify: () => void
   onClear: () => void
+  onChangePassword: (oldPwd: string, newPwd: string) => Promise<void>
+  onResetVault: () => void
+  onBioAvailable: boolean
 }) {
   const s = state.settings
   const [confirmClear, setConfirmClear] = useState(false)
-
-  const daysSinceBackup = s.lastExportAt
-    ? Math.floor((Date.now() - new Date(s.lastExportAt).getTime()) / 86400000)
-    : null
+  const [pwdOpen, setPwdOpen] = useState(false)
+  const [oldPwd, setOldPwd] = useState('')
+  const [newPwd, setNewPwd] = useState('')
+  const [confirmPwd, setConfirmPwd] = useState('')
+  const [pwdBusy, setPwdBusy] = useState(false)
 
   return (
     <>
@@ -1554,25 +1544,51 @@ function SettingsView({ state, onChange, onOpenVault, onExport, onImportFile, on
             <SettingsRow title="密钥保险箱" desc={s.vaultInitialized ? '已启用 · AES-256-GCM 加密' : '未创建 · API Key 将无法加密保存'}>
               <button className="btn sm" onClick={onOpenVault}>{s.vaultInitialized ? '管理' : '创建'}</button>
             </SettingsRow>
+            <SettingsRow title="解锁方式" desc={onBioAvailable ? '选择后仅显示对应解锁方式' : '当前设备不支持指纹，仅可用密码'}>
+              <select className="select" style={{ width: 120 }} value={s.unlockMethod}
+                onChange={async e => {
+                  const m = e.target.value as 'biometric' | 'password'
+                  if (m === 'biometric' && onBioAvailable) {
+                    const pwd = window.prompt('启用指纹解锁需验证主密码，请输入：')
+                    if (!pwd) return
+                    const ok = await verifyVault(pwd)
+                    if (!ok) { notify('主密码错误，未切换'); return }
+                    saveBiometricPassword(pwd)
+                  } else if (m === 'password') clearBiometricPassword()
+                  onChange({ unlockMethod: m })
+                }}>
+                <option value="password">密码解锁</option>
+                {onBioAvailable && <option value="biometric">指纹解锁</option>}
+              </select>
+            </SettingsRow>
+            <SettingsRow title="修改主密码" desc="需用原密码验证，所有密钥将重新加密">
+              <button className="btn sm" onClick={() => setPwdOpen(true)} disabled={!s.vaultInitialized}>修改</button>
+            </SettingsRow>
+            <SettingsRow title="重置保险箱" desc="清除所有密钥与密码，不可恢复">
+              <button className="btn sm danger" onClick={onResetVault} disabled={!s.vaultInitialized}>重置</button>
+            </SettingsRow>
+            {pwdOpen && (
+              <div className="panel" style={{ padding: 14, marginTop: 12, background: 'var(--panel-2)' }}>
+                <div className="field"><label>原主密码</label><input className="input" type="password" value={oldPwd} onChange={e => setOldPwd(e.target.value)} /></div>
+                <div className="field"><label>新主密码（至少 6 位）</label><input className="input" type="password" value={newPwd} onChange={e => setNewPwd(e.target.value)} /></div>
+                <div className="field"><label>确认新密码</label><input className="input" type="password" value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)} /></div>
+                <div className="row" style={{ gap: 8 }}>
+                  <button className="btn sm primary" disabled={pwdBusy || !oldPwd || !newPwd} onClick={async () => {
+                    if (newPwd !== confirmPwd) { notify('两次新密码不一致'); return }
+                    setPwdBusy(true)
+                    try { await onChangePassword(oldPwd, newPwd); setPwdOpen(false); setOldPwd(''); setNewPwd(''); setConfirmPwd(''); notify('主密码已修改，密钥已重新加密') }
+                    catch (e: any) { notify(e.message ?? '修改失败') }
+                    finally { setPwdBusy(false) }
+                  }}>确认修改</button>
+                  <button className="btn sm" onClick={() => { setPwdOpen(false); setOldPwd(''); setNewPwd(''); setConfirmPwd('') }}>取消</button>
+                </div>
+              </div>
+            )}
           </SettingsSection>
         </div>
 
         <div>
           <SettingsSection title="数据管理" desc="备份、恢复与清理">
-            <SettingsRow title="导出备份" desc={
-              daysSinceBackup === null ? '从未导出 · 建议定期备份' :
-              daysSinceBackup === 0 ? '今天已导出' : `${daysSinceBackup} 天前导出`
-            }>
-              <button className="btn sm" onClick={onExport}><Download size={13} /> 导出</button>
-            </SettingsRow>
-            <SettingsRow title="导入备份" desc="从 JSON 备份恢复，可选择合并或覆盖">
-              <label className="btn sm" style={{ cursor: 'pointer' }}>
-                导入
-                <input type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={e => {
-                  onImportFile(e.target.files?.[0]); e.target.value = ''
-                }} />
-              </label>
-            </SettingsRow>
             <SettingsRow title="备份提醒" desc="超过 7 天未导出时在界面提示">
               <Toggle checked={s.backupReminder} onChange={v => onChange({ backupReminder: v })} />
             </SettingsRow>

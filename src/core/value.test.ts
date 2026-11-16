@@ -22,7 +22,7 @@ function state(): AppState {
       { id: 'u2', accountId: 'a2', date: '2026-06-02', inputTokens: 0, outputTokens: 0, estimatedCost: 3 },
       { id: 'u3', accountId: 'a1', date: '2026-05-01', inputTokens: 100, outputTokens: 50, estimatedCost: 9 },
     ],
-    settings: { vaultInitialized: false, monthlyBudget: 200, checkinReminder: true, alertDays: 7, defaultUnit: 'credit', backupReminder: true, systemNotify: false, quietStart: '', quietEnd: '', unitPrices: {} },
+    settings: { vaultInitialized: false, monthlyBudget: 200, checkinReminder: true, alertDays: 7, defaultUnit: 'credit', backupReminder: true, systemNotify: false, quietStart: '', quietEnd: '', unlockMethod: 'password', unitPrices: {} },
   }
 }
 

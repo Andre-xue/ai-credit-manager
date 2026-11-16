@@ -15,7 +15,10 @@ beforeAll(async () => {
   }
 })
 
-const { fingerprint, isVaultInitialized, initVault, verifyVault, encryptSecret, decryptSecret, resetVault } = await import('./crypto')
+const {
+  fingerprint, isVaultInitialized, initVault, verifyVault, encryptSecret, decryptSecret,
+  resetVault, changeMasterPassword,
+} = await import('./crypto')
 
 describe('fingerprint', () => {
   it('短密钥打码', () => {
@@ -67,5 +70,43 @@ describe('本地保险箱', () => {
     resetVault()
     expect(isVaultInitialized()).toBe(false)
     expect(await verifyVault('abcdef')).toBe(false)
+  })
+})
+
+describe('changeMasterPassword', () => {
+  it('修改密码后用新密码可解密，旧密码失效', async () => {
+    resetVault()
+    await initVault('oldpass')
+    const cipher = await encryptSecret('sk-secret-value', 'oldpass')
+    const [newCipher] = await changeMasterPassword('oldpass', 'newpass', [cipher])
+    expect(await verifyVault('newpass')).toBe(true)
+    expect(await verifyVault('oldpass')).toBe(false)
+    expect(await decryptSecret(newCipher, 'newpass')).toBe('sk-secret-value')
+    await expect(decryptSecret(newCipher, 'oldpass')).rejects.toThrow()
+  })
+
+  it('原密码错误时抛错且不改动保险箱', async () => {
+    resetVault()
+    await initVault('correctpass')
+    const cipher = await encryptSecret('secret', 'correctpass')
+    await expect(changeMasterPassword('wrongpass', 'newpassword', [cipher])).rejects.toThrow(/原主密码错误/)
+    // 保险箱仍可用原密码
+    expect(await verifyVault('correctpass')).toBe(true)
+    expect(await decryptSecret(cipher, 'correctpass')).toBe('secret')
+  })
+
+  it('新密码过短被拒绝', async () => {
+    resetVault()
+    await initVault('oldpass')
+    await expect(changeMasterPassword('oldpass', '123', [])).rejects.toThrow(/至少 6 位/)
+  })
+
+  it('可批量重加密多条密钥', async () => {
+    resetVault()
+    await initVault('oldpass')
+    const ciphers = await Promise.all(['key1', 'key2', 'key3'].map(k => encryptSecret(k, 'oldpass')))
+    const renewed = await changeMasterPassword('oldpass', 'newpass', ciphers)
+    const plains = await Promise.all(renewed.map(c => decryptSecret(c, 'newpass')))
+    expect(plains).toEqual(['key1', 'key2', 'key3'])
   })
 })

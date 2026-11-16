@@ -125,6 +125,8 @@ export interface AppSettings {
   /** 免打扰开始/结束 "HH:mm"，空表示关闭 */
   quietStart: string
   quietEnd: string
+  /** 解锁方式：指纹（仅 macOS 可用）或密码 */
+  unlockMethod: 'biometric' | 'password'
   /** 各平台每单位额度价值（元），key 为 providerId，'default' 为兜底；用户可自行校准 */
   unitPrices: Record<string, number>
   /** 上次导出备份时间 ISO */

@@ -19,6 +19,7 @@ function emptyState(): AppState {
       vaultInitialized: false, monthlyBudget: 200, checkinReminder: true,
       alertDays: 7, defaultUnit: 'credit', backupReminder: true,
       systemNotify: false, quietStart: '', quietEnd: '',
+      unlockMethod: 'password',
       unitPrices: {},
     },
   }
