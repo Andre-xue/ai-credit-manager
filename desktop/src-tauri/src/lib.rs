@@ -4,6 +4,24 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 官方只读用量代理：仅允许白名单官方端点，绕过桌面端 CORS 限制。
 /// 不接收任意 URL，防止被用作开放代理（SSRF）；不存储任何凭证。
+/// 在系统默认浏览器打开外部链接。仅允许 http(s)，防止被滥用。
+#[tauri::command]
+async fn open_url(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") && !url.starts_with("http://") {
+        return Err("仅允许 http(s) 链接".into())
+    }
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open").arg(&url).spawn()
+        .map_err(|e| format!("打开浏览器失败：{}", e))?;
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("cmd").args(["/C", "start", "", &url]).spawn()
+        .map_err(|e| format!("打开浏览器失败：{}", e))?;
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open").arg(&url).spawn()
+        .map_err(|e| format!("打开浏览器失败：{}", e))?;
+    Ok(())
+}
+
 #[tauri::command]
 async fn send_notification(title: String, body: String) -> Result<(), String> {
     // 用系统原生命令发通知，避免引入额外 crate（本机无外网时也能编译）。
@@ -64,7 +82,7 @@ async fn proxy_usage(provider: String, api_key: String) -> Result<serde_json::Va
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![proxy_usage, send_notification])
+        .invoke_handler(tauri::generate_handler![proxy_usage, send_notification, open_url])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

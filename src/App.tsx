@@ -21,6 +21,7 @@ import {
 } from './core/crypto'
 import { getAdapter, isDesktopProxyAvailable } from './core/adapters'
 import { parseUsageCsv, type UsageEventInput } from './core/csv'
+import { openExternal, isDesktopApp } from './core/openExternal'
 
 type Tab = 'dashboard' | 'checkin' | 'benefits' | 'keys' | 'usage' | 'settings'
 
@@ -229,7 +230,7 @@ function App() {
 
           {tab === 'dashboard' && <DashboardView views={views} onAdd={() => setAddOpen(true)} onRemove={(id) => {
             setState(s => removeAccount(s, id)); notify('账户已移除')
-          }} onEditQuota={(accountId) => setQuotaTarget(accountId)} />}
+          }} onEditQuota={(accountId) => setQuotaTarget(accountId)} notify={notify} />}
 
           {tab === 'checkin' && <CheckinView
             accounts={state.accounts} checkins={state.checkins}
@@ -371,8 +372,26 @@ function ProviderLogo({ provider, size = 38 }: { provider: ProviderDefinition; s
   )
 }
 
-function DashboardView({ views, onAdd, onRemove, onEditQuota }: {
-  views: AccountView[]; onAdd: () => void; onRemove: (id: string) => void; onEditQuota: (id: string) => void
+/** 官方外链按钮：桌面端用系统浏览器打开，Web 端开新标签；失败给出可复制的链接提示 */
+function OutLink({ url, label, className = 'btn sm ghost', title, notify, style }: {
+  url: string; label: React.ReactNode; className?: string; title?: string;
+  notify: (m: string) => void; style?: React.CSSProperties
+}) {
+  return (
+    <button className={className} style={{ ...style, display: 'inline-flex', alignItems: 'center', gap: 5 }} title={title}
+      onClick={async () => {
+        const ok = await openExternal(url)
+        if (!ok) notify(`${isDesktopApp() ? '系统浏览器打开失败' : '弹窗被拦截'}，请手动复制：${url}`)
+        else if (!isDesktopApp()) notify('已在新标签页打开官方页面，请本人操作')
+      }}>
+      {label} <ExternalLink size={12} />
+    </button>
+  )
+}
+
+function DashboardView({ views, onAdd, onRemove, onEditQuota, notify }: {
+  views: AccountView[]; onAdd: () => void; onRemove: (id: string) => void; onEditQuota: (id: string) => void;
+  notify: (m: string) => void
 }) {
   if (views.length === 0) {
     return (
@@ -444,9 +463,7 @@ function DashboardView({ views, onAdd, onRemove, onEditQuota }: {
                   <div style={{ padding: '10px 0 14px', fontSize: 13, color: 'var(--text-3)' }}>尚未录入额度</div>
                   <div className="ac-foot">
                     <button className="btn sm" onClick={() => onEditQuota(v.account.id)}><RefreshCw size={13} /> 录入额度</button>
-                    <a href={v.provider.usageUrl} target="_blank" rel="noopener noreferrer" className="btn sm ghost" style={{ color: 'var(--primary)' }}>
-                      官方用量页 <ExternalLink size={12} />
-                    </a>
+                    <OutLink url={v.provider.usageUrl} label="官方用量页" notify={notify} style={{ color: 'var(--primary)' }} />
                   </div>
                 </>
               )}
@@ -491,10 +508,8 @@ function CheckinView({ accounts, checkins, notify, onToggle }: {
                 {done ? <><Check size={11} /> 今日已完成</> : hasCheckinUrl ? '待签到' : '无签到页'}
               </span>
               {p.checkinUrl && (
-                <a className="btn sm" href={p.checkinUrl} target="_blank" rel="noopener noreferrer"
-                   onClick={() => notify(`已打开 ${p.name} 官方页面，请本人完成签到`)}>
-                  前往签到 <ExternalLink size={12} />
-                </a>
+                <OutLink url={p.checkinUrl} label="前往签到" className="btn sm" notify={notify}
+                  title={`打开 ${p.name} 官方页面，由你本人完成签到`} />
               )}
               <button className="btn sm ghost" onClick={() => onToggle(p.id)} title={done ? '标记为未完成' : '标记今日已完成'}>
                 {done ? '撤销' : '标记完成'}
@@ -510,7 +525,7 @@ function CheckinView({ accounts, checkins, notify, onToggle }: {
             <ProviderLogo provider={p} size={24} />
             <span>{p.name}</span>
             <span className="tag gray" style={{ marginLeft: 6 }}>{CATEGORY_LABEL[p.category]}</span>
-            <a href={p.checkinUrl!} target="_blank" rel="noopener noreferrer">官方页面 <ExternalLink size={12} /></a>
+            <OutLink url={p.checkinUrl!} label="官方页面" className="btn ghost sm" notify={notify} />
           </div>
         ))}
       </div>
@@ -1147,10 +1162,8 @@ function BenefitsView({ state, notify, onMark }: {
                 {marked && <span className="tag green"><Check size={11} /> 已处理</span>}
               </div>
               <div className="row" style={{ gap: 8, marginTop: 14 }}>
-                <a className="btn sm" href={b.url} target="_blank" rel="noopener noreferrer"
-                   onClick={() => notify(`已打开 ${provider?.shortName ?? b.providerId} 官方页面，请本人确认并领取`)}>
-                  查看官方政策 <ExternalLink size={12} />
-                </a>
+                <OutLink url={b.url} label="查看官方政策" className="btn sm" notify={notify}
+                  title={`打开 ${provider?.shortName ?? b.providerId} 官方页面，由你本人确认`} />
                 <button className="btn sm ghost" onClick={() => onMark(b.id, b.kind === 'daily' ? 'daily' : 'other')}>
                   {marked ? '撤销标记' : '标记已处理'}
                 </button>
