@@ -221,6 +221,7 @@ function App() {
             <div>本工具管理的是你<b>自己账户</b>的积分与额度。所有数据本地加密存储；签到仅提醒并跳转官方页面，领取动作由你本人完成。</div>
           </div>
 
+          {tab === 'dashboard' && <>
           <div className="stats-grid">
             <StatCard icon={<Wallet size={17} />} color="blue" label="资源总估值" value={`¥${portfolioValue.toFixed(0)}`} hint={`${state.accounts.length} 个账户 · 单价可校准`} />
             <StatCard icon={<Flame size={17} />} color="amber" label="今日待签到" value={String(pendingCheckins.length)} hint={pendingCheckins.length ? '点击右侧跳转官方页面' : '今日已全部完成'} />
@@ -228,9 +229,10 @@ function App() {
             <StatCard icon={<TrendingUp size={17} />} color="green" label="本月预估费用" value={`¥${monthCost.toFixed(2)}`} hint={`预算 ¥${state.settings.monthlyBudget}`} />
           </div>
 
-          {tab === 'dashboard' && <DashboardView views={views} onAdd={() => setAddOpen(true)} onRemove={(id) => {
+          <DashboardView views={views} onAdd={() => setAddOpen(true)} onRemove={(id) => {
             setState(s => removeAccount(s, id)); notify('账户已移除')
-          }} onEditQuota={(accountId) => setQuotaTarget(accountId)} notify={notify} />}
+          }} onEditQuota={(accountId) => setQuotaTarget(accountId)} notify={notify} />
+          </>}
 
           {tab === 'checkin' && <CheckinView
             accounts={state.accounts} checkins={state.checkins}
