@@ -129,7 +129,11 @@ export async function cloneVoiceFromSample(sample: VoiceSample, name?: string): 
     localStorage.setItem(CLONED_VOICE_KEY, voiceId)
     return { ok: true, voiceId }
   } catch (e) {
-    return { ok: false, error: `克隆请求失败：${(e as Error)?.message ?? String(e)}` }
+    const msg = (e as Error)?.message ?? String(e)
+    const hint = /load failed|failed to fetch|networkerror/i.test(msg)
+      ? '无法连接语音服务：请确认端点地址正确、云函数已部署，且已更新到支持自定义端点的桌面版本。Web/手机端请用浏览器或 App 内置网络'
+      : `克隆请求失败：${msg}`
+    return { ok: false, error: hint }
   }
 }
 
