@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import {
   Sparkles, Send, Square, Plus, ChevronDown, Bot, User, Trash2, CornerDownLeft, Volume2, VolumeX,
-  Phone, Layers, ExternalLink, Info, Loader2, FileText, Image as ImageIcon, Video, Camera, Images, X, RotateCcw,
+  Phone, Layers, ExternalLink, Info, Loader2, FileText, Image as ImageIcon, Video, Camera, Images, X, RotateCcw, Cpu,
 } from 'lucide-react'
 import {
   listModels, loadHistory, saveHistory, rotateConversationId,
@@ -23,6 +23,10 @@ import { PROVIDER_MAP } from '../data/providers'
 import {
   pickAttachment, currentPlatform, type AttachmentKind, type PickedAttachment,
 } from '../core/attachments'
+import {
+  enginesFor, hasCatalog, REASONING_LEVELS, toReasoningEffort,
+  type ReasoningLevel,
+} from '../data/engines'
 
 const QUICK_PROMPTS = [
   { icon: '📊', title: '如何管理我的 AI 订阅费用？', desc: '给出预算与额度控制建议' },
@@ -51,6 +55,10 @@ export function AIView({ notify, accounts, sessionPwd }: {
   const [attachOpen, setAttachOpen] = useState(false)
   const [attachments, setAttachments] = useState<PickedAttachment[]>([])
   const [picking, setPicking] = useState(false)
+  const [enginePanelOpen, setEnginePanelOpen] = useState(false)
+  const [engineId, setEngineId] = useState<string>('')
+  const [reasoning, setReasoning] = useState<ReasoningLevel>('Off')
+  const [reasoningOpen, setReasoningOpen] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -88,6 +96,10 @@ export function AIView({ notify, accounts, sessionPwd }: {
     [category, allOptions])
   const selectedOption = allOptions.find(o => o.key === model) ?? null
   const canChat = !selectedOption || selectedOption.free || CATEGORY_META[selectedOption.category].canChat
+  // 当前自有账户 → 该平台的引擎目录（按倍率升序）
+  const currentAccount = selectedOption?.account ?? null
+  const engines = useMemo(() => currentAccount ? enginesFor(currentAccount.providerId) : [], [currentAccount])
+  const selectedEngine = engines.find(e => e.id === engineId) ?? null
 
   useEffect(() => {
     if (!model && allOptions.length > 0) {
@@ -96,6 +108,14 @@ export function AIView({ notify, accounts, sessionPwd }: {
       setModel(match)
     }
   }, [allOptions, model])
+
+  // 切换平台账户时：自动选该平台倍率最低的引擎；推理等级不低于引擎支持时保留
+  useEffect(() => {
+    if (currentAccount) {
+      const list = enginesFor(currentAccount.providerId)
+      setEngineId(prev => list.some(e => e.id === prev) ? prev : (list[0]?.id ?? ''))
+    } else setEngineId('')
+  }, [currentAccount])
 
   /** 统一取回复：用户自己的账户走其 API，否则走平台免费模型 */
   const getReply = async (content: string, history: ChatMessage[], signal?: AbortSignal, images?: string[]): Promise<string> => {
@@ -111,7 +131,7 @@ export function AIView({ notify, accounts, sessionPwd }: {
       try { apiKey = await decryptSecret(acct.encryptedKey, pwd) }
       finally { setResolvingKey(false) }
       const msgs = [{ role: 'system', content: '你是 AI 积分管家助手，请用简洁中文回答。' }, ...history.slice(-12).map(m => ({ role: m.role, content: m.content })), { role: 'user', content }]
-      const r = await callByCategory(acct, apiKey, opt.category, msgs)
+      const r = await callByCategory(acct, apiKey, opt.category, msgs, engineId || undefined, toReasoningEffort(reasoning))
       if (!r.ok) throw Object.assign(new Error(r.error ?? '调用失败'), { cors: r.cors })
       if (r.images?.length) {
         return `${r.text}\n${r.images.map(u => u.startsWith('data:') ? '[已生成图片]' : u).join('\n')}`
@@ -119,7 +139,7 @@ export function AIView({ notify, accounts, sessionPwd }: {
       return r.text
     }
     // 平台免费模型：流式输出（图片附件随多模态消息发送）
-    return streamChat(model || 'auto', history, content, delta => setStreamingText(prev => prev + delta), signal, images)
+    return streamChat(model || 'auto', history, content, delta => setStreamingText(prev => prev + delta), signal, images, toReasoningEffort(reasoning))
   }
 
   const send = async (text?: string) => {
@@ -208,7 +228,9 @@ export function AIView({ notify, accounts, sessionPwd }: {
     if (el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 160) + 'px' }
   }
 
-  const currentModel = selectedOption?.label ?? '选择模型'
+  const currentModel = selectedOption?.account
+    ? `${PROVIDER_MAP[selectedOption.account.providerId]?.shortName ?? selectedOption.account.label}${selectedEngine ? ` · ${selectedEngine.name}` : ''}`
+    : selectedOption?.label ?? '选择模型'
   const hasChat = messages.length > 0 || generating
   const callEnabled = !selectedOption || CATEGORY_META[selectedOption.category].canChat
 
@@ -261,6 +283,11 @@ export function AIView({ notify, accounts, sessionPwd }: {
                 ))}
               </div>}
             </div>
+            {currentAccount && hasCatalog(currentAccount.providerId) && (
+              <button className="ai-model-btn" onClick={() => setEnginePanelOpen(v => !v)} title="选择该平台的模型引擎">
+                <Cpu size={13} /> 引擎 <ChevronDown size={13} />
+              </button>
+            )}
             <button className="ai-icon-btn call" onClick={() => setCallOpen(true)} disabled={!callEnabled}
               title={callEnabled ? 'AI 语音通话' : '当前分类模型不支持语音通话'}><Phone size={17} /></button>
             <div className="ai-model-wrap">
@@ -373,11 +400,57 @@ export function AIView({ notify, accounts, sessionPwd }: {
             )}
           </div>
           <div className="ai-hint">
-            <span><CornerDownLeft size={12} /> Enter 发送 · Shift+Enter 换行</span>
-            <span>{resolvingKey ? <><Loader2 size={12} className="spin" /> 正在解锁密钥…</> : 'AI 回答仅供参考，重要信息请核对官方渠道'}</span>
+            <span>{resolvingKey ? <><Loader2 size={12} className="spin" /> 正在解锁密钥…</> : <><CornerDownLeft size={12} /> Enter 发送 · Shift+Enter 换行</>}</span>
+            <div className="reasoning-wrap">
+              <span>推理等级</span>
+              <button className="reasoning-btn" onClick={() => setReasoningOpen(v => !v)}>{reasoning} <ChevronDown size={12} /></button>
+              {reasoningOpen && <div className="reasoning-menu">
+                {REASONING_LEVELS.map(l => (
+                  <button key={l} className={l === reasoning ? 'active' : ''} onClick={() => { setReasoning(l); setReasoningOpen(false) }}>
+                    {l} {l === reasoning && <span>✓</span>}
+                  </button>
+                ))}
+              </div>}
+            </div>
           </div>
         </div>
       </div>
+      {/* 右侧引擎选择面板 */}
+      {enginePanelOpen && currentAccount && (
+        <>
+          <div className="engine-backdrop" onClick={() => setEnginePanelOpen(false)} />
+          <aside className="engine-panel">
+            <div className="engine-panel-head">
+              <div>
+                <div className="engine-panel-title">模型引擎</div>
+                <div className="engine-panel-sub">{PROVIDER_MAP[currentAccount.providerId]?.shortName ?? currentAccount.label} · 按 token 消耗从低到高</div>
+              </div>
+              <button className="icon-btn" onClick={() => setEnginePanelOpen(false)}><X size={17} /></button>
+            </div>
+            <div className="engine-list">
+              {engines.map(e => (
+                <button key={e.id} className={`engine-item ${engineId === e.id ? 'active' : ''}`}
+                  onClick={() => { setEngineId(e.id); notify(`已选引擎：${e.name}`) }}>
+                  <span className="engine-icon">{e.reasoning ? '🧠' : '⚡'}</span>
+                  <span className="engine-info">
+                    <span className="engine-name">{e.name}
+                      {e.tag && <em className={`engine-tag ${e.tag === '夜间折扣' ? 'discount' : e.tag === '订阅优先' ? 'sub' : ''}`}>{e.tag}</em>}
+                    </span>
+                    <span className="engine-id">{e.id}</span>
+                  </span>
+                  <span className="engine-multi">{e.multiplier.toFixed(2)}x</span>
+                  {engineId === e.id && <span className="engine-check">✓</span>}
+                </button>
+              ))}
+              {engines.length === 0 && <div className="engine-empty">该平台暂无内置引擎目录。<br />请到 API Key 管理页检查账户平台，或手动填写引擎名。</div>}
+            </div>
+            <div className="engine-note">
+              <Info size={12} /> 倍率为参考值，用于排序；实际计费以官方账单为准。部分引擎需订阅或支持推理等级。
+            </div>
+          </aside>
+        </>
+      )}
+
       {callOpen && <VoiceCall
         onSend={async (text) => {
           const r = await getReply(text, messages)

@@ -84,6 +84,7 @@ export async function streamChat(
   onDelta: (text: string) => void,
   signal?: AbortSignal,
   images?: string[],
+  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high',
 ): Promise<string> {
   // 仅把最近的对话作为上下文（系统消息始终在最前）：
   // 取最近 20 条，控制单次请求体积；conversationId 保持关联。
@@ -111,6 +112,7 @@ export async function streamChat(
     stream: true,
     conversationId: getConversationId(),
     signal,
+    ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
   })) {
     const delta = chunk.choices?.[0]?.delta
     if (delta?.content) {

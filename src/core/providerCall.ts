@@ -53,10 +53,14 @@ function chatUrl(account: Account): string {
 /** 对话：OpenAI 兼容 chat completions（非流式，简化处理） */
 export async function callChat(
   account: Account, apiKey: string, messages: { role: string; content: string }[],
+  engineId?: string, reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high',
 ): Promise<ProviderCallResult> {
   try {
     const url = chatUrl(account)
-    const body = { model: account.label, messages, stream: false, temperature: 0.7 }
+    const body: Record<string, unknown> = {
+      model: engineId || account.label, messages, stream: false, temperature: 0.7,
+    }
+    if (reasoningEffort) body.reasoning_effort = reasoningEffort
     const raw = isDesktopApp()
       ? await invokeApi(url, apiKey, body)
       : await directFetch(url, apiKey, body)
@@ -120,12 +124,13 @@ export async function callVideo(
 export async function callByCategory(
   account: Account, apiKey: string, category: ModelCategory,
   messages: { role: string; content: string }[],
+  engineId?: string, reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high',
 ): Promise<ProviderCallResult> {
   const userText = [...messages].reverse().find(m => m.role === 'user')?.content ?? ''
   switch (category) {
     case '生图型': return callImage(account, apiKey, userText)
     case '视频型': return callVideo(account, apiKey, userText)
-    default: return callChat(account, apiKey, messages)
+    default: return callChat(account, apiKey, messages, engineId, reasoningEffort)
   }
 }
 
