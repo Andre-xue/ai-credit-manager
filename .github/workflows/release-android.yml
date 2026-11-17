@@ -55,6 +55,21 @@ jobs:
           echo "=== gradlew location ==="
           find . -name gradlew -type f | head -5
 
+      - name: Apply unified app icon
+        run: |
+          # 全平台统一图标（与 Web/桌面同源 assets/app-icon.svg）
+          ICONS="assets/android-icons"
+          # cap add 生成的项目可能在 android/android 或 android/ 下，自动定位 res 目录
+          RES=$(find android -type d -path "*/app/src/main/res" | head -1)
+          if [ -z "$RES" ]; then echo "res dir not found"; exit 1; fi
+          echo "Using res dir: $RES"
+          for den in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            mkdir -p "$RES/mipmap-$den"
+            cp "$ICONS/mipmap-$den-ic_launcher.png" "$RES/mipmap-$den/ic_launcher.png"
+            cp "$ICONS/mipmap-$den-ic_launcher_round.png" "$RES/mipmap-$den/ic_launcher_round.png"
+          done
+          echo "统一图标已应用"
+
       - name: Build debug APK
         working-directory: android
         run: |
