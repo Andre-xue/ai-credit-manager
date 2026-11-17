@@ -764,3 +764,32 @@ tbody tr:hover { background: var(--panel-2); }
 .call-btn.hangup { background: #ef4444; color: #fff; }
 .call-btn:active { transform: scale(.94); }
 .call-hint { margin-top: 24px; font-size: 11px; opacity: .55; line-height: 1.6; }
+
+/* 附件菜单与待发送附件 */
+.ai-attach-menu {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 35; min-width: 150px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--shadow); padding: 6px;
+}
+.ai-attach-title { font-size: 10.5px; color: var(--text-3); padding: 5px 9px 7px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.ai-attach-menu button {
+  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+  padding: 9px 10px; border: none; background: transparent; border-radius: 6px;
+  color: var(--text-2); font-size: 12.5px;
+}
+.ai-attach-menu button:hover:not(:disabled) { background: var(--primary-soft); color: var(--primary); }
+.ai-attach-menu button:disabled { opacity: .5; cursor: wait; }
+.ai-attach-note { font-size: 10px; color: var(--text-3); padding: 7px 9px 3px; border-top: 1px solid var(--border); margin-top: 4px; line-height: 1.5; }
+.ai-attachments { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.ai-attachment {
+  position: relative; display: flex; align-items: center; gap: 6px; max-width: 200px;
+  padding: 5px 8px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; font-size: 11px; color: var(--text-2);
+}
+.ai-attachment img { width: 28px; height: 28px; object-fit: cover; border-radius: 5px; }
+.ai-attachment span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-attachment button {
+  border: none; background: var(--panel-2); color: var(--text-3); border-radius: 50%;
+  width: 17px; height: 17px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.ai-attachment button:hover { color: var(--red); }

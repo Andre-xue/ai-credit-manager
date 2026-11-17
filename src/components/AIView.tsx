@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import {
   Sparkles, Send, Square, Plus, ChevronDown, Bot, User, Trash2, CornerDownLeft, Volume2, VolumeX,
-  Phone, Layers, ExternalLink, Info, Loader2,
+  Phone, Layers, ExternalLink, Info, Loader2, FileText, Image as ImageIcon, Video, Camera, Images, X, RotateCcw,
 } from 'lucide-react'
 import {
   listModels, loadHistory, saveHistory, rotateConversationId,
@@ -20,6 +20,9 @@ import { callByCategory } from '../core/providerCall'
 import type { Account } from '../core/types'
 import { decryptSecret } from '../core/crypto'
 import { PROVIDER_MAP } from '../data/providers'
+import {
+  pickAttachment, currentPlatform, type AttachmentKind, type PickedAttachment,
+} from '../core/attachments'
 
 const QUICK_PROMPTS = [
   { icon: '📊', title: '如何管理我的 AI 订阅费用？', desc: '给出预算与额度控制建议' },
@@ -45,6 +48,9 @@ export function AIView({ notify, accounts, sessionPwd }: {
   const [speakingId, setSpeakingId] = useState<string | null>(null)
   const [callOpen, setCallOpen] = useState(false)
   const [resolvingKey, setResolvingKey] = useState(false)
+  const [attachOpen, setAttachOpen] = useState(false)
+  const [attachments, setAttachments] = useState<PickedAttachment[]>([])
+  const [picking, setPicking] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -92,7 +98,7 @@ export function AIView({ notify, accounts, sessionPwd }: {
   }, [allOptions, model])
 
   /** 统一取回复：用户自己的账户走其 API，否则走平台免费模型 */
-  const getReply = async (content: string, history: ChatMessage[], signal?: AbortSignal): Promise<string> => {
+  const getReply = async (content: string, history: ChatMessage[], signal?: AbortSignal, images?: string[]): Promise<string> => {
     const opt = allOptions.find(o => o.key === model)
     // 用户自己的账户：用其 Key 真正调用
     if (opt?.account) {
@@ -112,25 +118,30 @@ export function AIView({ notify, accounts, sessionPwd }: {
       }
       return r.text
     }
-    // 平台免费模型：流式输出
-    return streamChat(model || 'auto', history, content, delta => setStreamingText(prev => prev + delta), signal)
+    // 平台免费模型：流式输出（图片附件随多模态消息发送）
+    return streamChat(model || 'auto', history, content, delta => setStreamingText(prev => prev + delta), signal, images)
   }
 
   const send = async (text?: string) => {
     const content = (text ?? input).trim()
-    if (!content || generating) return
+    const hasAttach = attachments.length > 0
+    if ((!content && !hasAttach) || generating) return
+    const effectiveText = content || '请分析这些附件'
     if (!model) { notify('模型尚未就绪，请稍候'); return }
     if (selectedOption && !canChat) { notify(`${selectedOption.category}模型不支持文字对话，请切换到对话型/通用型`); return }
     setInput('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
-    const userMsg: ChatMessage = { id: `${Date.now()}-u`, role: 'user', content, at: Date.now() }
+    const imageUrls = attachments.filter(a => a.mime.startsWith('image/')).map(a => a.dataUrl)
+    const attachNote = attachments.length ? `\n${attachments.map(a => `[附件:${a.name}]`).join(' ')}` : ''
+    const userMsg: ChatMessage = { id: `${Date.now()}-u`, role: 'user', content: effectiveText + attachNote, at: Date.now() }
     setMessages(prev => [...prev, userMsg])
+    setAttachments([])
     setGenerating(true)
     setStreamingText('')
     const controller = new AbortController()
     abortRef.current = controller
     try {
-      const answer = await getReply(content, messages, controller.signal)
+      const answer = await getReply(effectiveText, messages, controller.signal, imageUrls)
       setMessages(prev => [...prev, { id: `${Date.now()}-a`, role: 'assistant', content: answer || '（无回复内容）', at: Date.now() }])
     } catch (e) {
       const msg = friendlyAiError(e)
@@ -147,6 +158,31 @@ export function AIView({ notify, accounts, sessionPwd }: {
   }
 
   const stop = () => { abortRef.current?.abort(); setGenerating(false) }
+
+  // 附件菜单：桌面=文件/照片/视频；手机=相机/相册/文件；Web 兜底=文件/照片/视频
+  const platform = currentPlatform()
+  const attachItems: { kind: AttachmentKind; label: string; icon: typeof FileText }[] = platform === 'mobile'
+    ? [
+        { kind: 'camera', label: '相机', icon: Camera },
+        { kind: 'album', label: '相册', icon: Images },
+        { kind: 'file', label: '文件', icon: FileText },
+      ]
+    : [
+        { kind: 'file', label: '文件', icon: FileText },
+        { kind: 'photo', label: '照片', icon: ImageIcon },
+        { kind: 'video', label: '视频', icon: Video },
+      ]
+
+  const onPickAttachment = async (kind: AttachmentKind) => {
+    setAttachOpen(false)
+    setPicking(true)
+    try {
+      const picked = await pickAttachment(kind)
+      if (picked) { setAttachments(prev => [...prev, picked]); notify(`已添加：${picked.name}`) }
+    } catch (e) {
+      notify((e as Error).message ?? '获取附件失败')
+    } finally { setPicking(false) }
+  }
 
   const toggleSpeak = (m: ChatMessage) => {
     if (speakingId === m.id) { stopSpeak(); setSpeakingId(null); return }
@@ -227,7 +263,20 @@ export function AIView({ notify, accounts, sessionPwd }: {
             </div>
             <button className="ai-icon-btn call" onClick={() => setCallOpen(true)} disabled={!callEnabled}
               title={callEnabled ? 'AI 语音通话' : '当前分类模型不支持语音通话'}><Phone size={17} /></button>
-            <button className="ai-icon-btn" onClick={clear} title="新建对话"><Plus size={18} /></button>
+            <div className="ai-model-wrap">
+              <button className="ai-icon-btn" onClick={() => { setAttachOpen(v => !v); setModelOpen(false); setCategoryOpen(false) }} title="添加附件"><Plus size={18} /></button>
+              {attachOpen && <div className="ai-attach-menu">
+                <div className="ai-attach-title">添加附件 · {platform === 'mobile' ? '手机' : platform === 'desktop' ? '桌面' : '网页'}</div>
+                {attachItems.map(item => {
+                  const Icon = item.icon
+                  return <button key={item.kind} onClick={() => void onPickAttachment(item.kind)} disabled={picking}>
+                    <Icon size={16} /> {item.label}
+                  </button>
+                })}
+                <div className="ai-attach-note">首次使用会请求相应权限，授权后即可选择</div>
+              </div>}
+            </div>
+            <button className="ai-icon-btn" onClick={clear} title="新建对话"><RotateCcw size={17} /></button>
             {messages.length > 0 && <button className="ai-icon-btn" onClick={() => { setMessages([]); rotateConversationId(); notify('对话已清空') }} title="清空对话"><Trash2 size={17} /></button>}
           </div>
         </div>
@@ -301,16 +350,26 @@ export function AIView({ notify, accounts, sessionPwd }: {
 
         {/* 输入区 */}
         <div className="ai-compose">
+          {attachments.length > 0 && <div className="ai-attachments">
+            {attachments.map((a, i) => (
+              <div key={i} className="ai-attachment" title={a.name}>
+                {a.mime.startsWith('image/') ? <img src={a.dataUrl} alt={a.name} />
+                  : a.mime.startsWith('video/') ? <Video size={18} /> : <FileText size={18} />}
+                <span>{a.name}</span>
+                <button onClick={() => setAttachments(prev => prev.filter((_, j) => j !== i))} title="移除"><X size={13} /></button>
+              </div>
+            ))}
+          </div>}
           <div className="ai-compose-box">
             <textarea ref={textareaRef} className="ai-textarea" rows={1}
-              placeholder="输入你的问题…" value={input}
+              placeholder={attachments.length ? '对这些附件说点什么…（也可直接发送）' : '输入你的问题…'} value={input}
               onChange={e => onInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
               disabled={generating} />
             {generating ? (
               <button className="ai-send stop" onClick={stop} title="停止生成"><Square size={15} fill="currentColor" /></button>
             ) : (
-              <button className="ai-send" onClick={() => void send()} disabled={!input.trim()} title="发送"><Send size={17} /></button>
+              <button className="ai-send" onClick={() => void send()} disabled={!input.trim() && attachments.length === 0} title="发送"><Send size={17} /></button>
             )}
           </div>
           <div className="ai-hint">

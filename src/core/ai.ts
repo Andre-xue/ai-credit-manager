@@ -3,6 +3,7 @@
 // 与额度数据分离可避免同步载荷膨胀，也符合用户对对话隐私的预期。
 
 import { cloud } from './cloud'
+import type { ChatCompletionContentPart } from '@tencent-ai/workbuddy-cloud-sdk'
 
 const HISTORY_KEY = 'acm.ai.history.v1'
 const CONV_KEY = 'acm.ai.conversationId'
@@ -82,6 +83,7 @@ export async function streamChat(
   userText: string,
   onDelta: (text: string) => void,
   signal?: AbortSignal,
+  images?: string[],
 ): Promise<string> {
   // 仅把最近的对话作为上下文（系统消息始终在最前）：
   // 取最近 20 条，控制单次请求体积；conversationId 保持关联。
@@ -89,10 +91,17 @@ export async function streamChat(
     role: m.role === 'assistant' ? 'assistant' as const : 'user' as const,
     content: m.content,
   }))
+  // 有图片时用多模态 content 格式（data URL 直接作为 image_url）
+  const userContent: string | ChatCompletionContentPart[] = (images && images.length > 0)
+    ? [
+        { type: 'text', text: userText },
+        ...images.map(u => ({ type: 'image_url', image_url: { url: u } } as ChatCompletionContentPart)),
+      ]
+    : userText
   const messages = [
     { role: 'system' as const, content: SYSTEM_PROMPT },
     ...context,
-    { role: 'user' as const, content: userText },
+    { role: 'user' as const, content: userContent },
   ]
 
   let answer = ''

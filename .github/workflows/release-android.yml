@@ -55,6 +55,13 @@ jobs:
           echo "=== gradlew location ==="
           find . -name gradlew -type f | head -5
 
+      - name: Inject media permissions
+        run: |
+          MANIFEST=$(find android -path "*/app/src/main/AndroidManifest.xml" | head -1)
+          if [ -z "$MANIFEST" ]; then echo "manifest not found"; exit 1; fi
+          echo "Manifest: $MANIFEST"
+          python3 assets/inject-android-permissions.py "$MANIFEST"
+
       - name: Apply unified app icon
         run: |
           # 全平台统一图标（与 Web/桌面同源 assets/app-icon.svg）
