@@ -38,6 +38,7 @@ import { APP_VERSION, currentPlatform } from './core/updater'
 import { NOTE_CATEGORIES, buildNote, categoryFromNote, type NoteCategory } from './core/modelCategories'
 import { pullPayload, pushPayload, applyPayload, getLastSyncAt, getClientId, checkRemoteVersion, setBaseline, getRemoteVersion, type PullResult } from './core/sync'
 import { CloudLoginModal } from './components/CloudLogin'
+import { loadDevices, touchCurrentDevice, type DeviceRecord } from './core/accountDevices'
 import {
   buildKeyBackup, backupToCloud, backupToLocalFile, backupToNotes, chooseBackupFolder,
   type KeyBackupMode, type KeyBackupFormat, type KeyBackupFile,
@@ -108,6 +109,7 @@ function App() {
   useEffect(() => {
     void biometricAvailable().then(setBioAvailableGlobal)
     void biometricLabel().then(setBioLabel)
+    touchCurrentDevice()
   }, [])
 
   useEffect(() => { saveState(state) }, [state])
@@ -2766,6 +2768,7 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
   const [bioSwitchBusy, setBioSwitchBusy] = useState(false)
   const [setTab, setSetTab] = useState<'general' | 'data' | 'security'>('general')
   const [, setPermTick] = useState(0)
+  const [devices, setDevices] = useState<DeviceRecord[]>(() => loadDevices())
   const platform = currentPlatform()
   const permDefs = platform === 'desktop' ? DESKTOP_PERMISSIONS : MOBILE_PERMISSIONS
   const permState = loadPermissions()
@@ -2862,6 +2865,34 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
               </div> : <button className="btn sm primary" onClick={onLogin}>登录 / 注册</button>}
             </SettingsRow>
             <p className="set-note">支持微信扫码、手机号验证码、邮箱验证码、WorkBuddy 账号登录。登录后任意端的增删改会在约 5 秒内自动同步到其他端；同步内容包含账户、额度、签到、用量与加密密钥（密文），各端需用同一主密码解锁。</p>
+          </SettingsSection>
+
+          <SettingsSection title="账号管理" desc="已登录账号、登录方式与本机可见设备" icon={Fingerprint} tone="blue">
+            <SettingsRow title="当前账号" desc={cloudUser
+              ? `ID：${cloudUser.id.slice(0, 12)}… · 来源：${cloudUser.provider ?? (cloudUser.email ? '邮箱' : cloudUser.phone ? '手机号' : '第三方')}`
+              : '未登录，无法查看账号与设备'}>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn sm" onClick={onLogin}>{cloudUser ? '切换账号' : '登录'}</button>
+                <button className="btn sm ghost" onClick={() => void openExternal('https://www.workbuddy.cn')}>账号中心</button>
+              </div>
+            </SettingsRow>
+            {cloudUser && <>
+              <SettingsRow title="账号标识" desc={cloudUser.email ?? cloudUser.phone ?? cloudUser.name ?? '未公开'}>
+                <span className="set-status-dot ok" />
+              </SettingsRow>
+              <SettingsRow title="换绑 / 修改资料" desc="云端账号资料需到 WorkBuddy 官方账号中心修改；本应用不保存明文凭证">
+                <button className="btn sm" onClick={() => void openExternal('https://www.workbuddy.cn')}>前往修改</button>
+              </SettingsRow>
+            </>}
+            <div className="voice-section-label" style={{ marginTop: 12 }}>本机可见登录设备 <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>（{devices.length}）</span></div>
+            {devices.length === 0 ? <div className="voice-empty">暂无设备记录</div> : devices.map(d => (
+              <div key={d.clientId} className="set-stat" style={{ justifyContent: 'space-between' }}>
+                <span>{d.label} · {d.platform}</span>
+                <b style={{ fontSize: 11, color: 'var(--text-3)' }}>{new Date(d.lastSeen).toLocaleString('zh-CN')}</b>
+              </div>
+            ))}
+            <div className="voice-hint"><Info size={13} /> 当前云服务接口不提供服务端会话列表，这里显示的是本机登记过的设备；同一账号的实际登录设备请到官方账号中心查看。</div>
+            <button className="btn sm" style={{ marginTop: 8 }} onClick={() => setDevices([...loadDevices()])}><RefreshCw size={13} /> 刷新设备列表</button>
           </SettingsSection>
 
           <SettingsSection title="应用更新" desc={`当前版本 v${APP_VERSION} · 检查并安装新版本`} icon={RefreshCw} tone="green">

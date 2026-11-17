@@ -37,7 +37,7 @@ function createWebRecognition(): RecognitionLike | null {
   return r
 }
 
-export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock }: {
+export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock, voiceURI }: {
   /** 发送一句话，返回 AI 的回复文本 */
   onSend: (text: string) => Promise<string>
   onClose: () => void
@@ -45,6 +45,8 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock }
   /** 自有模型尚未解锁时，弹窗内直接提供解锁入口 */
   needPwd?: boolean
   onUnlock?: (pwd: string) => Promise<boolean>
+  /** AI 机器人音色（来自聊天页身份设置） */
+  voiceURI?: string | null
 }) {
   const [callPwd, setCallPwd] = useState('')
   const [callPwdBusy, setCallPwdBusy] = useState(false)
@@ -148,7 +150,7 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock }
       setLastReply(reply)
       setStatus('speaking')
       speakingRef.current = true
-      const ok = await speakAsync(reply, getSavedVoice(), (s) => {
+      const ok = await speakAsync(reply, voiceURI ?? getSavedVoice(), (s) => {
         if (s === 'end' || s === 'error') {
           setStatus('idle')
           setLiveText('')

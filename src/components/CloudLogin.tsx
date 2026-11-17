@@ -2,11 +2,11 @@
 // 扫码类在桌面 WebView / 安卓 WebView 内可能受限，会给出提示引导用验证码登录。
 
 import { useState } from 'react'
-import { X, Smartphone, Mail, QrCode, ShieldCheck, Loader2 } from 'lucide-react'
+import { X, Smartphone, Mail, QrCode, ShieldCheck, Loader2, KeyRound } from 'lucide-react'
 import { cloud, type CloudUser } from '../core/cloud'
 import { isDesktopApp } from '../core/openExternal'
 
-type Method = 'phone' | 'email' | 'wechat' | 'workbuddy'
+type Method = 'phone' | 'email' | 'password' | 'wechat' | 'workbuddy'
 
 export function CloudLoginModal({ onClose, onSuccess }: {
   onClose: () => void
@@ -19,6 +19,8 @@ export function CloudLoginModal({ onClose, onSuccess }: {
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [countdown, setCountdown] = useState(0)
+  const [password, setPassword] = useState('')
+  const [passwordEmail, setPasswordEmail] = useState('')
 
   const isPhone = method === 'phone'
 
@@ -52,6 +54,18 @@ export function CloudLoginModal({ onClose, onSuccess }: {
         isExistingUser: pending.isExistingUser,
         token: code.trim(),
       } as Parameters<typeof cloud.auth.verifyOtp>[0])
+      if (done.error) { setErr(done.error.message); return }
+      onSuccess(done.data.user as CloudUser)
+    } finally { setBusy(false) }
+  }
+
+  const signInPassword = async () => {
+    setErr('')
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(passwordEmail.trim())) { setErr('请输入正确的邮箱地址'); return }
+    if (!password) { setErr('请输入密码'); return }
+    setBusy(true)
+    try {
+      const done = await cloud.auth.signInWithPassword({ email: passwordEmail.trim(), password })
       if (done.error) { setErr(done.error.message); return }
       onSuccess(done.data.user as CloudUser)
     } finally { setBusy(false) }
@@ -94,6 +108,9 @@ export function CloudLoginModal({ onClose, onSuccess }: {
             <button className={`login-method ${method === 'email' ? 'active' : ''}`} onClick={() => { setMethod('email'); setErr(''); setPending(null) }}>
               <Mail size={16} /> 邮箱
             </button>
+            <button className={`login-method ${method === 'password' ? 'active' : ''}`} onClick={() => { setMethod('password'); setErr(''); setPending(null) }}>
+              <KeyRound size={16} /> 密码登录
+            </button>
             <button className={`login-method ${method === 'wechat' ? 'active' : ''}`} onClick={() => { setMethod('wechat'); setErr('') }}>
               <QrCode size={16} /> 微信扫码
             </button>
@@ -123,6 +140,21 @@ export function CloudLoginModal({ onClose, onSuccess }: {
             </button>
           </>}
 
+          {method === 'password' && <>
+            <label className="form-label" style={{ marginTop: 18 }}>
+              邮箱地址
+              <input className="input" value={passwordEmail} onChange={e => { setPasswordEmail(e.target.value); setErr('') }} placeholder="name@example.com" disabled={busy} />
+            </label>
+            <label className="form-label" style={{ marginTop: 12 }}>
+              密码
+              <input className="input" type="password" value={password} onChange={e => { setPassword(e.target.value); setErr('') }} placeholder="账号密码" disabled={busy} />
+            </label>
+            {err && <div style={{ color: 'var(--red)', fontSize: 12, marginTop: 10 }}>{err}</div>}
+            <button className="btn primary" style={{ width: '100%', marginTop: 18, justifyContent: 'center' }} onClick={() => void signInPassword()} disabled={busy}>
+              {busy ? <><Loader2 size={14} className="spin" /> 登录中…</> : '密码登录'}
+            </button>
+          </>}
+
           {method === 'wechat' && <>
             <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.7, margin: '18px 0' }}>
               点击下方按钮将跳转到微信授权页，可用微信扫码或快捷登录。登录完成后自动返回本应用。
@@ -144,7 +176,7 @@ export function CloudLoginModal({ onClose, onSuccess }: {
           </>}
 
           <p style={{ fontSize: 11, color: 'var(--text-3)', margin: '16px 0 0', lineHeight: 1.6 }}>
-            说明：QQ / 抖音 / 支付宝扫码登录暂未开放；当前支持微信扫码、手机号验证码、邮箱验证码与 WorkBuddy 账号。
+            当前支持手机号验证码、邮箱验证码、邮箱密码、微信扫码与 WorkBuddy 账号；QQ / 抖音 / 支付宝扫码暂未开放。
           </p>
         </div>
       </div>

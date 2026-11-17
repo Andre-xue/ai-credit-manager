@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import {
-  Sparkles, Send, Square, Plus, ChevronDown, Bot, User, Trash2, CornerDownLeft, Volume2, VolumeX,
+  Sparkles, Send, Square, Plus, ChevronDown, Copy, Trash2, CornerDownLeft, Volume2, VolumeX,
   Phone, Layers, ExternalLink, Info, Loader2, FileText, Image as ImageIcon, Video, Camera, Images, X, RotateCcw, Cpu,
 } from 'lucide-react'
 import {
@@ -11,7 +11,11 @@ import {
   loadModel, saveModel, streamChat, friendlyAiError,
   type ChatMessage, type AiModel,
 } from '../core/ai'
-import { speakAsync, stopSpeak, getSavedVoice } from '../core/tts'
+import { speakAsync, stopSpeak, getSavedVoice, listSystemVoices } from '../core/tts'
+import {
+  loadBotProfile, saveBotProfile, loadUserProfile, saveUserProfile,
+  getAvatar, withReplyPrefix, AVATAR_PRESETS, type BotProfile, type UserProfile,
+} from '../core/aiIdentity'
 import { VoiceCall } from './VoiceCall'
 import {
   MODEL_CATEGORIES, CATEGORY_META, categoryForModel, type ModelCategory,
@@ -62,6 +66,9 @@ export function AIView({ notify, accounts }: {
   const [loadingEngines, setLoadingEngines] = useState(false)
   const [reasoning, setReasoning] = useState<ReasoningLevel>('Off')
   const [reasoningOpen, setReasoningOpen] = useState(false)
+  const [identityOpen, setIdentityOpen] = useState<'bot' | 'user' | null>(null)
+  const [botProfile, setBotProfile] = useState<BotProfile>(() => loadBotProfile())
+  const [userProfile, setUserProfile] = useState<UserProfile>(() => loadUserProfile())
   // 自有模型的解密凭据：优先用指纹/人脸模式保存的密码自动解密；纯密码模式则本次会话内输入一次
   const [aiPwd, setAiPwd] = useState('')
   const [aiPwdInput, setAiPwdInput] = useState('')
@@ -69,6 +76,22 @@ export function AIView({ notify, accounts }: {
   const abortRef = useRef<AbortController | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const longPressRef = useRef<number | null>(null)
+
+  const copyMessage = async (text: string) => {
+    try { await navigator.clipboard.writeText(text); notify('已复制对话内容') }
+    catch {
+      const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); notify('已复制对话内容')
+    }
+  }
+  const startLongPress = (text: string) => {
+    if (longPressRef.current !== null) window.clearTimeout(longPressRef.current)
+    longPressRef.current = window.setTimeout(() => { void copyMessage(text); longPressRef.current = null }, 550)
+  }
+  const endLongPress = () => {
+    if (longPressRef.current !== null) { window.clearTimeout(longPressRef.current); longPressRef.current = null }
+  }
 
   // 加载模型列表：空列表给明确提示，不硬编码兜底
   useEffect(() => {
@@ -242,14 +265,14 @@ export function AIView({ notify, accounts }: {
     abortRef.current = controller
     try {
       const answer = await getReply(effectiveText, messages, controller.signal, imageUrls)
-      setMessages(prev => [...prev, { id: `${Date.now()}-a`, role: 'assistant', content: answer || '（无回复内容）', at: Date.now() }])
+      setMessages(prev => [...prev, { id: `${Date.now()}-a`, role: 'assistant', content: withReplyPrefix(answer) || '（无回复内容）', at: Date.now() }])
     } catch (e) {
       const need = (e as { needPwd?: boolean })?.needPwd
       const msg = friendlyAiError(e)
       // needPwd 的情况：不重复 toast（顶部已有常驻解锁条），但仍需在对话里给出可见提示
       if (!need && msg !== '已停止生成' && !String(msg).includes('NEED_AI_PWD')) notify(msg)
       setStreamingText(prev => {
-        if (prev) setMessages(p => [...p, { id: `${Date.now()}-a`, role: 'assistant', content: prev, at: Date.now() }])
+        if (prev) setMessages(p => [...p, { id: `${Date.now()}-a`, role: 'assistant', content: withReplyPrefix(prev), at: Date.now() }])
         else {
           // 失败时插入持久提示气泡，避免 toast 一闪而过看着像"没反应"
           const hint = need ? '🔒 当前为自有模型，请先在上方的密码框验证主密码，然后重新发送。'
@@ -298,7 +321,7 @@ export function AIView({ notify, accounts }: {
 
   const toggleSpeak = (m: ChatMessage) => {
     if (speakingId === m.id) { stopSpeak(); setSpeakingId(null); return }
-    void speakAsync(m.content, getSavedVoice(), (state) => {
+    void speakAsync(m.content, botProfile.voiceURI ?? getSavedVoice(), (state) => {
       if (state === 'end' || state === 'error') setSpeakingId(null)
     }).then(ok => {
       if (!ok) { notify('当前环境不支持语音朗读'); return }
@@ -332,10 +355,10 @@ export function AIView({ notify, accounts }: {
       <div className="ai-shell">
         {/* 顶部栏 */}
         <div className="ai-topbar">
-          <div className="ai-brand">
-            <div className="ai-brand-mark"><Sparkles size={18} /></div>
+          <div className="ai-brand" onClick={() => setIdentityOpen('bot')} title="点击更换 AI 头像、名字与音色" style={{ cursor: 'pointer' }}>
+            <div className="ai-brand-mark" style={{ background: getAvatar(botProfile.avatarId).color }}>{getAvatar(botProfile.avatarId).emoji}</div>
             <div>
-              <div className="ai-brand-title">AI 助手</div>
+              <div className="ai-brand-title">{botProfile.name}</div>
               <div className="ai-brand-sub">积分管家智能助理</div>
             </div>
           </div>
@@ -452,30 +475,39 @@ export function AIView({ notify, accounts }: {
             </div>
           ) : (
             <div className="ai-thread">
-              {messages.map(m => (
+              {messages.map(m => {
+                const av = getAvatar(m.role === 'assistant' ? botProfile.avatarId : userProfile.avatarId)
+                return (
                 <div key={m.id} className={`ai-msg ${m.role}`}>
-                  <div className="ai-avatar">{m.role === 'assistant' ? <Bot size={16} /> : <User size={16} />}</div>
+                  <div className="ai-avatar avatar-click" title={m.role === 'assistant' ? '点击更换 AI 头像/名字/音色' : '点击更换我的头像/昵称/前缀'}
+                    style={{ background: av.color }} onClick={() => setIdentityOpen(m.role === 'assistant' ? 'bot' : 'user')}>{av.emoji}</div>
                   <div className="ai-msg-body">
-                    <div className="ai-bubble">{m.content}</div>
-                    {m.role === 'assistant' && m.content && (
-                      <button className={`ai-speak ${speakingId === m.id ? 'active' : ''}`}
-                        onClick={() => toggleSpeak(m)} title={speakingId === m.id ? '停止朗读' : '朗读此回复'}>
-                        {speakingId === m.id ? <VolumeX size={14} /> : <Volume2 size={14} />}
-                        <span>{speakingId === m.id ? '停止' : '朗读'}</span>
-                      </button>
+                    <div className="ai-bubble" onTouchStart={() => startLongPress(m.content)} onTouchEnd={endLongPress} onTouchMove={endLongPress}>{m.content}</div>
+                    {m.content && (
+                      <div className="ai-msg-tools">
+                        {m.role === 'assistant' && (
+                          <button className={`ai-speak ${speakingId === m.id ? 'active' : ''}`}
+                            onClick={() => toggleSpeak(m)} title={speakingId === m.id ? '停止朗读' : '朗读此回复'}>
+                            {speakingId === m.id ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                            <span>{speakingId === m.id ? '停止' : '朗读'}</span>
+                          </button>
+                        )}
+                        <button className="ai-copy" onClick={() => void copyMessage(m.content)} title="复制对话内容"><Copy size={13} /></button>
+                      </div>
                     )}
                   </div>
                 </div>
-              ))}
+                )
+              })}
               {generating && streamingText && (
                 <div className="ai-msg assistant">
-                  <div className="ai-avatar"><Bot size={16} /></div>
+                  <div className="ai-avatar" style={{ background: getAvatar(botProfile.avatarId).color }}>{getAvatar(botProfile.avatarId).emoji}</div>
                   <div className="ai-bubble"><span className="ai-typing">{streamingText}</span><span className="ai-cursor" /></div>
                 </div>
               )}
               {generating && !streamingText && (
                 <div className="ai-msg assistant">
-                  <div className="ai-avatar"><Bot size={16} /></div>
+                  <div className="ai-avatar" style={{ background: getAvatar(botProfile.avatarId).color }}>{getAvatar(botProfile.avatarId).emoji}</div>
                   <div className="ai-bubble ai-thinking"><span /><span /><span /></div>
                 </div>
               )}
@@ -571,9 +603,20 @@ export function AIView({ notify, accounts }: {
         </>
       )}
 
+      {identityOpen && <IdentityModal
+        kind={identityOpen}
+        bot={botProfile}
+        user={userProfile}
+        voices={listSystemVoices()}
+        onClose={() => setIdentityOpen(null)}
+        onSaveBot={(p) => { saveBotProfile(p); setBotProfile(p); setIdentityOpen(null); notify('AI 身份已保存，切换模型也不会重置') }}
+        onSaveUser={(p) => { saveUserProfile(p); setUserProfile(p); setIdentityOpen(null); notify('我的身份与回答前缀已保存') }}
+      />}
+
       {callOpen && <VoiceCall
+        voiceURI={botProfile.voiceURI}
         onSend={async (text) => {
-          const r = await getReply(text, messages)
+          const r = withReplyPrefix(await getReply(text, messages))
           setMessages(prev => [...prev,
             { id: `${Date.now()}-u`, role: 'user', content: text, at: Date.now() },
             { id: `${Date.now()}-a`, role: 'assistant', content: r, at: Date.now() },
@@ -591,6 +634,66 @@ export function AIView({ notify, accounts }: {
           return true
         }}
       />}
+    </div>
+  )
+}
+
+/** AI / 我的身份设置弹窗：仅存本机，不随云同步；同一账号不同平台互相独立。 */
+function IdentityModal({ kind, bot, user, voices, onClose, onSaveBot, onSaveUser }: {
+  kind: 'bot' | 'user'
+  bot: BotProfile
+  user: UserProfile
+  voices: { uri: string; name: string; lang: string }[]
+  onClose: () => void
+  onSaveBot: (p: BotProfile) => void
+  onSaveUser: (p: UserProfile) => void
+}) {
+  const isBot = kind === 'bot'
+  const [avatarId, setAvatarId] = useState(isBot ? bot.avatarId : user.avatarId)
+  const [name, setName] = useState(isBot ? bot.name : user.nickname)
+  const [voiceURI, setVoiceURI] = useState<string | null>(bot.voiceURI)
+  const [phrase, setPhrase] = useState(user.phrase)
+
+  return (
+    <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal" style={{ maxWidth: 460 }}>
+        <div className="modal-head"><h3>{isBot ? '设置 AI 助手' : '设置我的资料'}</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
+        <div className="modal-body">
+          <div className="field-label" style={{ marginTop: 0 }}>头像</div>
+          <div className="identity-avatars">
+            {AVATAR_PRESETS.map(a => (
+              <button key={a.id} title={a.label} className={`identity-avatar ${avatarId === a.id ? 'active' : ''}`}
+                style={{ background: a.color }} onClick={() => setAvatarId(a.id)}>{a.emoji}</button>
+            ))}
+          </div>
+          <label className="form-label" style={{ marginTop: 16 }}>
+            {isBot ? 'AI 名字' : '我的昵称'}
+            <input className="input" value={name} maxLength={20} onChange={e => setName(e.target.value)} placeholder={isBot ? 'AI 助手' : '我'} />
+          </label>
+          {isBot ? (
+            <label className="form-label" style={{ marginTop: 12 }}>
+              说话音色
+              <select className="select" value={voiceURI ?? ''} onChange={e => setVoiceURI(e.target.value || null)}>
+                <option value="">跟随全局音色设置</option>
+                {voices.map(v => <option key={v.uri} value={v.uri}>{v.name}（{v.lang}）</option>)}
+              </select>
+            </label>
+          ) : (
+            <label className="form-label" style={{ marginTop: 12 }}>
+              AI 回答前缀短语 / 词组
+              <input className="input" value={phrase} maxLength={30} onChange={e => setPhrase(e.target.value)} placeholder="例如：请注意" />
+              <span style={{ display: 'block', fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>每次回答开头会显示“昵称：短语”，例如“小明：请注意”。</span>
+            </label>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button className="btn" onClick={onClose}>取消</button>
+          <button className="btn primary" disabled={!name.trim()} onClick={() => {
+            if (isBot) onSaveBot({ avatarId, name: name.trim(), voiceURI })
+            else onSaveUser({ avatarId, nickname: name.trim(), phrase: phrase.trim() })
+          }}>完成</button>
+        </div>
+      </div>
     </div>
   )
 }
