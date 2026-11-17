@@ -5,6 +5,7 @@ import {
   Wallet, Flame, Clock, TrendingUp, Lock, Unlock, Download, X, Copy, CircleHelp,
   Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Gift, Eye, Pencil, Fingerprint,
   Film, Layers, Monitor, PanelLeftClose, PanelLeftOpen,
+  Cloud, Bell, Database, Volume2, HardDrive, Palette,
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { PROVIDERS, PROVIDER_MAP, CATEGORY_LABEL, CATEGORY_ORDER } from './data/providers'
@@ -2489,15 +2490,20 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 }
 
 /** 设置分组容器 */
-function SettingsSection({ title, desc, children }: { title: string; desc?: string; children: React.ReactNode }) {
+function SettingsSection({ title, desc, icon: Icon, tone = 'indigo', children }: {
+  title: string; desc?: string; icon?: typeof Settings; tone?: 'indigo' | 'green' | 'amber' | 'blue' | 'red'; children: React.ReactNode
+}) {
   return (
-    <div className="panel" style={{ padding: '18px 20px', marginBottom: 16 }}>
-      <div style={{ marginBottom: 14 }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>{title}</h3>
-        {desc && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>{desc}</div>}
+    <section className="set-card">
+      <div className="set-card-head">
+        {Icon && <span className={`set-card-icon ${tone}`}><Icon size={17} /></span>}
+        <div className="set-card-heading">
+          <h3>{title}</h3>
+          {desc && <p>{desc}</p>}
+        </div>
       </div>
-      {children}
-    </div>
+      <div className="set-card-body">{children}</div>
+    </section>
   )
 }
 
@@ -2548,6 +2554,7 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
   const [bioSwitchOpen, setBioSwitchOpen] = useState(false)
   const [bioSwitchPwd, setBioSwitchPwd] = useState('')
   const [bioSwitchBusy, setBioSwitchBusy] = useState(false)
+  const [setTab, setSetTab] = useState<'general' | 'data' | 'security'>('general')
 
   /** 切换到指纹解锁：验证主密码后保存到本机，再更新设置 */
   const enableBio = async () => {
@@ -2565,42 +2572,27 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
 
   return (
     <>
-      <div className="split">
-        <div>
-          <SettingsSection title="云同步" desc="同一账号跨 Web / 桌面 / 安卓 / 小程序自动同步">
-            <SettingsRow
-              title={cloudUser ? `已登录${cloudUser.name ? `：${cloudUser.name}` : ''}` : '未登录（仅本机存储）'}
-              desc={cloudUser
-                ? `数据自动同步 · 最近同步 ${lastSyncAt ? new Date(lastSyncAt).toLocaleString('zh-CN') : '待同步'}`
-                : '登录后在任意客户端的数据都会自动同步；不登录也可正常本地使用'}
-            >
-              {cloudUser ? <div style={{ display: 'flex', gap: 6 }}>
-                <button className="btn sm" onClick={onSync} disabled={syncing}>{syncing ? '同步中…' : '立即同步'}</button>
-                <button className="btn sm ghost" onClick={onLogout}>退出</button>
-              </div> : <button className="btn sm primary" onClick={onLogin}>登录 / 注册</button>}
-            </SettingsRow>
-            <div style={{ padding: '2px 16px 12px', fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.7 }}>
-              支持微信扫码、手机号验证码、邮箱验证码、WorkBuddy 账号登录。登录后任意端的增删改会在约 5 秒内自动同步到其他端，无需手动操作；切回应用时也会立即检查更新。同步内容包含账户、额度、签到、用量与加密密钥（密文），各端需用同一主密码解锁。
-            </div>
-          </SettingsSection>
+      <div className="set-hero">
+        <div className="set-hero-mark"><Settings size={26} /></div>
+        <div className="set-hero-text">
+          <h2>设置中心</h2>
+          <p>管理你的账户、偏好与数据安全 · 所有设置仅保存在此设备</p>
+        </div>
+        <div className="set-hero-badges">
+          <span className={`set-badge ${cloudUser ? 'on' : ''}`}><Cloud size={13} /> {cloudUser ? '云同步已开启' : '仅本机存储'}</span>
+          <span className="set-badge">v{APP_VERSION}</span>
+        </div>
+      </div>
 
-          <SettingsSection title="应用更新" desc={`当前版本 v${APP_VERSION} · 检查并安装新版本`}>
-            <SettingsRow title="检查更新" desc={isDesktopApp()
-              ? '桌面端自动下载安装，完成后点击重启生效'
-              : currentPlatform() === 'docker'
-                ? 'Docker 版提供可一键复制的更新命令，在终端执行后自动替换实例'
-                : currentPlatform() === 'android'
-                  ? '安卓端下载最新 APK 覆盖安装，数据不丢失'
-                  : '检测新版本并按平台提示更新方式'}>
-              <button className="btn sm primary" onClick={onCheckUpdate}><RefreshCw size={14} /> 检查更新</button>
-            </SettingsRow>
-          </SettingsSection>
+      <nav className="set-tabs">
+        <button className={setTab === 'general' ? 'active' : ''} onClick={() => setSetTab('general')}><Palette size={15} /> 偏好设置</button>
+        <button className={setTab === 'data' ? 'active' : ''} onClick={() => setSetTab('data')}><Database size={15} /> 账户与数据</button>
+        <button className={setTab === 'security' ? 'active' : ''} onClick={() => setSetTab('security')}><ShieldCheck size={15} /> 安全隐私</button>
+      </nav>
 
-          <SettingsSection title="语音朗读" desc="AI 回复朗读音色与方言">
-            <div style={{ padding: '4px 16px 10px' }}><VoiceSettings notify={notify} /></div>
-          </SettingsSection>
-
-          <SettingsSection title="通用" desc="提醒与预警行为">
+      <div className="set-content" key={setTab}>
+        {setTab === 'general' && <>
+          <SettingsSection title="通用" desc="提醒与预警行为" icon={Settings} tone="indigo">
             <SettingsRow title="签到提醒" desc="在看板与侧栏显示 AI Agent 工具今日待签到数量">
               <Toggle checked={s.checkinReminder} onChange={v => onChange({ checkinReminder: v })} />
             </SettingsRow>
@@ -2614,9 +2606,14 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
                 {(Object.keys(UNIT_LABEL) as CreditUnit[]).map(u => <option key={u} value={u}>{UNIT_LABEL[u]}</option>)}
               </select>
             </SettingsRow>
+            <SettingsRow title="每月预算" desc="人民币，超出 90% 时提示">
+              <input className="input" type="number" min="0" step="10" value={s.monthlyBudget}
+                     onChange={e => onChange({ monthlyBudget: Math.max(0, Number(e.target.value)) })}
+                     style={{ width: 100 }} />
+            </SettingsRow>
           </SettingsSection>
 
-          <SettingsSection title="系统通知" desc="签到与额度告警主动提醒，每日每类最多一次">
+          <SettingsSection title="系统通知" desc="签到与额度告警主动提醒，每日每类最多一次" icon={Bell} tone="amber">
             <SettingsRow title="启用通知" desc="桌面端为系统通知；Web 端需授予浏览器权限">
               <Toggle checked={s.systemNotify} onChange={v => { onChange({ systemNotify: v }); if (v) onEnableNotify() }} />
             </SettingsRow>
@@ -2632,19 +2629,77 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
             </SettingsRow>
           </SettingsSection>
 
-          <SettingsSection title="预算与费用" desc="用于费用追踪与超支预警">
-            <SettingsRow title="每月预算" desc="人民币，超出 90% 时提示">
-              <input className="input" type="number" min="0" step="10" value={s.monthlyBudget}
-                     onChange={e => onChange({ monthlyBudget: Math.max(0, Number(e.target.value)) })}
-                     style={{ width: 100 }} />
+          <SettingsSection title="语音朗读" desc="AI 回复朗读音色与方言" icon={Volume2} tone="blue">
+            <div style={{ padding: '4px 2px 2px' }}><VoiceSettings notify={notify} /></div>
+          </SettingsSection>
+        </>}
+
+        {setTab === 'data' && <>
+          <SettingsSection title="云同步" desc="同一账号跨 Web / 桌面 / 安卓 / 小程序自动同步" icon={Cloud} tone="indigo">
+            <SettingsRow
+              title={cloudUser ? `已登录${cloudUser.name ? `：${cloudUser.name}` : ''}` : '未登录（仅本机存储）'}
+              desc={cloudUser
+                ? `数据自动同步 · 最近同步 ${lastSyncAt ? new Date(lastSyncAt).toLocaleString('zh-CN') : '待同步'}`
+                : '登录后在任意客户端的数据都会自动同步；不登录也可正常本地使用'}
+            >
+              {cloudUser ? <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn sm" onClick={onSync} disabled={syncing}>{syncing ? '同步中…' : '立即同步'}</button>
+                <button className="btn sm ghost" onClick={onLogout}>退出</button>
+              </div> : <button className="btn sm primary" onClick={onLogin}>登录 / 注册</button>}
+            </SettingsRow>
+            <p className="set-note">支持微信扫码、手机号验证码、邮箱验证码、WorkBuddy 账号登录。登录后任意端的增删改会在约 5 秒内自动同步到其他端；同步内容包含账户、额度、签到、用量与加密密钥（密文），各端需用同一主密码解锁。</p>
+          </SettingsSection>
+
+          <SettingsSection title="应用更新" desc={`当前版本 v${APP_VERSION} · 检查并安装新版本`} icon={RefreshCw} tone="green">
+            <SettingsRow title="检查更新" desc={isDesktopApp()
+              ? '桌面端自动下载安装，完成后点击重启生效'
+              : currentPlatform() === 'docker'
+                ? 'Docker 版提供可一键复制的更新命令，在终端执行后自动替换实例'
+                : currentPlatform() === 'android'
+                  ? '安卓端下载最新 APK 覆盖安装，数据不丢失'
+                  : '检测新版本并按平台提示更新方式'}>
+              <button className="btn sm primary" onClick={onCheckUpdate}><RefreshCw size={14} /> 检查更新</button>
             </SettingsRow>
           </SettingsSection>
 
-          <SettingsSection title="安全" desc="本地密钥保险箱">
-            <SettingsRow title="密钥保险箱" desc={s.vaultInitialized ? '已启用 · AES-256-GCM 加密' : '未创建 · API Key 将无法加密保存'}>
-              <button className="btn sm" onClick={onOpenVault}>{s.vaultInitialized ? '管理' : '创建'}</button>
+          <SettingsSection title="数据管理" desc="备份、恢复与清理" icon={HardDrive} tone="amber">
+            <SettingsRow title="备份提醒" desc="超过 7 天未导出时在界面提示">
+              <Toggle checked={s.backupReminder} onChange={v => onChange({ backupReminder: v })} />
             </SettingsRow>
-            <SettingsRow title="解锁方式" desc={onBioAvailable ? '选择后仅显示对应解锁方式' : '当前设备不支持指纹，仅可用密码'}>
+            <SettingsRow title="清空业务数据" desc="删除全部账户、额度、签到与用量记录；设置与保险箱保留">
+              {confirmClear ? (
+                <span style={{ display: 'flex', gap: 6 }}>
+                  <button className="btn sm danger" onClick={() => { onClear(); setConfirmClear(false) }}>确认清空</button>
+                  <button className="btn sm ghost" onClick={() => setConfirmClear(false)}>取消</button>
+                </span>
+              ) : <button className="btn sm danger" onClick={() => setConfirmClear(true)}><Trash2 size={13} /> 清空</button>}
+            </SettingsRow>
+          </SettingsSection>
+
+          <div className="set-grid-2">
+            <SettingsSection title="数据概览" desc="当前本地存储的内容" icon={Database} tone="blue">
+              <div className="set-stat"><span>账户</span><b>{state.accounts.length}</b></div>
+              <div className="set-stat"><span>额度快照</span><b>{state.quotas.length}</b></div>
+              <div className="set-stat"><span>签到记录</span><b>{state.checkins.length}</b></div>
+              <div className="set-stat"><span>用量记录</span><b>{state.usage.length}</b></div>
+            </SettingsSection>
+            <SettingsSection title="关于" desc="版本与合规说明" icon={Info} tone="indigo">
+              <div className="set-stat"><span>版本</span><b className="mono">v{APP_VERSION}</b></div>
+              <div className="set-stat"><span>定位</span><b style={{ fontSize: 12 }}>本地优先 · 个人资源管理工具</b></div>
+              <div className="set-about-note"><ShieldCheck size={14} /> 数据仅存本机，密钥经 AES-256-GCM 加密，不上传明文</div>
+            </SettingsSection>
+          </div>
+        </>}
+
+        {setTab === 'security' && <>
+          <SettingsSection title="密钥保险箱" desc="本地 AES-256-GCM 加密存储" icon={ShieldCheck} tone="green">
+            <SettingsRow title="保险箱状态" desc={s.vaultInitialized ? '已启用 · API Key 加密保存' : '未创建 · API Key 将无法加密保存'}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className={`set-status-dot ${s.vaultInitialized ? 'ok' : ''}`} />
+                <button className="btn sm" onClick={onOpenVault}>{s.vaultInitialized ? '管理' : '创建'}</button>
+              </div>
+            </SettingsRow>
+            <SettingsRow title="解锁方式" desc={onBioAvailable ? `可选密码或${bioLabel}解锁` : '当前设备不支持生物识别，仅可用密码'}>
               <select className="select" style={{ width: 120 }} value={bioSwitchOpen ? 'biometric' : s.unlockMethod}
                 onChange={e => {
                   const m = e.target.value as 'biometric' | 'password'
@@ -2667,8 +2722,8 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
               </SettingsRow>
             )}
             {bioSwitchOpen && (
-              <div className="panel" style={{ padding: 14, marginTop: 4, background: 'var(--panel-2)' }}>
-                <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 10 }}>输入主密码以启用指纹解锁（验证后本机保存）</div>
+              <div className="set-inline-panel">
+                <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 10 }}>输入主密码以启用{bioLabel}解锁（验证后本机保存）</div>
                 <div className="field">
                   <input className="input" type="password" autoFocus placeholder="主密码" value={bioSwitchPwd}
                     onChange={e => setBioSwitchPwd(e.target.value)}
@@ -2697,35 +2752,8 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
               )}
             </SettingsRow>
           </SettingsSection>
-        </div>
-
-        <div>
-          <SettingsSection title="数据管理" desc="备份、恢复与清理">
-            <SettingsRow title="备份提醒" desc="超过 7 天未导出时在界面提示">
-              <Toggle checked={s.backupReminder} onChange={v => onChange({ backupReminder: v })} />
-            </SettingsRow>
-            <SettingsRow title="清空业务数据" desc="删除全部账户、额度、签到与用量记录；设置与保险箱保留">
-              {confirmClear ? (
-                <span style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn sm danger" onClick={() => { onClear(); setConfirmClear(false) }}>确认清空</button>
-                  <button className="btn sm ghost" onClick={() => setConfirmClear(false)}>取消</button>
-                </span>
-              ) : <button className="btn sm danger" onClick={() => setConfirmClear(true)}><Trash2 size={13} /> 清空</button>}
-            </SettingsRow>
-          </SettingsSection>
-
-          <SettingsSection title="数据概览" desc="当前本地存储的内容">
-            <div className="kv"><span className="k">账户</span><span className="v">{state.accounts.length} 个</span></div>
-            <div className="kv"><span className="k">额度快照</span><span className="v">{state.quotas.length} 条</span></div>
-            <div className="kv"><span className="k">签到记录</span><span className="v">{state.checkins.length} 条</span></div>
-            <div className="kv"><span className="k">用量记录</span><span className="v">{state.usage.length} 条</span></div>
-          </SettingsSection>
-
-          <SettingsSection title="关于" desc="版本与合规说明">
-            <div className="kv"><span className="k">版本</span><span className="v mono">v0.1.0</span></div>
-            <div className="kv"><span className="k">定位</span><span className="v">本地优先 · 个人资源管理工具</span></div>
-          </SettingsSection>
-        </div>
+          <p className="set-note"><Lock size={13} /> 主密码仅用于派生加密密钥，永不存储明文；"解锁"仅作用于 API Key 管理页，不影响其他功能。</p>
+        </>}
       </div>
 
       {pwdOpen && (
