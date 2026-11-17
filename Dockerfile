@@ -9,9 +9,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
-# 复制源码并构建（Rosetta 用户在 Apple Silicon 上也以 linux/amd64 兼容运行）
+# 复制源码、静态资源与配置并构建（public/ 含 favicon、manifest 等，必须一并复制）
 COPY tsconfig*.json vite.config.ts index.html ./
 COPY src ./src
+COPY public ./public
 RUN npm run build
 
 # ---------- Stage 2: runtime ----------
