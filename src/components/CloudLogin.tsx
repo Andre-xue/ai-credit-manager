@@ -4,9 +4,11 @@
 import { useState } from 'react'
 import { X, Smartphone, Mail, QrCode, ShieldCheck, Loader2, KeyRound } from 'lucide-react'
 import { cloud, type CloudUser } from '../core/cloud'
-import { isDesktopApp } from '../core/openExternal'
+import { isDesktopApp, isNativeApp } from '../core/openExternal'
 
 type Method = 'phone' | 'email' | 'password' | 'wechat' | 'workbuddy'
+const isMail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
+const isMobile = (v: string) => /^1\d{10}$/.test(v)
 
 export function CloudLoginModal({ onClose, onSuccess }: {
   onClose: () => void
@@ -20,7 +22,9 @@ export function CloudLoginModal({ onClose, onSuccess }: {
   const [busy, setBusy] = useState(false)
   const [countdown, setCountdown] = useState(0)
   const [password, setPassword] = useState('')
-  const [passwordEmail, setPasswordEmail] = useState('')
+  const [account, setAccount] = useState('')
+  const [regPassword, setRegPassword] = useState('')
+  const oauthBlocked = isDesktopApp() || isNativeApp()
 
   const isPhone = method === 'phone'
 
@@ -46,6 +50,7 @@ export function CloudLoginModal({ onClose, onSuccess }: {
     if (!pending) { setErr('请先获取验证码'); return }
     if (pending.target !== identifier.trim()) { setErr('请先获取当前账号的验证码'); return }
     if (!code.trim()) { setErr('请输入验证码'); return }
+    if (!pending.isExistingUser && regPassword && regPassword.length < 6) { setErr('密码至少 6 位，或留空仅用验证码登录'); return }
     setBusy(true)
     try {
       const done = await cloud.auth.verifyOtp({
@@ -53,34 +58,40 @@ export function CloudLoginModal({ onClose, onSuccess }: {
         verificationId: pending.verificationId,
         isExistingUser: pending.isExistingUser,
         token: code.trim(),
+        ...(!pending.isExistingUser && regPassword ? { password: regPassword } : {}),
       } as Parameters<typeof cloud.auth.verifyOtp>[0])
       if (done.error) { setErr(done.error.message); return }
+      setRegPassword('')
       onSuccess(done.data.user as CloudUser)
     } finally { setBusy(false) }
   }
 
   const signInPassword = async () => {
     setErr('')
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(passwordEmail.trim())) { setErr('请输入正确的邮箱地址'); return }
+    const v = account.trim()
+    if (!isMail(v) && !isMobile(v)) { setErr('请输入邮箱地址或 11 位手机号'); return }
     if (!password) { setErr('请输入密码'); return }
     setBusy(true)
     try {
-      const done = await cloud.auth.signInWithPassword({ email: passwordEmail.trim(), password })
+      const done = isMobile(v)
+        ? await cloud.auth.signInWithPassword({ phone: v, password })
+        : await cloud.auth.signInWithPassword({ email: v, password })
       if (done.error) { setErr(done.error.message); return }
       onSuccess(done.data.user as CloudUser)
     } finally { setBusy(false) }
   }
 
+
   const oauth = async (provider: 'wechat' | 'workbuddy') => {
     setErr('')
-    if (isDesktopApp()) {
-      setErr('扫码登录请在网页版或微信小程序中使用；桌面端请用手机号或邮箱验证码登录。')
+    if (oauthBlocked) {
+      setErr('当前是桌面/原生客户端，网页授权无法回到本应用，请使用手机号或邮箱验证码登录。')
       return
     }
     setBusy(true)
     try {
+      // 回调地址必须与已注册域名完全一致：不要改写 pathname（GitHub Pages 部署在 /ai-credit-manager/ 子路径）
       const back = new URL(location.href)
-      back.pathname = '/'
       for (const key of ['code', 'state', 'provider']) back.searchParams.delete(key)
       const { data, error } = await cloud.auth.signInWithOAuth({ provider, redirectTo: back.toString() })
       if (error) { setErr(error.message); return }
@@ -134,6 +145,13 @@ export function CloudLoginModal({ onClose, onSuccess }: {
                 </button>
               </div>
             </label>
+            {pending && !pending.isExistingUser && (
+              <label className="form-label" style={{ marginTop: 12 }}>
+                设置密码（可选，至少 6 位）
+                <input className="input" type="password" value={regPassword} onChange={e => { setRegPassword(e.target.value); setErr('') }}
+                  placeholder="设置后可用账号密码登录；留空则仅验证码登录" disabled={busy} />
+              </label>
+            )}
             {err && <div style={{ color: 'var(--red)', fontSize: 12, marginTop: 10 }}>{err}</div>}
             <button className="btn primary" style={{ width: '100%', marginTop: 18, justifyContent: 'center' }} onClick={submitCode} disabled={busy}>
               {busy ? <><Loader2 size={14} className="spin" /> 处理中…</> : '登录 / 注册'}
@@ -142,13 +160,16 @@ export function CloudLoginModal({ onClose, onSuccess }: {
 
           {method === 'password' && <>
             <label className="form-label" style={{ marginTop: 18 }}>
-              邮箱地址
-              <input className="input" value={passwordEmail} onChange={e => { setPasswordEmail(e.target.value); setErr('') }} placeholder="name@example.com" disabled={busy} />
+              邮箱或手机号
+              <input className="input" value={account} onChange={e => { setAccount(e.target.value); setErr('') }} placeholder="邮箱地址或 11 位手机号" disabled={busy} />
             </label>
             <label className="form-label" style={{ marginTop: 12 }}>
               密码
               <input className="input" type="password" value={password} onChange={e => { setPassword(e.target.value); setErr('') }} placeholder="账号密码" disabled={busy} />
             </label>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 8, lineHeight: 1.6 }}>
+              提示：首次用验证码登录/注册时可设置密码；未设置过密码的账号请改用邮箱或手机号验证码登录。平台账号以邮箱或手机号为标识，暂不支持纯自定义用户名。
+            </div>
             {err && <div style={{ color: 'var(--red)', fontSize: 12, marginTop: 10 }}>{err}</div>}
             <button className="btn primary" style={{ width: '100%', marginTop: 18, justifyContent: 'center' }} onClick={() => void signInPassword()} disabled={busy}>
               {busy ? <><Loader2 size={14} className="spin" /> 登录中…</> : '密码登录'}
@@ -157,26 +178,30 @@ export function CloudLoginModal({ onClose, onSuccess }: {
 
           {method === 'wechat' && <>
             <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.7, margin: '18px 0' }}>
-              点击下方按钮将跳转到微信授权页，可用微信扫码或快捷登录。登录完成后自动返回本应用。
+              {oauthBlocked
+                ? '微信扫码属于网页授权，回调必须回到已登记的 https 域名。桌面客户端与手机 App 的内置页面不是登记域名，授权后会无法返回，因此这两个端暂不支持扫码登录。请改用手机号或邮箱验证码登录（同样开启云同步）。网页版可使用微信扫码。'
+                : '点击下方按钮将跳转到微信授权页，可用微信扫码或快捷登录。登录完成后自动返回本应用。'}
             </p>
             {err && <div style={{ color: 'var(--amber)', fontSize: 12, marginBottom: 10 }}>{err}</div>}
-            <button className="btn primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => oauth('wechat')} disabled={busy}>
+            <button className="btn primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => oauth('wechat')} disabled={busy || oauthBlocked}>
               <QrCode size={15} /> 使用微信登录
             </button>
           </>}
 
           {method === 'workbuddy' && <>
             <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.7, margin: '18px 0' }}>
-              使用你的 WorkBuddy 账号登录，授权后自动返回本应用。
+              {oauthBlocked
+                ? 'WorkBuddy 账号登录属于网页授权（带一次性校验），回调必须回到已登记的 https 域名，桌面客户端与手机 App 内置页面无法完成回调。请改用手机号或邮箱验证码登录，数据同样全端同步；网页版可使用 WorkBuddy 登录。'
+                : '使用你的 WorkBuddy 账号登录，授权后自动返回本应用。'}
             </p>
             {err && <div style={{ color: 'var(--amber)', fontSize: 12, marginBottom: 10 }}>{err}</div>}
-            <button className="btn primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => oauth('workbuddy')} disabled={busy}>
+            <button className="btn primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => oauth('workbuddy')} disabled={busy || oauthBlocked}>
               <ShieldCheck size={15} /> 使用 WorkBuddy 登录
             </button>
           </>}
 
           <p style={{ fontSize: 11, color: 'var(--text-3)', margin: '16px 0 0', lineHeight: 1.6 }}>
-            当前支持手机号验证码、邮箱验证码、邮箱密码、微信扫码与 WorkBuddy 账号；QQ / 抖音 / 支付宝扫码暂未开放。
+            支持手机号 / 邮箱验证码、手机号 / 邮箱密码（需先设置）、网页版微信扫码与 WorkBuddy 账号。QQ / 抖音 / 支付宝扫码暂未开放。
           </p>
         </div>
       </div>
