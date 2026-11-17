@@ -1,6 +1,7 @@
 // 内置平台目录：官方链接 + 数据获取方式。所有链接均为官方域名，跳转由用户本人操作。
 // apiKeyUrl 优先使用官方稳定根域名（官方会路由到最新 Key 管理页），避免深路径改版失效。
-// 按「模型功能」分类组织：文本大模型 / 编程 / 图像 / 视频 / 语音音频 / 搜索 / 设计 / 嵌入向量 / 本地部署。
+// 按「模型功能」分类组织：文本大模型 / 编程 / 图像 / 视频 / 语音音频 / 搜索 / 设计 / 嵌入向量 / 其他。
+// dailyCheckin 仅标记官方确有「每日签到领积分」的平台（如 WorkBuddy Buddy 加油站、豆包电脑版签到）。
 import type { ProviderDefinition } from '../core/types'
 
 export const PROVIDERS: ProviderDefinition[] = [
@@ -60,12 +61,23 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   {
     id: 'doubao', name: '豆包 / 火山方舟', shortName: '豆包', category: 'llm',
-    officialUrl: 'https://console.volcengine.com/ark', usageUrl: 'https://console.volcengine.com/ark',
+    officialUrl: 'https://www.doubao.com/', usageUrl: 'https://console.volcengine.com/ark',
     color: '#f04142', initials: '豆', modes: ['manual'],
-    checkinUrl: 'https://console.volcengine.com/ark',
+    // 签到在豆包电脑版客户端内（左下角签到窗 / 头像 →「免费用豆包」），官网是唯一稳定官方入口
+    checkinUrl: 'https://www.doubao.com/',
+    dailyCheckin: true,
     apiBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
     apiKeyUrl: 'https://console.volcengine.com/ark',
-    note: '火山方舟控制台查看用量。',
+    note: '官方签到：电脑版左下角签到窗 / 头像 →「免费用豆包」，每日 200 额度、周一翻倍，30 天累计 8800（额度 30 天有效，手机端无入口）。API 用量在火山方舟控制台查看。',
+  },
+  {
+    id: 'workbuddy', name: 'WorkBuddy', shortName: 'WorkBuddy', category: 'llm',
+    officialUrl: 'https://www.workbuddy.cn/', usageUrl: 'https://www.workbuddy.cn/',
+    color: '#0052d9', initials: 'WB', modes: ['manual'],
+    // 签到在客户端左下角头像 →「Buddy 加油站」，官网是唯一稳定官方入口
+    checkinUrl: 'https://www.workbuddy.cn/',
+    dailyCheckin: true,
+    note: '官方签到：客户端左下角头像 →「Buddy 加油站」，每日 100 积分，连签 7/14/28 天有额外奖励（积分当月有效，手机端无入口）。',
   },
   {
     id: 'glm', name: '智谱 GLM', shortName: 'GLM', category: 'llm',

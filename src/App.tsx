@@ -158,7 +158,6 @@ function App() {
     const notices: Array<{ key: string; title: string; body: string }> = []
     if (st.checkinReminder) {
       const pending = PROVIDERS.filter(p => isCheckinProvider(p, st) &&
-        s.accounts.some(a => a.providerId === p.id) &&
         !s.checkins.some(c => c.providerId === p.id && c.date === today && c.done))
       if (pending.length > 0 && (force || !sent.checkin)) {
         notices.push({ key: 'checkin', title: '今日待签到', body: `${pending.length} 个平台待签到：${pending.slice(0, 3).map(p => p.shortName).join('、')}${pending.length > 3 ? ' 等' : ''}` })
@@ -207,7 +206,7 @@ function App() {
   }), [state])
 
   const pendingCheckins = PROVIDERS.filter((p) =>
-    isCheckinProvider(p, state.settings) && state.accounts.some((a) => a.providerId === p.id) &&
+    isCheckinProvider(p, state.settings) &&
     !state.checkins.some((c) => c.providerId === p.id && c.date === todayISO() && c.done),
   )
 
@@ -286,7 +285,7 @@ function App() {
           </>}
 
           {tab === 'checkin' && <CheckinView
-            accounts={state.accounts} checkins={state.checkins} settings={state.settings}
+            checkins={state.checkins} settings={state.settings}
             notify={notify}
             onToggle={(pid, aid) => setState(s => toggleCheckin(s, pid, aid))}
             onManageProviders={() => setCheckinManageOpen(true)}
@@ -642,14 +641,14 @@ function DashboardView({ views, onAdd, onRemove, onEditQuota, notify }: {
   )
 }
 
-function CheckinView({ accounts, checkins, settings, notify, onToggle, onManageProviders }: {
-  accounts: AppState['accounts']; checkins: AppState['checkins']; settings: AppState['settings'];
+function CheckinView({ checkins, settings, notify, onToggle, onManageProviders }: {
+  checkins: AppState['checkins']; settings: AppState['settings'];
   notify: (m: string) => void; onToggle: (pid: string, aid?: string) => void;
   onManageProviders: () => void
 }) {
   // 只展示官方确有每日签到领积分机制的平台（避免把充值/用量页误当签到）
-  const usedProviderIds = new Set(accounts.map(a => a.providerId))
-  const all = PROVIDERS.filter(p => usedProviderIds.has(p.id) && isCheckinProvider(p, settings))
+  // 官方签到平台无需先添加账户即可显示与提醒
+  const all = PROVIDERS.filter(p => isCheckinProvider(p, settings))
   const today = todayISO()
   const doneCount = all.filter(p => checkins.some(c => c.providerId === p.id && c.date === today && c.done)).length
   const [page, setPage] = useState(1)
@@ -667,7 +666,7 @@ function CheckinView({ accounts, checkins, settings, notify, onToggle, onManageP
       <div className="notice-box">
         <Info size={15} />
         <div>
-          这里<b>只展示官方确有「每日签到领积分」机制</b>的平台。免费层、新用户试用、每日免费额度等不属于签到，已收录在「福利中心」。本工具仅提醒并跳转官方页，签到由你本人完成。
+          这里<b>只展示官方确有「每日签到领积分」机制</b>的平台（如 WorkBuddy「Buddy 加油站」、豆包电脑版签到），无需添加账户即可提醒。免费层、新用户试用、每日免费额度等不属于签到，已收录在「福利中心」。本工具仅提醒并跳转官方页，签到由你本人完成。
         </div>
       </div>
       {all.length > 0 && <SelectionBar
@@ -692,7 +691,7 @@ function CheckinView({ accounts, checkins, settings, notify, onToggle, onManageP
             <div className="stat-icon" style={{ background: 'var(--primary-soft)', color: 'var(--primary)', margin: '0 auto 14px' }}><CalendarCheck2 size={24} /></div>
             <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>当前没有可签到的平台</div>
             <div style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.7, maxWidth: 420, margin: '0 auto' }}>
-              主流 AI 平台普遍提供的是免费额度或新用户试用，而非每日签到。若某平台官方开放签到领积分，我们会在此提醒。免费额度请到「福利中心」查看。
+              当前没有启用的签到平台。点击「管理签到平台」勾选官方确有每日签到的平台（如 WorkBuddy、豆包）即可在此提醒。免费额度请到「福利中心」查看。
             </div>
             <button className="btn primary sm" style={{ marginTop: 16 }} onClick={onManageProviders}>管理签到平台</button>
           </div>
@@ -1340,8 +1339,11 @@ function UsageView({ state, notify, onBudget, onAddUsage, onImport, onPriceChang
 function CheckinManageModal({ state, onClose, onSave }: {
   state: AppState; onClose: () => void; onSave: (ids: string[]) => void
 }) {
-  const owned = Array.from(new Set(state.accounts.map(a => a.providerId)))
-    .map(id => PROVIDER_MAP[id]).filter(Boolean)
+  // 官方签到平台常驻候选（无需先添加账户），其余只列已添加账户的平台
+  const owned = Array.from(new Set([
+    ...PROVIDERS.filter(p => p.dailyCheckin).map(p => p.id),
+    ...state.accounts.map(a => a.providerId),
+  ])).map(id => PROVIDER_MAP[id]).filter(Boolean)
   const initial = owned.filter(p => isCheckinProvider(p, state.settings)).map(p => p.id)
   const [selected, setSelected] = useState<Set<string>>(new Set(initial))
   return (
@@ -1351,7 +1353,7 @@ function CheckinManageModal({ state, onClose, onSave }: {
         <div className="modal-body">
           <div className="notice-box" style={{ marginBottom: 14 }}>
             <Info size={15} />
-            <div>只勾选<b>官方确实提供「每日签到领积分」</b>的平台。免费层、试用额度、每日免费额度都不算签到，请勿勾选——避免把充值页误当签到提醒。</div>
+            <div>只勾选<b>官方确实提供「每日签到领积分」</b>的平台。WorkBuddy、豆包等官方签到平台常驻显示（无需添加账户）；免费层、试用额度、每日免费额度都不算签到，请勿勾选。</div>
           </div>
           {owned.length === 0 ? (
             <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>请先在「额度看板」添加账户</div>
@@ -1359,17 +1361,18 @@ function CheckinManageModal({ state, onClose, onSave }: {
             <div className="panel" style={{ maxHeight: 320, overflow: 'auto' }}>
               {owned.map(p => (
                 <label key={p.id} className="checkin-manage-row" title={p.note ?? ''}>
-                  <input type="checkbox" checked={selected.has(p.id)} onChange={e => {
+                  <input type="checkbox" checked={isCheckinProvider(p, state.settings) || selected.has(p.id)} disabled={p.dailyCheckin} onChange={e => {
                     const next = new Set(selected)
                     if (e.target.checked) next.add(p.id); else next.delete(p.id)
                     setSelected(next)
                   }} />
                   <ProviderLogo provider={p} size={26} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>{p.name}</div>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>
+                      {p.name}{p.dailyCheckin && <span className="tag green" style={{ fontSize: 10, marginLeft: 6 }}>官方签到</span>}
+                    </div>
                     <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{p.note ?? CATEGORY_LABEL[p.category]}</div>
                   </div>
-                  {p.dailyCheckin && <span className="tag green" style={{ fontSize: 10 }}>官方签到</span>}
                 </label>
               ))}
             </div>

@@ -36,4 +36,14 @@ describe('平台数据一致性', () => {
     expect(DEFAULT_UNIT_PRICES.kim).toBeGreaterThan(0)
     expect(BENEFITS.some(b => b.providerId === 'kim')).toBe(true)
   })
+
+  it('WorkBuddy 与豆包标记为官方签到，跳转官方域名', () => {
+    const wb = PROVIDERS.find(p => p.id === 'workbuddy')
+    const db = PROVIDERS.find(p => p.id === 'doubao')
+    expect(wb).toBeDefined()
+    expect(wb?.dailyCheckin).toBe(true)
+    expect(wb?.checkinUrl).toBe('https://www.workbuddy.cn/')
+    expect(db?.dailyCheckin).toBe(true)
+    expect(db?.checkinUrl).toBe('https://www.doubao.com/')
+  })
 })
