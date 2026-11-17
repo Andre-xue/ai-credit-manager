@@ -1137,3 +1137,9 @@ tbody tr:hover { background: var(--panel-2); }
   /* 推理等级行不被底部导航遮挡：确保输入区在聊天区内 */
   .ai-compose { flex-shrink: 0; }
 }
+
+/* 手机端：禁用双指/双击缩放，呈现原生 App 体验 */
+html, body { touch-action: manipulation; }
+@media (max-width: 680px) {
+  html, body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+}

@@ -516,6 +516,7 @@ function App() {
             onUpdateAccount={(id, patch) => setState(s => updateAccount(s, id, patch))}
             onUnlocked={(pwd) => setSessionPwd(pwd)}
             initialPwd={keyPageInitialPwd}
+            bioLabel={bioLabel}
           />}
 
           {tab === 'usage' && <UsageView state={state} notify={notify}
@@ -1053,14 +1054,15 @@ function AgentToolsView({ checkins, notify, onToggle }: {
   )
 }
 
-function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onUpdateAccount, onImportFile, onExport, onUnlocked, initialPwd }: {
+function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onUpdateAccount, onImportFile, onExport, onUnlocked, initialPwd, bioLabel }: {
   state: AppState; notify: (m: string) => void; onOpenVault: () => void;
   onImportFile: (file?: File) => void; onExport: () => void;
   onRemoveKey: (id: string) => void;
   onQuotaFetched: (accountId: string, used: number, total: number | undefined, unit: CreditUnit) => void;
   onUpdateAccount: (id: string, patch: Partial<AppState['accounts'][number]>) => void;
   onUnlocked: (pwd: string) => void;
-  initialPwd?: string
+  initialPwd?: string;
+  bioLabel?: string
 }) {
   const [unlockPwd, setUnlockPwd] = useState('')
   const [vaultPwd, setVaultPwd] = useState('')
@@ -1332,14 +1334,14 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
       })()}
 
       {unlockOpen && !vaultPwd && <UnlockModal
-        method={state.settings.unlockMethod} bioAvailable={bioAvailable}
+        method={state.settings.unlockMethod} bioAvailable={bioAvailable} bioLabel={bioLabel ?? '生物'}
         onClose={() => { setUnlockOpen(false); setUnlockPwd('') }}
         onPassword={(pwd) => void unlockWith(pwd)}
         onBiometric={async () => {
           const ok = await biometricAuth()
-          if (!ok) { notify('指纹验证未通过'); return false }
+          if (!ok) { notify(`${bioLabel ?? '生物'}验证未通过`); return false }
           const pwd = getBiometricPassword()
-          if (!pwd) { notify('未配置指纹解锁密码，请在设置中开启'); return false }
+          if (!pwd) { notify(`未配置${bioLabel ?? '生物'}解锁密码，请在设置中开启`); return false }
           await unlockWith(pwd)
           return true
         }}
@@ -1383,8 +1385,8 @@ function KeyRevealModal({ label, plain, onClose, onCopied }: {
 }
 
 /** 解锁弹窗：按设置只显示指纹或密码一种方式 */
-function UnlockModal({ method, bioAvailable, onClose, onPassword, onBiometric, busy, pwd, setPwd }: {
-  method: 'biometric' | 'password'; bioAvailable: boolean;
+function UnlockModal({ method, bioAvailable, bioLabel, onClose, onPassword, onBiometric, busy, pwd, setPwd }: {
+  method: 'biometric' | 'password'; bioAvailable: boolean; bioLabel: string;
   onClose: () => void; onPassword: (pwd: string) => void; onBiometric: () => Promise<boolean>;
   busy: boolean; pwd: string; setPwd: (v: string) => void
 }) {
@@ -1401,10 +1403,10 @@ function UnlockModal({ method, bioAvailable, onClose, onPassword, onBiometric, b
                 background: 'var(--primary-soft)', color: 'var(--primary)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}><Fingerprint size={36} /></div>
-              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>使用指纹解锁</div>
-              <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 22 }}>验证 Touch ID 后显示全部 API Key 明文</div>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>使用{bioLabel}解锁</div>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 22 }}>验证{bioLabel === '人脸' ? 'Face ID' : bioLabel === '指纹' ? 'Touch ID' : bioLabel}后显示全部 API Key 明文</div>
               <button className="btn primary" style={{ width: '100%' }} onClick={onBiometric} disabled={busy}>
-                <Fingerprint size={16} /> 验证指纹
+                <Fingerprint size={16} /> 验证{bioLabel}
               </button>
             </div>
           ) : (

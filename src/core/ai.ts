@@ -3,7 +3,7 @@
 // 与额度数据分离可避免同步载荷膨胀，也符合用户对对话隐私的预期。
 
 import { cloud, LLM_PROXY_CONFIG } from './cloud'
-import { isDesktopApp } from './openExternal'
+import { isDesktopApp, isNativeApp } from './openExternal'
 import type { ChatCompletionContentPart } from '@tencent-ai/workbuddy-cloud-sdk'
 
 const HISTORY_KEY = 'acm.ai.history.v1'
@@ -123,6 +123,45 @@ export async function streamChat(
       conversationId,
     })
     onDelta(full)
+    return full
+  }
+
+  // 手机原生 App：WebView 直连同样受 CORS 限制，用 CapacitorHttp 走原生网络层绕过
+  if (isNativeApp()) {
+    const { CapacitorHttp } = await import('@capacitor/core')
+    const url = `${LLM_PROXY_CONFIG.endpoint}/.cloud/llm/chat/completions`
+    const res = await CapacitorHttp.request({
+      url,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+        'x-wb-webapp-access-key': LLM_PROXY_CONFIG.publishableKey,
+      },
+      data: { ...body, conversationId },
+      responseType: 'text',
+      readTimeout: 120000,
+      connectTimeout: 20000,
+    })
+    if (res.status < 200 || res.status >= 300) throw new Error(`云端请求失败（${res.status}），请检查网络`)
+    // 解析 SSE：累加 data: 帧里的 choices[0].delta.content
+    const raw = typeof res.data === 'string' ? res.data : JSON.stringify(res.data ?? '')
+    let answer = ''
+    let reasoning = ''
+    for (const line of raw.split('\n')) {
+      const t = line.trim()
+      if (!t.startsWith('data:')) continue
+      const d = t.slice(5).trim()
+      if (!d || d === '[DONE]') continue
+      try {
+        const j = JSON.parse(d)
+        const delta = j?.choices?.[0]?.delta
+        if (delta?.content) answer += delta.content
+        else if (delta?.reasoning_content) reasoning += delta.reasoning_content
+      } catch { /* 忽略非 JSON 行 */ }
+    }
+    const full = answer || reasoning
+    if (full) onDelta(full)
     return full
   }
 
