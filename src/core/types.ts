@@ -18,7 +18,17 @@ export interface ProviderDefinition {
   id: string
   name: string
   shortName: string
-  category: 'llm' | 'code' | 'image' | 'search' | 'voice' | 'design' | 'other'
+  category:
+    | 'llm'        // 文本大模型（对话/推理）
+    | 'code'       // 编程助手
+    | 'image'      // 图像生成/编辑
+    | 'video'      // 视频生成
+    | 'voice'      // 语音/音频
+    | 'search'     // 搜索/研究
+    | 'design'     // 设计工具
+    | 'embedding'  // 嵌入/向量
+    | 'local'      // 本地部署
+    | 'other'
   officialUrl: string
   /** 官方用量/账单页面，用于跳转（本人登录后查看） */
   usageUrl: string

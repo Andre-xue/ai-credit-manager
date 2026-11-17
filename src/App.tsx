@@ -4,9 +4,10 @@ import {
   ExternalLink, Trash2, RefreshCw, AlertTriangle, Info, Check,
   Wallet, Flame, Clock, TrendingUp, Lock, Unlock, Download, X, Copy, CircleHelp,
   Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Gift, Eye, Pencil, Fingerprint,
+  Film, Layers, Server,
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
-import { PROVIDERS, PROVIDER_MAP, CATEGORY_LABEL } from './data/providers'
+import { PROVIDERS, PROVIDER_MAP, CATEGORY_LABEL, CATEGORY_ORDER } from './data/providers'
 import {
   loadState, saveState, uid, updateAccount, removeAccount, upsertQuota, latestQuota, toggleCheckin,
   importState, mergeState, addUsageEvent, updateSettings, clearAllData, markBenefit,
@@ -45,7 +46,8 @@ const MODE_LABEL: Record<AccountMode, string> = {
 }
 
 const CATEGORY_ICON: Record<ProviderDefinition['category'], typeof Code2> = {
-  llm: Sparkles, code: Code2, image: Image, search: Search, voice: Mic, design: PenTool, other: CircleHelp,
+  llm: Sparkles, code: Code2, image: Image, video: Film, voice: Mic,
+  search: Search, design: PenTool, embedding: Layers, local: Server, other: CircleHelp,
 }
 
 function App() {
@@ -286,8 +288,9 @@ function App() {
               setState(s => upsertQuota(s, { accountId, used, total: total ?? used, unit, source: 'api' }))
             }}
             onRemoveKey={(accId) => {
-              setState(s => ({ ...s, accounts: s.accounts.map(a => a.id === accId ? { ...a, encryptedKey: undefined, keyFingerprint: undefined } : a) }))
-              notify('已清除本地密钥')
+              const acc = state.accounts.find(a => a.id === accId)
+              setState(s => removeAccount(s, accId))
+              notify(`已删除「${acc?.label ?? '账户'}」及其额度/用量/签到等全部关联数据`)
             }}
             onUpdateAccount={(id, patch) => setState(s => updateAccount(s, id, patch))}
             onUnlocked={(pwd) => setSessionPwd(pwd)}
@@ -917,7 +920,11 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
                           notify(`查询成功：已用 ${r.used.toLocaleString()} ${r.unit}`)
                         } catch (e: any) { notify(e.message ?? '查询失败') }
                       }}><RefreshCw size={13} /> 查询</button>}
-                      <button className="key-action danger" title="删除密钥" onClick={() => onRemoveKey(a.id)}><Trash2 size={13} /> 删除</button>
+                      <button className="key-action danger" title="删除账户及全部关联数据" onClick={() => {
+                        onRemoveKey(a.id)
+                        setSelectedKeys(prev => { const n = new Set(prev); n.delete(a.id); return n })
+                        setRevealed(prev => { const n = { ...prev }; delete n[a.id]; return n })
+                      }}><Trash2 size={13} /> 删除</button>
                     </div>
                   </td>
                 </tr>
@@ -939,9 +946,9 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
         onClear={() => setSelectedKeys(new Set())}
         actions={<button className="btn sm danger" onClick={() => {
           selectedKeys.forEach(id => onRemoveKey(id))
-          notify(`已清除 ${selectedKeys.size} 个密钥`)
+          setRevealed(prev => { const n = { ...prev }; selectedKeys.forEach(id => delete n[id]); return n })
           setSelectedKeys(new Set())
-        }}><Trash2 size={13} /> 批量删除密钥</button>}
+        }}><Trash2 size={13} /> 批量删除账户</button>}
       />
       <Pager total={filtered.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
 
@@ -1314,18 +1321,48 @@ function UsageView({ state, notify, onBudget, onAddUsage, onImport, onPriceChang
 function PlatformPickerModal({ onClose, onPick }: {
   onClose: () => void; onPick: (providerId: string) => void
 }) {
+  const [query, setQuery] = useState('')
+  const [category, setCategory] = useState<ProviderDefinition['category'] | 'all'>('all')
+  const q = query.trim().toLowerCase()
+  const matched = PROVIDERS.filter(p =>
+    (category === 'all' || p.category === category) &&
+    (!q || p.name.toLowerCase().includes(q) || p.shortName.toLowerCase().includes(q) || p.id.includes(q)),
+  )
+  const grouped = CATEGORY_ORDER
+    .map(cat => ({ cat, items: matched.filter(p => p.category === cat) }))
+    .filter(g => g.items.length > 0)
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="modal" style={{ maxWidth: 560 }}>
+      <div className="modal" style={{ maxWidth: 640 }}>
         <div className="modal-head"><h3>选择平台</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
         <div className="modal-body">
-          <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginBottom: 14 }}>选择要添加账户的 AI 平台</div>
-          <div className="provider-picker" style={{ gridTemplateColumns: 'repeat(3, 1fr)', maxHeight: 380 }}>
-            {PROVIDERS.map(p => (
-              <button key={p.id} className="provider-opt" onClick={() => onPick(p.id)} title={`添加 ${p.name}`}>
-                <ProviderLogo provider={p} size={30} />
-                <span className="p-name">{p.shortName}</span>
-              </button>
+          <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginBottom: 12 }}>按模型功能分类 · 共 {PROVIDERS.length} 个平台</div>
+          <div className="row" style={{ gap: 8, marginBottom: 12 }}>
+            <div className="search-wrap" style={{ flex: 1 }}>
+              <Search size={14} />
+              <input className="input" placeholder="搜索平台名称…" value={query} onChange={e => setQuery(e.target.value)} />
+            </div>
+          </div>
+          <div className="category-chips">
+            <button className={`chip ${category === 'all' ? 'active' : ''}`} onClick={() => setCategory('all')}>全部</button>
+            {CATEGORY_ORDER.map(cat => (
+              <button key={cat} className={`chip ${category === cat ? 'active' : ''}`} onClick={() => setCategory(cat)}>{CATEGORY_LABEL[cat]}</button>
+            ))}
+          </div>
+          <div className="platform-groups">
+            {grouped.length === 0 && <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>没有匹配的平台</div>}
+            {grouped.map(g => (
+              <div className="platform-group" key={g.cat}>
+                <div className="platform-group-title"><span className={`cat-dot cat-${g.cat}`} />{CATEGORY_LABEL[g.cat]} <span className="hint">{g.items.length}</span></div>
+                <div className="provider-picker" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+                  {g.items.map(p => (
+                    <button key={p.id} className="provider-opt" onClick={() => onPick(p.id)} title={`添加 ${p.name}`}>
+                      <ProviderLogo provider={p} size={30} />
+                      <span className="p-name">{p.shortName}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </div>
