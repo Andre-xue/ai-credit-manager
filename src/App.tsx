@@ -498,7 +498,7 @@ function DashboardView({ views, onAdd, onRemove, onEditQuota, notify }: {
 }) {
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const PAGE_SIZE = 5
+  const PAGE_SIZE = 3
   useEffect(() => { setPage(1) }, [views.length])
   const cur = Math.min(page, Math.max(1, Math.ceil(views.length / PAGE_SIZE)))
   const pageViews = views.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE)
@@ -617,7 +617,7 @@ function CheckinView({ accounts, checkins, notify, onToggle }: {
   const doneCount = all.filter(p => checkins.some(c => c.providerId === p.id && c.date === today && c.done)).length
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const PAGE_SIZE = 5
+  const PAGE_SIZE = 3
   useEffect(() => { setPage(1) }, [all.length])
   const cur = Math.min(page, Math.max(1, Math.ceil(all.length / PAGE_SIZE)))
   const pageAll = all.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE)
@@ -710,7 +710,7 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
   const [revealKeyTarget, setRevealKeyTarget] = useState<{ id: string; label: string; plain: string } | null>(null)
   const [refreshing, setRefreshing] = useState<Set<string>>(new Set())
-  const PAGE_SIZE = 5
+  const PAGE_SIZE = 3
   const keyAccounts = state.accounts.filter(a => a.encryptedKey)
 
   useEffect(() => { void biometricAvailable().then(setBioAvailable) }, [])
@@ -1124,7 +1124,7 @@ function UsageView({ state, notify, onBudget, onAddUsage, onImport, onPriceChang
   const month = todayISO().slice(0, 7)
   const monthEvents = state.usage.filter(u => u.date.startsWith(month))
   const [usagePage, setUsagePage] = useState(1)
-  const USAGE_PAGE_SIZE = 5
+  const USAGE_PAGE_SIZE = 3
   useEffect(() => { setUsagePage(1) }, [monthEvents.length])
   const usageCur = Math.min(usagePage, Math.max(1, Math.ceil(monthEvents.length / USAGE_PAGE_SIZE)))
   const pagedUsage = monthEvents.slice().reverse().slice((usageCur - 1) * USAGE_PAGE_SIZE, usageCur * USAGE_PAGE_SIZE)
@@ -1853,7 +1853,7 @@ function BenefitsView({ state, notify, onMark }: {
   const [filter, setFilter] = useState<'all' | 'owned'>('all')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [page, setPage] = useState(1)
-  const PAGE_SIZE = 5
+  const PAGE_SIZE = 3
   useEffect(() => { setPage(1) }, [filter])
   const today = todayISO()
   const ownedIds = new Set(state.accounts.map(a => a.providerId))
@@ -1947,7 +1947,7 @@ const BENEFIT_KIND_COLORS: Record<BenefitItem['kind'], string> = {
   'free-tier': 'green', trial: 'blue', daily: 'amber', education: 'gray', other: 'gray',
 }
 
-/** 通用分页控件（每页 5 条），各列表页复用 */
+/** 通用分页控件（每页 3 条），各列表页复用 */
 function Pager({ total, page, pageSize, onChange }: {
   total: number; page: number; pageSize: number; onChange: (p: number) => void
 }) {
