@@ -30,6 +30,7 @@ import {
 } from './core/io'
 import { openExternal, openTool, isDesktopApp, isAppInstalled, biometricAvailable, biometricAuth } from './core/openExternal'
 import { cloud, type CloudUser } from './core/cloud'
+import { AIView } from './components/AIView'
 import { pullPayload, pushPayload, applyPayload, getLastSyncAt, getClientId, checkRemoteVersion, setBaseline, getRemoteVersion, type PullResult } from './core/sync'
 import { CloudLoginModal } from './components/CloudLogin'
 
@@ -39,7 +40,7 @@ type CsvImportPreview =
   | { kind: 'quotas'; quotas: ReturnType<typeof parseQuotasCsv> }
   | { kind: 'usage'; events: UsageEventInput[] }
 
-type Tab = 'dashboard' | 'checkin' | 'benefits' | 'keys' | 'usage' | 'settings'
+type Tab = 'ai' | 'dashboard' | 'checkin' | 'benefits' | 'keys' | 'usage' | 'settings'
 
 const UNIT_LABEL: Record<CreditUnit, string> = {
   credit: '积分', token: 'Tokens', request: '次', currency: '元', day: '天',
@@ -376,6 +377,7 @@ function App() {
   const portfolioValue = totalPortfolioValue(state)
 
   const tabs: Array<{ id: Tab; label: string; icon: typeof LayoutDashboard }> = [
+    { id: 'ai', label: 'AI 助手', icon: Sparkles },
     { id: 'dashboard', label: '额度看板', icon: LayoutDashboard },
     { id: 'checkin', label: 'AI Agent工具（签到）', icon: CalendarCheck2 },
     { id: 'benefits', label: '福利中心', icon: Gift },
@@ -383,6 +385,13 @@ function App() {
     { id: 'usage', label: '用量与费用', icon: BarChart3 },
     { id: 'settings', label: '设置', icon: Settings },
   ]
+
+  // 移动端底部导航：AI 置于正中间（看板/签到/福利 · AI · 密钥/用量/设置）
+  const bottomTabs: Tab[] = ['dashboard', 'checkin', 'benefits', 'ai', 'keys', 'usage', 'settings']
+  const shortLabel: Record<Tab, string> = {
+    ai: 'AI', dashboard: '看板', checkin: '签到', benefits: '福利',
+    keys: '密钥', usage: '用量', settings: '设置',
+  }
 
   return (
     <div className={`app-shell ${sidebarVisible ? '' : 'sidebar-collapsed'}`}>
@@ -428,7 +437,8 @@ function App() {
           </div>
         </header>
 
-        <div className="content">
+        <div className={`content ${tab === 'ai' ? 'content-ai' : ''}`}>
+          {tab === 'ai' && <AIView notify={notify} />}
           {tab === 'dashboard' && <>
           <div className="stats-grid">
             <StatCard icon={<Wallet size={17} />} color="blue" label="资源总估值" value={`¥${portfolioValue.toFixed(0)}`} hint={`${state.accounts.length} 个账户 · 单价可校准`} />
@@ -540,13 +550,13 @@ function App() {
 
       {/* 移动端底部导航：侧边栏在小屏隐藏，用此栏切换模块 */}
       <nav className="bottom-nav">
-        {tabs.map(t => {
-          const Icon = t.id === 'checkin' ? CalendarCheck2 : t.icon
-          const short = t.id === 'checkin' ? '签到' : t.id === 'keys' ? '密钥' : t.id === 'usage' ? '用量' : t.id === 'settings' ? '设置' : t.id === 'benefits' ? '福利' : '看板'
+        {bottomTabs.map(id => {
+          const t = tabs.find(x => x.id === id)!
+          const Icon = t.icon
           return (
-            <button key={t.id} className={`bottom-nav-item ${tab === t.id ? 'active' : ''}`} onClick={() => { setTab(t.id); window.scrollTo(0, 0) }}>
+            <button key={t.id} className={`bottom-nav-item ${tab === t.id ? 'active' : ''} ${t.id === 'ai' ? 'center' : ''}`} onClick={() => { setTab(t.id); window.scrollTo(0, 0) }}>
               <Icon size={20} />
-              <span>{short}</span>
+              <span>{shortLabel[t.id]}</span>
             </button>
           )
         })}

@@ -1,0 +1,21 @@
+<view class="ai-page">
+  <view class="hero">
+    <view class="mark">✦</view>
+    <view class="title">有什么可以帮你？</view>
+    <view class="sub">关于积分、额度、签到、费用与 API Key 安全，都可以问我</view>
+  </view>
+
+  <view class="section-label">大家都在问</view>
+  <view class="quick-grid">
+    <view class="quick-card" wx:for="{{quick}}" wx:key="title" data-title="{{item.title}}" bindtap="onTapQuick">
+      <view class="quick-icon">{{item.icon}}</view>
+      <view class="quick-title">{{item.title}}</view>
+    </view>
+  </view>
+
+  <view class="notice">
+    <view class="notice-title">💬 在完整客户端使用 AI 助手</view>
+    <view class="notice-text">小程序端受微信平台能力限制，AI 对话请在桌面客户端或网页版使用，体验与 WorkBuddy 一致的流式聊天。</view>
+    <view class="notice-btn" bindtap="copyGuide">复制使用指引</view>
+  </view>
+</view>
