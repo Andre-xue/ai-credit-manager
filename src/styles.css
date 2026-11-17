@@ -618,8 +618,10 @@ tbody tr:hover { background: var(--panel-2); }
 .ai-hint span { display: inline-flex; align-items: center; gap: 4px; }
 
 @media (max-width: 680px) {
-  .ai-shell { height: calc(100vh - 150px); min-height: 460px; }
-  .ai-welcome { margin-top: 3vh; }
+  /* 与其他 tab 统一底部留白，避免切换子模块时页面一高一低跳动 */
+  .content-ai { padding: 14px 14px 90px !important; }
+  .ai-shell { height: calc(100vh - 128px); min-height: 0; }
+  .ai-welcome { margin-top: 2vh; }
   .ai-welcome h2 { font-size: 20px; }
   .ai-quick-grid { grid-template-columns: 1fr; }
   .ai-bubble { max-width: 86%; }
@@ -1093,4 +1095,45 @@ tbody tr:hover { background: var(--panel-2); }
   .set-tabs button { flex-direction: column; gap: 4px; padding: 9px 4px; font-size: 11px; }
   .set-card-head { padding: 15px 16px 13px; }
   .set-card-body { padding: 4px 16px 14px; }
+}
+
+/* 语音通话：文字降级输入 */
+.call-fallback { display: flex; gap: 8px; margin-top: 18px; }
+.call-fallback .input { flex: 1; background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.25); color: #fff; }
+.call-fallback .input::placeholder { color: rgba(255,255,255,.5); }
+.call-fallback .btn.primary { background: #fff; color: #4338ca; }
+
+/* ============ 手机端 AI 页精简 ============ */
+@media (max-width: 680px) {
+  /* 顶部栏：隐藏副标题与次要按钮，只留核心 */
+  .ai-brand-sub { display: none; }
+  .ai-brand-mark { width: 34px; height: 34px; border-radius: 9px; }
+  .ai-brand { gap: 8px; }
+  .ai-brand-title { font-size: 14px; }
+  .ai-topbar { padding: 2px 0 12px; gap: 8px; }
+  .ai-top-actions { gap: 5px; }
+  .ai-engine-btn, .ai-clear-btn { display: none !important; }
+  .ai-model-btn { padding: 6px 8px; font-size: 11.5px; max-width: 118px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ai-icon-btn { width: 32px; height: 32px; }
+  /* 欢迎区精简：缩小图标与留白，隐藏冗余说明 */
+  .ai-welcome-mark { width: 54px; height: 54px; border-radius: 15px; margin-bottom: 12px; }
+  .ai-welcome-mark svg { width: 28px; height: 28px; }
+  .ai-welcome h2 { font-size: 19px; margin-bottom: 6px; }
+  .ai-welcome p { font-size: 11.5px; margin-bottom: 18px; }
+  .ai-quick-card { padding: 12px; }
+  .ai-quick-desc { display: none; }
+  .ai-messages { padding: 12px 2px; }
+  .ai-compose { padding-top: 8px; }
+  .ai-hint { padding-top: 7px; }
+}
+
+/* 手机端 AI 页：隐藏重复的全局 topbar（AI 页自带简洁头部），消除双层标题冗余 */
+@media (max-width: 680px) {
+  .topbar-ai { display: none; }
+  .content-ai { padding: 12px 14px 90px !important; }
+  /* topbar 已隐藏，聊天区可占满视口（留出底部导航高度） */
+  .ai-shell { height: calc(100vh - 108px); min-height: 0; }
+  .ai-topbar { padding-top: 4px; }
+  /* 推理等级行不被底部导航遮挡：确保输入区在聊天区内 */
+  .ai-compose { flex-shrink: 0; }
 }

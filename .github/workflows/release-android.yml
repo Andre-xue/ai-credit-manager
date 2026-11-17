@@ -75,7 +75,18 @@ jobs:
             cp "$ICONS/mipmap-$den-ic_launcher.png" "$RES/mipmap-$den/ic_launcher.png"
             cp "$ICONS/mipmap-$den-ic_launcher_round.png" "$RES/mipmap-$den/ic_launcher_round.png"
           done
-          echo "统一图标已应用"
+          # Capacitor 默认生成 adaptive icon（mipmap-anydpi-v26/ic_launcher.xml 引用
+          # ic_launcher_foreground/background），会覆盖上面的传统 PNG。删除该目录与
+          # 前景/背景资源，强制系统回退到我们替换的 ic_launcher.png，确保统一图标生效。
+          rm -rf "$RES/mipmap-anydpi-v26"
+          find "$RES" -type f \( -name "ic_launcher_foreground.xml" -o -name "ic_launcher_background.xml" -o -name "ic_launcher_foreground.png" \) -delete
+          # 移除 AndroidManifest 的 roundIcon 属性（圆形图标我们已提供，保留也无妨，
+          # 但部分启动器仍优先 adaptive，这里统一让 launcher 用 ic_launcher）
+          MANIFEST=$(find android -path "*/app/src/main/AndroidManifest.xml" | head -1)
+          if [ -n "$MANIFEST" ]; then
+            sed -i 's/ android:roundIcon="[^"]*"//g' "$MANIFEST" || true
+          fi
+          echo "统一图标已应用（已移除 adaptive icon 覆盖）"
 
       - name: Build debug APK
         working-directory: android

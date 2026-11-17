@@ -352,7 +352,7 @@ export function AIView({ notify, accounts }: {
               </div>}
             </div>
             {currentAccount && hasCatalog(currentAccount.providerId) && (
-              <button className="ai-model-btn" onClick={() => setEnginePanelOpen(v => !v)} title="选择该平台的模型引擎">
+              <button className="ai-model-btn ai-engine-btn" onClick={() => setEnginePanelOpen(v => !v)} title="选择该平台的模型引擎">
                 <Cpu size={13} /> 引擎 <ChevronDown size={13} />
               </button>
             )}
@@ -372,7 +372,7 @@ export function AIView({ notify, accounts }: {
               </div>}
             </div>
             <button className="ai-icon-btn" onClick={clear} title="新建对话"><RotateCcw size={17} /></button>
-            {messages.length > 0 && <button className="ai-icon-btn" onClick={() => { setMessages([]); rotateConversationId(); notify('对话已清空') }} title="清空对话"><Trash2 size={17} /></button>}
+            {messages.length > 0 && <button className="ai-icon-btn ai-clear-btn" onClick={() => { setMessages([]); rotateConversationId(); notify('对话已清空') }} title="清空对话"><Trash2 size={17} /></button>}
           </div>
         </div>
 

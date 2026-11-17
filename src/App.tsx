@@ -98,6 +98,15 @@ function App() {
 
   useEffect(() => { saveState(state) }, [state])
 
+  // 切换模块后重置滚动到顶部，避免从长页面切到短页面时停留在半空造成"一高一低"
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
+      document.querySelector('.content')?.scrollTo?.(0, 0)
+    })
+    return () => window.cancelAnimationFrame(id)
+  }, [tab])
+
   // 用 ref 跟踪最新 state，供稳定回调（定时通知等）读取，避免闭包陈旧
   const stateRef = useRef(state)
   useEffect(() => { stateRef.current = state }, [state])
@@ -453,7 +462,7 @@ function App() {
       </aside>
 
       <main className="main">
-        <header className="topbar">
+        <header className={`topbar ${tab === 'ai' ? 'topbar-ai' : ''}`}>
           <div className="topbar-heading">
             {!sidebarVisible && <button className="icon-btn sidebar-show" onClick={toggleSidebar} title="显示侧边栏"><PanelLeftOpen size={18} /></button>}
             <div>
