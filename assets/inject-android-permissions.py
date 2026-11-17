@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""给 CI 生成的 AndroidManifest.xml 注入相机/相册/存储权限（幂等）。
+"""给 CI 生成的 AndroidManifest.xml 注入相机/相册/存储/麦克风权限（幂等）。
 用法: python3 assets/inject-android-permissions.py <AndroidManifest.xml路径>
 """
 import sys
 import re
 
 PERMISSIONS = [
+    'android.permission.RECORD_AUDIO',
     'android.permission.CAMERA',
     'android.permission.READ_MEDIA_IMAGES',
     'android.permission.READ_MEDIA_VIDEO',
