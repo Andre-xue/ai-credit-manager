@@ -30,3 +30,4 @@ android/app/build/
 .vscode/
 .idea/
 *.swp
+__pycache__/
