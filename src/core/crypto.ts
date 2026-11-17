@@ -113,13 +113,24 @@ export async function changeMasterPassword(
     plains.push(await decryptSecret(c, oldPassword))
   }
 
-  // 重置并用新密码初始化（新的盐与校验位）
-  resetVault()
-  await initVault(newPassword)
-
-  // 用新密码重新加密
+  // 生成新盐，全程在内存中用「新盐 + 新密码」加密。必须在写入 localStorage 之前
+  // 完成全部加密，否则中途抛错会让保险箱处于新盐、密钥仍是旧密文的半重置状态。
+  const newSalt = crypto.getRandomValues(new Uint8Array(16))
+  const newKey = await deriveKey(newPassword, newSalt)
   const result: string[] = []
-  for (const p of plains) result.push(await encryptSecret(p, newPassword))
+  for (const p of plains) {
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv as BufferSource }, newKey, enc.encode(p))
+    result.push(toBase64(iv.buffer) + ':' + toBase64(cipher))
+  }
+
+  // 全部加密成功后，才原子性写入新盐与新校验位（切换保险箱到新密码）。
+  const verifyIv = crypto.getRandomValues(new Uint8Array(12))
+  const verifyCipher = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: verifyIv as BufferSource }, newKey, enc.encode('acm-verify'),
+  )
+  localStorage.setItem(SALT_KEY, toBase64(newSalt.buffer))
+  localStorage.setItem(VERIFY_KEY, toBase64(verifyIv.buffer) + ':' + toBase64(verifyCipher))
   return result
 }
 

@@ -9,9 +9,11 @@ import { splitCsvLine, parseUsageCsv, type UsageEventInput } from './csv'
 export type ExportFormat = 'json' | 'accounts-csv' | 'quotas-csv' | 'usage-csv'
 export type CsvKind = 'accounts' | 'quotas' | 'usage'
 
-/** CSV 单元格转义：含逗号/引号/换行时用双引号包裹 */
+/** CSV 单元格转义：含逗号/引号/换行时用双引号包裹；防公式注入（Excel 会以 = + - @ 开头当公式） */
 export function csvCell(value: unknown): string {
-  const s = value === undefined || value === null ? '' : String(value)
+  const raw = value === undefined || value === null ? '' : String(value)
+  // 仅对字符串做公式注入防护；数值（含负数）保持原样，避免破坏数据类型
+  const s = typeof value === 'number' ? raw : (/^[=+\-@\t\r]/.test(raw) ? "'" + raw : raw)
   if (/[",\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
   return s
 }

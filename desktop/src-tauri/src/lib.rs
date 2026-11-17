@@ -86,16 +86,19 @@ async fn open_url(url: String) -> Result<(), String> {
     if !url.starts_with("https://") && !url.starts_with("http://") {
         return Err("仅允许 http(s) 链接".into())
     }
-    #[cfg(target_os = "macos")]
-    std::process::Command::new("open").arg(&url).spawn()
-        .map_err(|e| format!("打开浏览器失败：{}", e))?;
+    // 校验 URL 不含空白与控制字符，杜绝 cmd/shell 元字符注入面
+    if url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err("链接含非法字符".into())
+    }
+    // Windows 用 rundll32 直接交给系统处理 URL，不走 cmd，避免 &|^ 等被当作命令分隔符。
     #[cfg(target_os = "windows")]
-    std::process::Command::new("cmd").args(["/C", "start", "", &url]).spawn()
-        .map_err(|e| format!("打开浏览器失败：{}", e))?;
+    let result = std::process::Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", &url]).status();
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open").arg(&url).status();
     #[cfg(target_os = "linux")]
-    std::process::Command::new("xdg-open").arg(&url).spawn()
-        .map_err(|e| format!("打开浏览器失败：{}", e))?;
-    Ok(())
+    let result = std::process::Command::new("xdg-open").arg(&url).status();
+    result.map(|_| ()).map_err(|e| format!("打开浏览器失败：{}", e))
 }
 
 /// 检测本机是否安装了指定客户端。
@@ -114,12 +117,15 @@ async fn is_app_installed(bundle_ids: Vec<String>, exe_names: Vec<String>) -> Re
                 if !out.stdout.is_empty() { return Ok(true) }
             }
         }
-        // mdfind 索引未建立时，回退检查常见安装目录
+        // mdfind 索引未建立时，回退检查常见安装目录（整行精确匹配 xxx.app，避免子串误判）
         if let Ok(out) = std::process::Command::new("ls").arg("/Applications").output() {
-            let names = String::from_utf8_lossy(&out.stdout).to_lowercase();
+            let installed: Vec<String> = String::from_utf8_lossy(&out.stdout)
+                .lines().map(|l| l.trim().to_lowercase()).collect();
             for exe in &exe_names {
                 let stem = exe.trim_end_matches(".exe").to_lowercase();
-                if !stem.is_empty() && names.contains(&stem) { return Ok(true) }
+                if !stem.is_empty() && installed.iter().any(|n| n == &format!("{}.app", stem)) {
+                    return Ok(true)
+                }
             }
         }
         Ok(false)
@@ -162,9 +168,11 @@ async fn open_local_app(bundle_ids: Vec<String>, exe_names: Vec<String>) -> Resu
             if let Ok(out) = std::process::Command::new("mdfind")
                 .arg(format!("kMDItemCFBundleIdentifier == '{}'", bid)).output() {
                 if !out.stdout.is_empty() {
-                    std::process::Command::new("open").arg("-b").arg(bid).spawn()
-                        .map_err(|e| format!("唤醒客户端失败：{}", e))?;
-                    return Ok(true)
+                    // status() 等待并检查退出码：bundle id 未注册时 open 会返回非 0，
+                    // 避免"report 成功但没唤醒"的假阳性。
+                    let ok = std::process::Command::new("open").arg("-b").arg(bid).status()
+                        .map(|s| s.success()).unwrap_or(false);
+                    if ok { return Ok(true) }
                 }
             }
         }

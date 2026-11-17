@@ -125,7 +125,7 @@ export function latestQuota(quotas: QuotaSnapshot[], accountId: string): QuotaSn
 export function toggleCheckin(state: AppState, providerId: string, accountId?: string): AppState {
   const date = todayISO()
   const existing = state.checkins.find(
-    (c) => c.providerId === providerId && c.date === date && (!accountId || c.accountId === accountId),
+    (c) => c.providerId === providerId && c.date === date && (accountId ? c.accountId === accountId : !c.accountId),
   )
   if (existing) {
     return {
@@ -163,8 +163,10 @@ export function exportState(state: AppState): string {
 }
 
 export function importState(json: string): AppState {
-  const parsed = JSON.parse(json) as AppState
-  if (!parsed.accounts || !Array.isArray(parsed.accounts)) throw new Error('文件格式不正确')
+  const parsed = JSON.parse(json) as Partial<AppState> | null
+  if (!parsed || typeof parsed !== 'object' || !parsed.accounts || !Array.isArray(parsed.accounts)) {
+    throw new Error('文件格式不正确')
+  }
   // 兼容早期版本：确保所有数组字段存在
   return {
     version: parsed.version ?? 1,

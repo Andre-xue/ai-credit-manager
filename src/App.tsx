@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
 import {
   LayoutDashboard, CalendarCheck2, KeyRound, BarChart3, Plus, ShieldCheck,
   ExternalLink, Trash2, RefreshCw, AlertTriangle, Info, Check,
@@ -57,10 +57,10 @@ function App() {
   const [sidebarVisible, setSidebarVisible] = useState<boolean>(() => {
     try { return localStorage.getItem('acm.sidebar.visible') !== '0' } catch { return true }
   })
-  const toggleSidebar = () => setSidebarVisible(v => {
-    try { localStorage.setItem('acm.sidebar.visible', v ? '0' : '1') } catch { /* 忽略 */ }
-    return !v
-  })
+  const toggleSidebar = () => setSidebarVisible(v => !v)
+  useEffect(() => {
+    try { localStorage.setItem('acm.sidebar.visible', sidebarVisible ? '1' : '0') } catch { /* 忽略 */ }
+  }, [sidebarVisible])
   const [addOpen, setAddOpen] = useState(false)
   const [formProviderId, setFormProviderId] = useState<string | null>(null)
   const [vaultOpen, setVaultOpen] = useState(false)
@@ -200,11 +200,8 @@ function App() {
     const percent = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0
     let days: number | undefined
     if (quota?.resetAt) days = Math.ceil((new Date(quota.resetAt).getTime() - Date.now()) / 86400000)
-    const todayDone = state.checkins.some(
-      (c) => c.providerId === account.providerId && c.date === todayISO() && c.done,
-    )
     const forecast = quota ? predictExhaustion(state, account.id) : undefined
-    return { account, provider, quota, usagePercent: percent, daysUntilReset: days, checkinDoneToday: todayDone, forecast }
+    return { account, provider, quota, usagePercent: percent, daysUntilReset: days, forecast }
   }), [state])
 
   const pendingCheckins = CHECKIN_TOOLS.filter((t) =>
@@ -543,6 +540,73 @@ function ToolLink({ tool, label, className = 'btn sm ghost', title, notify, icon
   )
 }
 
+/** 工具卡片（模块级 memo：搜索/筛选时避免整墙卸载重挂载） */
+const AgentToolCard = memo(function AgentToolCard({ t, done, hasLocal, notify, onToggle }: {
+  t: AgentTool; done: boolean; hasLocal: boolean; notify: (m: string) => void; onToggle: (id: string) => void
+}) {
+  return (
+    <article className="agent-card">
+      <div className="agent-card-top">
+        <div className="agent-logo" style={{ background: `${t.color}14` }}>
+          <img src={t.icon} alt={`${t.name} 官方图标`} width={36} height={36} loading="lazy"
+            onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+        </div>
+        <div className="agent-card-title">
+          <div className="agent-name">{t.name}</div>
+          <div className="agent-name-en">{t.nameEn}</div>
+        </div>
+        {t.canCheckin && <span className={`tag ${done ? 'green' : 'amber'}`} style={{ flex: 'none' }}>
+          {done ? <><Check size={11} /> 已签到</> : '可签到'}
+        </span>}
+      </div>
+      <div className="agent-card-badges">
+        <span className="agent-chip" style={{ color: t.color, background: `${t.color}12` }}>{t.category}</span>
+        <span className="agent-chip muted">{t.region === 'cn' ? '国内' : '海外'}</span>
+        {hasLocal && <span className="agent-chip local"><Monitor size={10} /> 本机已装</span>}
+      </div>
+      <p className="agent-desc">{t.desc}</p>
+      <div className={`agent-tip ${t.canCheckin ? 'checkin' : 'benefit'}`}>
+        <span className="agent-tip-label">{t.canCheckin ? '签到规则' : '福利说明'}</span>
+        {t.canCheckin ? t.checkinTip : t.benefitTip}
+      </div>
+      <div className="agent-card-actions">
+        {t.canCheckin && <>
+          <ToolLink tool={t} label={hasLocal ? '打开签到' : '前往签到'} className="btn sm primary"
+            title={hasLocal ? `唤醒本机 ${t.name} 客户端（未安装则打开官网）` : `打开 ${t.name} 官方页签到`} notify={notify} />
+          <button className="btn sm" onClick={() => onToggle(t.id)} title={done ? '标记为未签到' : '标记今日已签到'}>
+            {done ? '撤销标记' : '标记完成'}
+          </button>
+        </>}
+        <ToolLink tool={t} label={hasLocal ? '打开客户端' : t.canCheckin ? '官方下载' : '前往官网'} className="btn sm ghost"
+          title={hasLocal ? `唤醒本机 ${t.name} 客户端` : `打开 ${t.name} 官方站点`} notify={notify} />
+      </div>
+    </article>
+  )
+})
+
+function AgentSection({ title, hint, tools, tone, doneIds, installed, notify, onToggle }: {
+  title: string; hint: string; tools: AgentTool[]; tone: 'checkin' | 'plain';
+  doneIds: Set<string>; installed: Set<string>; notify: (m: string) => void; onToggle: (id: string) => void
+}) {
+  return (
+    <section className="agent-section">
+      <div className="agent-section-head">
+        <div className={`agent-section-dot ${tone}`} />
+        <h3>{title}</h3>
+        <span className="agent-section-count">{hint}</span>
+      </div>
+      {tools.length === 0 ? (
+        <div className="agent-empty">当前筛选下暂无工具</div>
+      ) : (
+        <div className="agent-grid">{tools.map(t => (
+          <AgentToolCard key={t.id} t={t} done={doneIds.has(t.id)} hasLocal={installed.has(t.id)}
+            notify={notify} onToggle={onToggle} />
+        ))}</div>
+      )}
+    </section>
+  )
+}
+
 function DashboardView({ views, onAdd, onRemove, onEditQuota, notify }: {
   views: AccountView[]; onAdd: () => void; onRemove: (id: string) => void; onEditQuota: (id: string) => void;
   notify: (m: string) => void
@@ -668,88 +732,36 @@ function AgentToolsView({ checkins, notify, onToggle }: {
   const [keyword, setKeyword] = useState('')
   const [installed, setInstalled] = useState<Set<string>>(new Set())
 
-  // 桌面端：启动时异步检测本机已安装的客户端
+  // 桌面端：启动时并行检测本机已安装的客户端（每个独立 await，卸载后立即停止）
   useEffect(() => {
     if (!isDesktopApp()) return
     let alive = true
-    ;(async () => {
-      const hits = new Set<string>()
-      for (const t of AGENT_TOOLS) {
-        if (!t.localApp) continue
-        if (await isAppInstalled(t.localApp.bundleIds, t.localApp.exeNames)) hits.add(t.id)
-      }
-      if (alive) setInstalled(hits)
-    })()
+    const withLocal = AGENT_TOOLS.filter(t => t.localApp)
+    Promise.all(withLocal.map(async t => {
+      const ok = await isAppInstalled(t.localApp!.bundleIds, t.localApp!.exeNames)
+      return ok && alive ? t.id : null
+    })).then(ids => {
+      if (alive) setInstalled(new Set(ids.filter(Boolean) as string[]))
+    }).catch(() => { /* 检测失败保持未安装状态 */ })
     return () => { alive = false }
   }, [])
 
-  const isDone = (id: string) => checkins.some(c => c.providerId === id && c.date === today && c.done)
-  const doneCount = CHECKIN_TOOLS.filter(t => isDone(t.id)).length
+  const doneIds = useMemo(() => new Set(
+    checkins.filter(c => c.date === today && c.done).map(c => c.providerId),
+  ), [checkins, today])
+  const doneCount = CHECKIN_TOOLS.filter(t => doneIds.has(t.id)).length
   const q = keyword.trim().toLowerCase()
-  const matched = AGENT_TOOLS.filter(t =>
-    (region === 'all' || t.region === region) &&
-    (!q || t.name.toLowerCase().includes(q) || t.nameEn.toLowerCase().includes(q) || t.desc.toLowerCase().includes(q)),
-  )
-  const cnTools = matched.filter(t => t.region === 'cn')
-  const globalTools = matched.filter(t => t.region === 'global')
-
-  const ToolCard = ({ t }: { t: AgentTool }) => {
-    const done = t.canCheckin && isDone(t.id)
-    const hasLocal = installed.has(t.id)
-    return (
-      <article className="agent-card">
-        <div className="agent-card-top">
-          <div className="agent-logo" style={{ background: `${t.color}14` }}>
-            <img src={t.icon} alt={`${t.name} 官方图标`} width={36} height={36} loading="lazy"
-              onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
-          </div>
-          <div className="agent-card-title">
-            <div className="agent-name">{t.name}</div>
-            <div className="agent-name-en">{t.nameEn}</div>
-          </div>
-          {t.canCheckin && <span className={`tag ${done ? 'green' : 'amber'}`} style={{ flex: 'none' }}>
-            {done ? <><Check size={11} /> 已签到</> : '可签到'}
-          </span>}
-        </div>
-        <div className="agent-card-badges">
-          <span className="agent-chip" style={{ color: t.color, background: `${t.color}12` }}>{t.category}</span>
-          <span className="agent-chip muted">{t.region === 'cn' ? '国内' : '海外'}</span>
-          {hasLocal && <span className="agent-chip local"><Monitor size={10} /> 本机已装</span>}
-        </div>
-        <p className="agent-desc">{t.desc}</p>
-        <div className={`agent-tip ${t.canCheckin ? 'checkin' : 'benefit'}`}>
-          <span className="agent-tip-label">{t.canCheckin ? '签到规则' : '福利说明'}</span>
-          {t.canCheckin ? t.checkinTip : t.benefitTip}
-        </div>
-        <div className="agent-card-actions">
-          {t.canCheckin && <>
-            <ToolLink tool={t} label={hasLocal ? '打开签到' : '前往签到'} className="btn sm primary"
-              title={hasLocal ? `唤醒本机 ${t.name} 客户端（未安装则打开官网）` : `打开 ${t.name} 官方页签到`} notify={notify} />
-            <button className="btn sm" onClick={() => onToggle(t.id)} title={done ? '标记为未签到' : '标记今日已签到'}>
-              {done ? '撤销标记' : '标记完成'}
-            </button>
-          </>}
-          <ToolLink tool={t} label={hasLocal ? '打开客户端' : t.canCheckin ? '官方下载' : '前往官网'} className="btn sm ghost"
-            title={hasLocal ? `唤醒本机 ${t.name} 客户端` : `打开 ${t.name} 官方站点`} notify={notify} />
-        </div>
-      </article>
+  const { cnTools, globalTools } = useMemo(() => {
+    const matched = AGENT_TOOLS.filter(t =>
+      (region === 'all' || t.region === region) &&
+      (!q || t.name.toLowerCase().includes(q) || t.nameEn.toLowerCase().includes(q) || t.desc.toLowerCase().includes(q)),
     )
-  }
-
-  const Section = ({ title, hint, tools, tone }: { title: string; hint: string; tools: AgentTool[]; tone: 'checkin' | 'plain' }) => (
-    <section className="agent-section">
-      <div className="agent-section-head">
-        <div className={`agent-section-dot ${tone}`} />
-        <h3>{title}</h3>
-        <span className="agent-section-count">{hint}</span>
-      </div>
-      {tools.length === 0 ? (
-        <div className="agent-empty">当前筛选下暂无工具</div>
-      ) : (
-        <div className="agent-grid">{tools.map(t => <ToolCard key={t.id} t={t} />)}</div>
-      )}
-    </section>
-  )
+    return {
+      cnTools: matched.filter(t => t.region === 'cn'),
+      globalTools: matched.filter(t => t.region === 'global'),
+    }
+  }, [region, q])
+  const handleToggle = useCallback((id: string) => onToggle(id), [onToggle])
 
   return (
     <div className="agent-tools">
@@ -789,21 +801,21 @@ function AgentToolsView({ checkins, notify, onToggle }: {
 
       {(region === 'all' || region === 'cn') && cnTools.length > 0 && <>
         <div className="agent-region-title"><span>🇨🇳</span> 国内 AI Agent 工具 <em>{cnTools.length}</em></div>
-        <Section title="可签到领积分" hint={`${cnTools.filter(t => t.canCheckin).length} 款`} tone="checkin"
-          tools={cnTools.filter(t => t.canCheckin)} />
-        <Section title="暂无签到机制" hint={`${cnTools.filter(t => !t.canCheckin).length} 款 · 仅免费额度`} tone="plain"
-          tools={cnTools.filter(t => !t.canCheckin)} />
+        <AgentSection title="可签到领积分" hint={`${cnTools.filter(t => t.canCheckin).length} 款`} tone="checkin"
+          tools={cnTools.filter(t => t.canCheckin)} doneIds={doneIds} installed={installed} notify={notify} onToggle={handleToggle} />
+        <AgentSection title="暂无签到机制" hint={`${cnTools.filter(t => !t.canCheckin).length} 款 · 仅免费额度`} tone="plain"
+          tools={cnTools.filter(t => !t.canCheckin)} doneIds={doneIds} installed={installed} notify={notify} onToggle={handleToggle} />
       </>}
 
       {(region === 'all' || region === 'global') && globalTools.length > 0 && <>
         <div className="agent-region-title"><span>🌍</span> 海外 AI Agent 工具 <em>{globalTools.length}</em></div>
-        <Section title="可签到领积分" hint={`${globalTools.filter(t => t.canCheckin).length} 款`} tone="checkin"
-          tools={globalTools.filter(t => t.canCheckin)} />
-        <Section title="暂无签到机制" hint={`${globalTools.filter(t => !t.canCheckin).length} 款 · 仅免费额度`} tone="plain"
-          tools={globalTools.filter(t => !t.canCheckin)} />
+        <AgentSection title="可签到领积分" hint={`${globalTools.filter(t => t.canCheckin).length} 款`} tone="checkin"
+          tools={globalTools.filter(t => t.canCheckin)} doneIds={doneIds} installed={installed} notify={notify} onToggle={handleToggle} />
+        <AgentSection title="暂无签到机制" hint={`${globalTools.filter(t => !t.canCheckin).length} 款 · 仅免费额度`} tone="plain"
+          tools={globalTools.filter(t => !t.canCheckin)} doneIds={doneIds} installed={installed} notify={notify} onToggle={handleToggle} />
       </>}
 
-      {matched.length === 0 && (
+      {cnTools.length + globalTools.length === 0 && (
         <div className="agent-empty" style={{ padding: 56 }}>没有匹配的工具，换个关键词试试</div>
       )}
     </div>

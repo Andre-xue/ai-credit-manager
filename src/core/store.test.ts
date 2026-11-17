@@ -77,6 +77,17 @@ describe('store 持久化与基础操作', () => {
     s = toggleCheckin(s, 'openai')
     expect(s.checkins[0].done).toBe(false)
   })
+
+  it('toggleCheckin 区分账户维度与全局记录，互不覆盖', () => {
+    let s = toggleCheckin(fresh(), 'openai', 'acct-1') // 账户维度记录
+    s = toggleCheckin(s, 'openai')                     // 全局记录
+    expect(s.checkins).toHaveLength(2)
+    expect(s.checkins.find(c => c.accountId === 'acct-1')?.done).toBe(true)
+    expect(s.checkins.find(c => !c.accountId)?.done).toBe(true)
+    s = toggleCheckin(s, 'openai')                     // 只切全局，不动账户记录
+    expect(s.checkins.find(c => c.accountId === 'acct-1')?.done).toBe(true)
+    expect(s.checkins.find(c => !c.accountId)?.done).toBe(false)
+  })
 })
 
 describe('导入导出与合并', () => {
@@ -103,6 +114,9 @@ describe('导入导出与合并', () => {
     expect(s.quotas).toEqual([])
     expect(s.settings.monthlyBudget).toBe(200)
     expect(() => importState('{"nope":1}')).toThrow(/格式/)
+    expect(() => importState('null')).toThrow(/格式/)
+    expect(() => importState('123')).toThrow(/格式/)
+    expect(() => importState('[]')).toThrow(/格式/)
   })
 
   it('合并按 id 去重，追加新条目', () => {

@@ -48,6 +48,15 @@ describe('csvCell / toCsv', () => {
     expect(csvCell(undefined)).toBe('')
   })
 
+  it('csvCell 防止公式注入（= + - @ 开头加单引号），数值不受影响', () => {
+    expect(csvCell('=SUM(A1:A9)')).toBe("'=SUM(A1:A9)")
+    expect(csvCell('+cmd')).toBe("'+cmd")
+    expect(csvCell('@SUM')).toBe("'@SUM")
+    expect(csvCell('-1')).toBe("'-1")       // 字符串负号也防护
+    expect(csvCell(-1)).toBe('-1')          // 数值负数保持原样
+    expect(csvCell(0)).toBe('0')
+  })
+
   it('toCsv 带 BOM 与 CRLF', () => {
     const out = toCsv([['h1', 'h2'], ['a', 'b']])
     expect(out.startsWith('\ufeff')).toBe(true)

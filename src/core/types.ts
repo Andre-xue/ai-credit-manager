@@ -174,7 +174,6 @@ export interface AccountView {
   quota?: QuotaSnapshot
   usagePercent: number
   daysUntilReset?: number
-  checkinDoneToday: boolean
   /** 用量耗尽预测 */
   forecast?: import('./forecast').Forecast
 }
