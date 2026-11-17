@@ -11,7 +11,7 @@ import {
   loadModel, saveModel, streamChat, friendlyAiError,
   type ChatMessage, type AiModel,
 } from '../core/ai'
-import { speak, stopSpeak, getSavedVoice } from '../core/tts'
+import { speakAsync, stopSpeak, getSavedVoice } from '../core/tts'
 import { VoiceCall } from './VoiceCall'
 import {
   MODEL_CATEGORIES, CATEGORY_META, categoryForModel, type ModelCategory,
@@ -298,11 +298,12 @@ export function AIView({ notify, accounts }: {
 
   const toggleSpeak = (m: ChatMessage) => {
     if (speakingId === m.id) { stopSpeak(); setSpeakingId(null); return }
-    const ok = speak(m.content, getSavedVoice(), (state) => {
+    void speakAsync(m.content, getSavedVoice(), (state) => {
       if (state === 'end' || state === 'error') setSpeakingId(null)
+    }).then(ok => {
+      if (!ok) { notify('当前环境不支持语音朗读'); return }
+      setSpeakingId(m.id)
     })
-    if (!ok) { notify('当前环境不支持语音朗读'); return }
-    setSpeakingId(m.id)
   }
 
   useEffect(() => () => { stopSpeak() }, [])

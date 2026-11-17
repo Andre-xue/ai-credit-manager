@@ -43,6 +43,28 @@ export function listSystemVoices(): VoiceOption[] {
     }))
 }
 
+export interface PresetVoice {
+  id: string
+  name: string
+  desc: string
+  /** 实际映射到的系统音色 voiceURI；未找到时回退第一个中文音色 */
+  uri?: string
+  fallbackName: string
+}
+
+/** 豆包风格拟真音色预设：映射到系统已安装的中文语音包（不是云端克隆音色） */
+export function listPresetVoices(): PresetVoice[] {
+  const voices = listSystemVoices()
+  const pick = (test: (v: VoiceOption) => boolean) => voices.find(test)?.uri
+  return [
+    { id: 'warm', name: '暖阳', desc: '温柔自然 · 女声', uri: pick(v => /female|女|xiaoxiao|huihui|tingting/i.test(v.name) && v.group === 'mandarin'), fallbackName: '普通话女声' },
+    { id: 'clear', name: '清朗', desc: '清晰干练 · 男声', uri: pick(v => /male|男|yunxi|kangkang|liang/i.test(v.name) && v.group === 'mandarin'), fallbackName: '普通话男声' },
+    { id: 'smart', name: '知性', desc: '播音腔 · 女声', uri: pick(v => /female|女|news|播报/i.test(v.name) && v.group === 'mandarin'), fallbackName: '普通话女声' },
+    { id: 'lively', name: '活力', desc: '年轻明快 · 女声', uri: pick(v => /female|女|xiaoyi|xiaoxiao/i.test(v.name)), fallbackName: '普通话女声' },
+    { id: 'steady', name: '沉稳', desc: '成熟稳重 · 男声', uri: pick(v => /male|男|yunyang|kangkang/i.test(v.name)), fallbackName: '普通话男声' },
+  ]
+}
+
 /** 音色就绪监听（部分浏览器 voices 异步加载） */
 export function onVoicesReady(cb: () => void): () => void {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) return () => {}
@@ -82,6 +104,9 @@ export function unlockTts(): void {
   } catch { /* 忽略：部分 WebView 不支持朗读空文本 */ }
 }
 
+import { getTtsConfig } from './voice-download'
+import { getClonedVoiceId } from './voiceClone'
+
 let activeCallback: ((state: 'start' | 'end' | 'error') => void) | null = null
 
 export function isSpeaking(): boolean {
@@ -108,6 +133,33 @@ export function speak(text: string, voiceURI: string | null, onState?: (s: 'star
   u.onerror = () => { activeCallback?.('error'); activeCallback = null }
   synth.speak(u)
   return true
+}
+
+/**
+ * 异步朗读：若已克隆声音且配置了第三方代理，优先走代理合成；失败回退系统 TTS。
+ * 克隆声音只有代理端实现 /synthesize 后才会真正生效，系统音色不应伪装成克隆效果。
+ */
+export async function speakAsync(text: string, voiceURI: string | null, onState?: (s: 'start' | 'end' | 'error') => void): Promise<boolean> {
+  const cloned = getClonedVoiceId()
+  const cfg = getTtsConfig()
+  if (cloned && cfg.endpoint) {
+    try {
+      stopSpeak()
+      const url = `${cfg.endpoint.replace(/\/$/, '')}/synthesize?provider=${encodeURIComponent(cfg.provider)}&voice=${encodeURIComponent(cloned)}&text=${encodeURIComponent(text)}`
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      if (!blob.size) throw new Error('合成音频为空')
+      const audio = new Audio(URL.createObjectURL(blob))
+      activeCallback = onState ?? null
+      audio.onplay = () => activeCallback?.('start')
+      audio.onended = () => { activeCallback?.('end'); activeCallback = null; URL.revokeObjectURL(audio.src) }
+      audio.onerror = () => { activeCallback?.('error'); activeCallback = null }
+      await audio.play()
+      return true
+    } catch { /* 回退系统 TTS */ }
+  }
+  return speak(text, voiceURI, onState)
 }
 
 export function stopSpeak(): void {

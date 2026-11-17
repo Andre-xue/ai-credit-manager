@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Phone, PhoneOff, Mic, MicOff, Volume2, Loader2, Keyboard, Send, ShieldCheck,
 } from 'lucide-react'
-import { speak, stopSpeak, getSavedVoice, unlockTts } from '../core/tts'
+import { speakAsync, stopSpeak, getSavedVoice, unlockTts } from '../core/tts'
 import { isNativeApp, isDesktopApp } from '../core/openExternal'
 
 type Engine = 'capacitor' | 'web' | 'none'
@@ -148,7 +148,7 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock }
       setLastReply(reply)
       setStatus('speaking')
       speakingRef.current = true
-      const ok = speak(reply, getSavedVoice(), (s) => {
+      const ok = await speakAsync(reply, getSavedVoice(), (s) => {
         if (s === 'end' || s === 'error') {
           setStatus('idle')
           setLiveText('')

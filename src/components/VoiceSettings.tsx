@@ -2,11 +2,16 @@
 // 第三方 TTS 配置、音色文件下载管理（单槽位互斥）。
 
 import { useEffect, useState } from 'react'
-import { Volume2, Play, Square, Download, Trash2, Loader2, Info, MapPin, Globe2 } from 'lucide-react'
+import { Volume2, Play, Square, Download, Trash2, Loader2, Info, MapPin, Globe2, Mic } from 'lucide-react'
 import {
-  listSystemVoices, onVoicesReady, getSavedVoice, saveVoice,
+  listSystemVoices, onVoicesReady, getSavedVoice, saveVoice, listPresetVoices,
   getRate, saveRate, previewVoice, stopSpeak, type VoiceOption,
 } from '../core/tts'
+import {
+  loadVoiceSample, saveVoiceSample, deleteVoiceSample, recordVoiceSample,
+  cloneVoiceFromSample, getClonedVoiceId, type VoiceSample,
+} from '../core/voiceClone'
+import { requirePermission } from '../core/permissions'
 import {
   hasTtsConfig, getTtsConfig, saveTtsConfig, clearTtsConfig,
   getActiveVoiceFile, hasDownloadedVoice, deleteActiveVoiceFile, switchVoice,
@@ -37,6 +42,10 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
   const [dlState, setDlState] = useState<VoiceDownloadState>('idle')
   const [dialectId, setDialectId] = useState<string | null>(null)
   const [previewing, setPreviewing] = useState(false)
+  const [sample, setSample] = useState<VoiceSample | null>(null)
+  const [clonedId, setClonedId] = useState<string | null>(() => getClonedVoiceId())
+  const [cloning, setCloning] = useState(false)
+  const fileRef = useState(() => ({ current: null as HTMLInputElement | null }))[0]
 
   useEffect(() => {
     const refresh = () => setVoices(listSystemVoices())
@@ -48,6 +57,10 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
       setDownloaded(has)
       if (has) { const f = await getActiveVoiceFile(); setVoiceName(f?.name ?? '') }
     })
+  }, [])
+
+  useEffect(() => {
+    void loadVoiceSample().then(setSample)
   }, [])
 
   const pickVoice = (v: VoiceOption) => {
@@ -98,6 +111,40 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
     notify(config.provider ? '语音服务配置已保存' : '已清除语音服务配置')
   }
 
+  const doRecord = async () => {
+    if (!requirePermission('microphone', notify)) return
+    try {
+      notify('开始录音，8 秒后自动结束…')
+      const blob = await recordVoiceSample(8)
+      setSample(await saveVoiceSample(blob, '录音样本.webm'))
+      notify('声音样本已保存，可点击「克隆为 AI 发音」')
+    } catch (e) { notify((e as Error).message ?? '录音失败') }
+  }
+
+  const doPickFile = async (file?: File) => {
+    if (!file) return
+    if (!file.type.startsWith('audio/')) { notify('请选择音频文件'); return }
+    setSample(await saveVoiceSample(file, file.name))
+    notify('音频样本已保存，可点击「克隆为 AI 发音」')
+  }
+
+  const doClone = async () => {
+    if (!sample) { notify('请先录音或选择音频文件'); return }
+    setCloning(true)
+    try {
+      const r = await cloneVoiceFromSample(sample)
+      if (!r.ok) { notify(r.error ?? '克隆失败'); return }
+      setClonedId(r.voiceId ?? null)
+      notify('克隆成功，AI 回复将优先使用该音色')
+    } finally { setCloning(false) }
+  }
+
+  const removeSample = async () => {
+    await deleteVoiceSample()
+    setSample(null); setClonedId(null)
+    notify('已删除声音样本与克隆音色')
+  }
+
   const groups: VoiceOption['group'][] = ['mandarin', 'tw', 'cantonese', 'other']
 
   return (
@@ -122,6 +169,25 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
           </div>
         )
       })}
+
+      {/* 拟真音色预设 */}
+      <div className="voice-section-label"><Volume2 size={14} /> 拟真音色预设（豆包风格 · 基于系统语音包）</div>
+      <div className="voice-dialect-grid">
+        {listPresetVoices().map(p => {
+          const active = !!selected && selected === p.uri
+          return (
+            <button key={p.id} className={`voice-dialect ${active ? 'busy' : ''}`} onClick={() => {
+              const uri = p.uri ?? listSystemVoices()[0]?.uri ?? null
+              if (!uri) { notify('系统暂无可用中文音色'); return }
+              saveVoice(uri); setSelected(uri); notify(`已选择「${p.name}」${p.fallbackName}`)
+            }}>
+              <span className="voice-dialect-flag">{p.name.slice(0, 1)}</span>
+              <span className="voice-dialect-info"><b>{p.name}</b><small>{p.desc}</small></span>
+              {active ? <span className="voice-ready">使用中</span> : null}
+            </button>
+          )
+        })}
+      </div>
 
       <div className="voice-row">
         <div className="voice-row-label">语速 <span>{rate.toFixed(1)}×</span></div>
@@ -156,6 +222,21 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
           <button className="voice-remove" onClick={() => void removeVoice()}><Trash2 size={14} /> 删除</button>
         </div>
       )}
+
+      {/* 声音克隆 */}
+      <div className="voice-section-label dialect"><Volume2 size={14} /> 声音克隆（录音 / 音频文件 → AI 发音）</div>
+      <div className="voice-row" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <button className="btn sm" onClick={() => void doRecord()}><Mic size={14} /> 录音 8 秒</button>
+        <button className="btn sm" onClick={() => fileRef.current?.click()}><Volume2 size={14} /> 选择音频文件</button>
+        <input ref={fileRef} type="file" accept="audio/*" style={{ display: 'none' }} onChange={e => { void doPickFile(e.target.files?.[0]); e.target.value = '' }} />
+        <button className="btn sm primary" disabled={!sample || cloning} onClick={() => void doClone()}>
+          {cloning ? '克隆中…' : '克隆为 AI 发音'}
+        </button>
+        {sample && <button className="btn sm ghost" onClick={() => void removeSample()}><Trash2 size={14} /> 删除样本</button>}
+      </div>
+      {sample && <div className="voice-hint">样本：{sample.name}（{(sample.size / 1024).toFixed(0)} KB）</div>}
+      {clonedId && <div className="voice-hint">已克隆音色：{clonedId} · AI 回复优先走第三方代理合成</div>}
+      {!ttsConfigured && <div className="voice-hint"><Info size={13} /> 声音克隆需要第三方语音服务代理（下方配置）；内置免费模型不提供克隆能力。</div>}
 
       {/* 第三方 TTS 配置 */}
       <button className="voice-config-toggle" onClick={() => setConfigOpen(v => !v)}>
