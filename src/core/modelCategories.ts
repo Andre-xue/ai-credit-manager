@@ -5,18 +5,19 @@
 export const NOTE_CATEGORIES = ['通用型', '生图型', '视频型', '对话型', '本地型'] as const
 export type NoteCategory = typeof NOTE_CATEGORIES[number]
 
-/** AI 页模型分类下拉（用户指定 6 项，含文本型） */
-export const MODEL_CATEGORIES = ['通用型', '生图型', '视频型', '对话型', '文本型', '本地型'] as const
+/** AI 页模型分类下拉：前 6 项为用户指定，末项「免费模型」承载平台内置模型（不混入通用型） */
+export const MODEL_CATEGORIES = ['通用型', '生图型', '视频型', '对话型', '文本型', '本地型', '免费模型'] as const
 export type ModelCategory = typeof MODEL_CATEGORIES[number]
 
 /** 分类用途说明与图标（用于信息卡与提示） */
 export const CATEGORY_META: Record<ModelCategory, { desc: string; icon: string; canChat: boolean }> = {
-  通用型: { desc: '既支持对话也支持生成，用途不限', icon: '✨', canChat: true },
+  通用型: { desc: '你在 API Key 管理页保存的全部自有模型', icon: '✨', canChat: true },
   生图型: { desc: '文生图 / 图生图，如 Midjourney、即梦', icon: '🎨', canChat: false },
   视频型: { desc: '文生视频 / 图生视频，如可灵、Runway', icon: '🎬', canChat: false },
   对话型: { desc: '文本对话，支持 AI 语音通话模式', icon: '💬', canChat: true },
   文本型: { desc: '纯文本处理与补全', icon: '📝', canChat: true },
   本地型: { desc: '本机部署的模型，需本地服务地址', icon: '🖥️', canChat: true },
+  免费模型: { desc: '平台内置免密钥模型（Auto/Hy4 等）', icon: '⚡', canChat: true },
 }
 
 /** 备注 → 分类（备注下拉 5 类）。兼容 [通用型]/通用型: 等写法，以及旧备注里的 文本/图片 等词。 */

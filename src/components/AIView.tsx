@@ -85,7 +85,7 @@ export function AIView({ notify, accounts, sessionPwd }: {
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, streamingText])
 
   // 免费模型 + 用户自己的账户模型，按分类联动过滤
-  const freeOptions = useMemo(() => models.map(m => ({ key: m.id, label: m.name, account: null as Account | null, category: '通用型' as ModelCategory, free: true })), [models])
+  const freeOptions = useMemo(() => models.map(m => ({ key: m.id, label: m.name, account: null as Account | null, category: '免费模型' as ModelCategory, free: true })), [models])
   const ownOptions = useMemo(() => accounts.map(a => ({
     key: `own:${a.id}`,
     label: `${a.label}${a.note ? ` · ${a.note.replace(/^\[[^\]]+\]\s*/, '')}` : ''}`,
@@ -94,9 +94,7 @@ export function AIView({ notify, accounts, sessionPwd }: {
     free: false,
   })), [accounts])
   const allOptions = useMemo(() => [...freeOptions, ...ownOptions], [freeOptions, ownOptions])
-  const visibleOptions = useMemo(() =>
-    category === '通用型' ? allOptions : allOptions.filter(o => o.category === category),
-    [category, allOptions])
+  const visibleOptions = useMemo(() => allOptions.filter(o => o.category === category), [category, allOptions])
   const selectedOption = allOptions.find(o => o.key === model) ?? null
   const canChat = !selectedOption || selectedOption.free || CATEGORY_META[selectedOption.category].canChat
   // 当前自有账户 → 引擎列表：动态拉取优先，内置目录兜底
@@ -109,12 +107,15 @@ export function AIView({ notify, accounts, sessionPwd }: {
   const selectedEngine = engines.find(e => e.id === engineId) ?? null
 
   useEffect(() => {
-    if (!model && allOptions.length > 0) {
-      const saved = loadModel()
-      const match = saved && allOptions.some(o => o.key === saved) ? saved : allOptions[0].key
-      setModel(match)
-    }
-  }, [allOptions, model])
+    if (model || allOptions.length === 0) return
+    const saved = loadModel()
+    if (saved && allOptions.some(o => o.key === saved)) { setModel(saved); return }
+    // 默认从当前分类选；当前分类为空则切到第一个有模型的分类
+    const inCategory = allOptions.filter(o => o.category === category)
+    if (inCategory.length) { setModel(inCategory[0].key); return }
+    const firstCat = MODEL_CATEGORIES.find(c => allOptions.some(o => o.category === c))
+    if (firstCat) { setCategory(firstCat); setModel(allOptions.find(o => o.category === firstCat)!.key) }
+  }, [allOptions, model, category])
 
   // 选中自有账户后：用其 Key 动态拉取真实可用引擎（/v1/models）；失败回退内置目录
   useEffect(() => {
@@ -291,11 +292,11 @@ export function AIView({ notify, accounts, sessionPwd }: {
                     onClick={() => {
                       setCategory(c); setCategoryOpen(false)
                       // 分类切换后，若当前模型不在新分类里，自动选该分类第一个
-                      const list = c === '通用型' ? allOptions : allOptions.filter(o => o.category === c)
+                      const list = allOptions.filter(o => o.category === c)
                       if (list.length && !list.some(o => o.key === model)) { setModel(list[0].key); saveModel(list[0].key) }
                     }}>
                     <span>{CATEGORY_META[c].icon} {c}</span>
-                    <small>{c === '通用型' ? allOptions.length : allOptions.filter(o => o.category === c).length}</small>
+                    <small>{allOptions.filter(o => o.category === c).length}</small>
                   </button>
                 ))}
               </div>}
