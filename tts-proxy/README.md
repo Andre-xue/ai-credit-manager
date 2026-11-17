@@ -28,7 +28,7 @@
    | 变量名 | 值 | 说明 |
    |---|---|---|
    | `DASHSCOPE_API_KEY` | `sk-你的key` | 百炼 API Key |
-   | `WORKSPACE_ID` | `你的业务空间ID` | 百炼业务空间 ID |
+   | `WORKSPACE_ID` | `ws-xxx`（可留空） | 业务空间 ID；**建议先留空**走通用域名，跑通后再填专属域名 |
    | `TARGET_MODEL` | `cosyvoice-v3.5-flash` | 可选，默认即此值 |
 
    另外把函数的 **执行超时时间** 从默认 60 秒改成 **120 秒**（创建音色要轮询审核状态，避免超时）。

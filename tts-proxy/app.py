@@ -14,7 +14,7 @@ AI 积分管家 · 声音克隆 TTS 代理（阿里云函数计算 FC · 自定�
 
 环境变量（FC 配置 → 环境变量）：
   DASHSCOPE_API_KEY  必填，百炼 API Key（sk-ws-...）
-  WORKSPACE_ID       必填，业务空间 ID（如 ws-j09amgvgevgvy94te）
+  WORKSPACE_ID       可选，业务空间 ID；留空则走通用域名 dashscope.aliyuncs.com（推荐先用留空跑通）
   TARGET_MODEL       可选，默认 cosyvoice-v3.5-flash
 函数执行超时建议改成 120 秒以上（创建音色需轮询审核状态）。
 """
@@ -131,8 +131,8 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": str(message)[:500]}, status)
 
     def _ready(self):
-        if not API_KEY or not WORKSPACE_ID:
-            self._error("服务端未配置 DASHSCOPE_API_KEY 或 WORKSPACE_ID", 500)
+        if not API_KEY:
+            self._error("服务端未配置 DASHSCOPE_API_KEY", 500)
             return False
         return True
 

@@ -16,7 +16,7 @@ API Key 只作为函数环境变量保存，客户端不接触密钥。
 
 需要的环境变量（在函数计算控制台配置）：
   DASHSCOPE_API_KEY  必填，百炼 API Key（sk-...）
-  WORKSPACE_ID       必填，业务空间 ID（百炼控制台「业务空间详情」里看）
+  WORKSPACE_ID       可选，业务空间 ID；留空则走通用域名 dashscope.aliyuncs.com
   TARGET_MODEL       可选，默认 cosyvoice-v3.5-flash（创建音色免费）
   说明：也兼容旧域名 dashscope.aliyuncs.com（当 WORKSPACE_ID 为空时）。
 """
@@ -156,8 +156,8 @@ def handler(environ, start_response):
     if method == "OPTIONS":
         return _json_resp(start_response, {})
 
-    if not API_KEY or not WORKSPACE_ID:
-        return _err_resp(start_response, "服务端未配置 DASHSCOPE_API_KEY 或 WORKSPACE_ID", "500 Internal Server Error")
+    if not API_KEY:
+        return _err_resp(start_response, "服务端未配置 DASHSCOPE_API_KEY", "500 Internal Server Error")
 
     try:
         if path.rstrip("/") == "/clone" and method == "POST":
