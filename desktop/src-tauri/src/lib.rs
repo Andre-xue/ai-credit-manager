@@ -2,6 +2,47 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// 云 LLM 代理：桌面 WebView 直连云端 SSE 会被 CORS 拦截（POST /chat/completions 预检失败），
+/// 由 Rust 后端带 publishableKey 头转发，收集 SSE 的 content delta 后返回完整文本。
+#[tauri::command]
+async fn call_cloud_llm(endpoint: String, publishable_key: String, body_json: String, conversation_id: Option<String>) -> Result<String, String> {
+    let url = format!("{}/.cloud/llm/chat/completions", endpoint.trim_end_matches('/'));
+    let client = reqwest::Client::builder()
+        .user_agent("ai-credit-manager/0.1")
+        .timeout(std::time::Duration::from_secs(120))
+        .build().map_err(|e| e.to_string())?;
+    let _: serde_json::Value = serde_json::from_str(&body_json).map_err(|e| format!("请求体非法：{}", e))?;
+    let mut req = client.post(&url)
+        .header("x-wb-webapp-access-key", &publishable_key)
+        .header("Accept", "text/event-stream")
+        .header("Content-Type", "application/json");
+    if let Some(cid) = &conversation_id { req = req.header("X-Conversation-ID", cid); }
+    let resp = req.body(body_json).send().await.map_err(|e| format!("请求失败：{}", e))?;
+    let status = resp.status();
+    let text = resp.text().await.map_err(|e| format!("读取响应失败：{}", e))?;
+    if !status.is_success() { return Err(format!("云端返回 {}：{}", status.as_u16(), text.chars().take(300).collect::<String>())) }
+
+    // 解析 SSE：逐行取 data: {...}，累加 choices[0].delta.content；
+    // 思考模型可能把内容放在 reasoning_content，content 为空时回退使用它。
+    let mut answer = String::new();
+    let mut reasoning = String::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if !line.starts_with("data:") { continue }
+        let data = line[5..].trim();
+        if data == "[DONE]" { break }
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+            if let Some(delta) = json.get("choices").and_then(|c| c.get(0)).and_then(|ch| ch.get("delta")) {
+                if let Some(content) = delta.get("content").and_then(|v| v.as_str()) { answer.push_str(content) }
+                if let Some(reason) = delta.get("reasoning_content").and_then(|v| v.as_str()) { reasoning.push_str(reason) }
+            }
+        }
+    }
+    if answer.is_empty() { answer = reasoning; }
+    if answer.is_empty() { return Err("云端未返回文本内容".into()) }
+    Ok(answer)
+}
+
 /// 通用模型 API 代理：让「用自己 Key 调用」绕过桌面 CORS。
 /// 安全约束：仅 http(s)；禁止内网/回环以外的私有地址（防止开放代理 SSRF）；
 /// 不存储任何凭证，Key 仅用于本次请求头。生图/视频的异步任务也用此命令提交与轮询。
@@ -298,7 +339,7 @@ async fn proxy_usage(provider: String, api_key: String) -> Result<serde_json::Va
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, send_notification, open_url, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app])
+        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -4,10 +4,15 @@
 
 import { createWorkBuddyCloud, type CloudUser } from '@tencent-ai/workbuddy-cloud-sdk'
 
-const PUBLIC_CONFIG = {
+export const PUBLIC_CONFIG = {
   endpoint: 'https://wbapp-uxzyxkkqofad4mwe1lca5e.app.workbuddy.host',
   oauthRelayBaseUrl: 'https://www.workbuddy.cn/v2/as/genie-baas/oauth',
   publishableKey: 'wbpk_uxZyXKKqOfad4mWe1LCa5E_eay4EyhsGD7Qb3o46G1JqqvdU5VGfd7q',
+}
+/** 供桌面端 Rust 代理转发 LLM 请求（公开配置，非密钥） */
+export const LLM_PROXY_CONFIG = {
+  endpoint: PUBLIC_CONFIG.endpoint,
+  publishableKey: PUBLIC_CONFIG.publishableKey,
 }
 
 export const cloud = createWorkBuddyCloud({

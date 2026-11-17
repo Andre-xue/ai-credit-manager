@@ -2,7 +2,8 @@
 // 对话历史仅存本机 localStorage，不纳入账单数据的云同步——聊天是私密且高频的内容，
 // 与额度数据分离可避免同步载荷膨胀，也符合用户对对话隐私的预期。
 
-import { cloud } from './cloud'
+import { cloud, LLM_PROXY_CONFIG } from './cloud'
+import { isDesktopApp } from './openExternal'
 import type { ChatCompletionContentPart } from '@tencent-ai/workbuddy-cloud-sdk'
 
 const HISTORY_KEY = 'acm.ai.history.v1'
@@ -105,12 +106,32 @@ export async function streamChat(
     { role: 'user' as const, content: userContent },
   ]
 
+  const conversationId = getConversationId()
+  const body: Record<string, unknown> = {
+    model, messages, stream: true,
+    ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+  }
+
+  // 桌面端：WebView 直连云端 SSE 会被 CORS 拦截，改走 Rust 代理
+  if (isDesktopApp()) {
+    const w = window as unknown as { __TAURI_INTERNALS__?: { invoke?: (cmd: string, args: Record<string, unknown>) => Promise<string> } }
+    if (!w.__TAURI_INTERNALS__?.invoke) throw new Error('桌面代理不可用，请升级应用')
+    const full = await w.__TAURI_INTERNALS__.invoke!('call_cloud_llm', {
+      endpoint: LLM_PROXY_CONFIG.endpoint,
+      publishableKey: LLM_PROXY_CONFIG.publishableKey,
+      bodyJson: JSON.stringify(body),
+      conversationId,
+    })
+    onDelta(full)
+    return full
+  }
+
   let answer = ''
   for await (const chunk of cloud.llm.chat.completions.create({
     model,
     messages,
     stream: true,
-    conversationId: getConversationId(),
+    conversationId,
     signal,
     ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
   })) {

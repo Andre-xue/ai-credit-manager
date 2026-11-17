@@ -157,7 +157,7 @@ export function AIView({ notify, accounts, sessionPwd }: {
     // 用户自己的账户：用其 Key 真正调用
     if (opt?.account) {
       const acct = opt.account
-      const pwd = sessionPwd || ''
+      const pwd = sessionPwd || getBiometricPassword() || ''
       if (!acct.encryptedKey) throw new Error('该账户未配置 API Key，请在 API Key 管理页添加')
       if (!pwd) throw new Error('请先在 API Key 管理页解锁保险箱后再使用自己的模型')
       setResolvingKey(true)
