@@ -41,6 +41,13 @@ describe('store 持久化与基础操作', () => {
     expect(a.accounts[0].createdAt).toBeTruthy()
   })
 
+  it('新账户置顶到列表最前', () => {
+    let s = addAccount(fresh(), { providerId: 'openai', label: '旧的', mode: 'manual' })
+    s = addAccount(s, { providerId: 'deepseek', label: '新的', mode: 'manual' })
+    expect(s.accounts[0].label).toBe('新的')
+    expect(s.accounts[1].label).toBe('旧的')
+  })
+
   it('移除账户级联清理额度/用量/签到', () => {
     let s = addAccount(fresh(), { providerId: 'openai', label: 'A', mode: 'manual' })
     const id = s.accounts[0].id

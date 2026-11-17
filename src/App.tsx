@@ -8,7 +8,7 @@ import {
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { PROVIDERS, PROVIDER_MAP, CATEGORY_LABEL } from './data/providers'
 import {
-  loadState, saveState, uid, addAccount, updateAccount, removeAccount, upsertQuota, latestQuota, toggleCheckin,
+  loadState, saveState, uid, updateAccount, removeAccount, upsertQuota, latestQuota, toggleCheckin,
   importState, mergeState, addUsageEvent, updateSettings, clearAllData, markBenefit,
 } from './core/store'
 import { BENEFITS, BENEFIT_KIND_LABEL, type BenefitItem } from './data/benefits'
@@ -52,6 +52,7 @@ function App() {
   const [state, setState] = useState<AppState>(() => loadState())
   const [tab, setTab] = useState<Tab>('dashboard')
   const [addOpen, setAddOpen] = useState(false)
+  const [formProviderId, setFormProviderId] = useState<string | null>(null)
   const [vaultOpen, setVaultOpen] = useState(false)
   const [quotaTarget, setQuotaTarget] = useState<string | null>(null)
   const [usageOpen, setUsageOpen] = useState(false)
@@ -355,13 +356,22 @@ function App() {
         </div>
       </main>
 
-      {addOpen && <AddAccountModal
+      {addOpen && <PlatformPickerModal
         onClose={() => setAddOpen(false)}
-        onSubmit={async (input) => {
-          // 函数式更新以避免 async 回调中的闭包陈旧
-          setState(s => addAccount(s, input))
-          setAddOpen(false)
-          notify('账户已添加，请在看板中录入额度')
+        onPick={(pid) => { setAddOpen(false); setFormProviderId(pid) }}
+      />}
+      {formProviderId && <AccountFormModal
+        provider={PROVIDER_MAP[formProviderId]} sessionPwd={sessionPwd}
+        onClose={() => setFormProviderId(null)}
+        onSave={(data) => {
+          setState(s => ({
+            ...s,
+            accounts: [{ ...data.account }, ...s.accounts],
+            quotas: data.quota ? [...s.quotas, data.quota] : s.quotas,
+          }))
+          if (data.pwd && !sessionPwd) setSessionPwd(data.pwd)
+          setFormProviderId(null)
+          notify(`已添加「${data.account.label}」，已置顶到 API Key 管理列表`)
         }}
       />}
       {vaultOpen && <VaultModal
@@ -1300,100 +1310,160 @@ function UsageView({ state, notify, onBudget, onAddUsage, onImport, onPriceChang
   )
 }
 
-function AddAccountModal({ onClose, onSubmit }: {
-  onClose: () => void;
-  onSubmit: (input: { providerId: string; label: string; mode: AccountMode; encryptedKey?: string; keyFingerprint?: string; apiUrl?: string }) => void
+/** 第一步：选择要添加的平台 */
+function PlatformPickerModal({ onClose, onPick }: {
+  onClose: () => void; onPick: (providerId: string) => void
 }) {
-  const [providerId, setProviderId] = useState('')
-  const [label, setLabel] = useState('')
-  const [mode, setMode] = useState<AccountMode>('manual')
+  return (
+    <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal" style={{ maxWidth: 560 }}>
+        <div className="modal-head"><h3>选择平台</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
+        <div className="modal-body">
+          <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginBottom: 14 }}>选择要添加账户的 AI 平台</div>
+          <div className="provider-picker" style={{ gridTemplateColumns: 'repeat(3, 1fr)', maxHeight: 380 }}>
+            {PROVIDERS.map(p => (
+              <button key={p.id} className="provider-opt" onClick={() => onPick(p.id)} title={`添加 ${p.name}`}>
+                <ProviderLogo provider={p} size={30} />
+                <span className="p-name">{p.shortName}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="modal-foot"><button className="btn" onClick={onClose}>取消</button></div>
+      </div>
+    </div>
+  )
+}
+
+/** 第二步：填表 —— 平台名(固定) / API链接(只读可跳转) / 备注 / Key+自动余额 */
+function AccountFormModal({ provider, sessionPwd, onClose, onSave }: {
+  provider: ProviderDefinition; sessionPwd: string;
+  onClose: () => void;
+  onSave: (data: { account: AppState['accounts'][number]; quota?: QuotaSnapshot; pwd: string }) => void
+}) {
+  const [note, setNote] = useState('')
   const [secret, setSecret] = useState('')
-  const [pwd, setPwd] = useState('')
+  const [pwd, setPwd] = useState(sessionPwd || getBiometricPassword() || '')
+  const [balance, setBalance] = useState<string | null>(null)
+  const [fetching, setFetching] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const adapter = getAdapter(provider.id)
 
-  const provider = PROVIDER_MAP[providerId]
-  const availableModes: AccountMode[] = provider?.modes ?? ['manual']
+  const apiUrl = provider.apiBaseUrl ?? ''
+  const keyUrl = provider.apiKeyUrl ?? provider.usageUrl ?? provider.officialUrl
 
-  useEffect(() => { if (availableModes.length && !availableModes.includes(mode)) setMode(availableModes[0]) }, [providerId])
+  const fetchBalance = async () => {
+    setErr('')
+    if (!secret.trim()) { setErr('请先输入 API Key'); return }
+    if (!adapter.supported) {
+      setBalance('该平台无公开余额 API，请在官方页面查看后手动录入')
+      return
+    }
+    setFetching(true)
+    try {
+      const r = await adapter.fetchUsage!(secret.trim())
+      const remain = (r.total ?? r.used) - r.used
+      setBalance(`剩余 ${Math.max(0, remain).toLocaleString()} ${r.unit}`)
+    } catch (e: any) { setErr(e.message ?? '获取余额失败'); setBalance(null) }
+    finally { setFetching(false) }
+  }
+
+  const reset = () => { setNote(''); setSecret(''); setPwd(sessionPwd || getBiometricPassword() || ''); setBalance(null); setErr('') }
 
   const submit = async () => {
-    if (!providerId) return
+    setErr('')
+    if (!note.trim()) { setErr('请填写备注'); return }
+    if (!secret.trim()) { setErr('请填写 API Key'); return }
+    if (!isVaultInitialized()) { setErr('请先在「设置 → 安全」创建保险箱'); return }
+    if (!pwd) { setErr('请输入主密码用于加密密钥'); return }
     setBusy(true)
     try {
-      let encryptedKey: string | undefined
-      let keyFingerprint: string | undefined
-      if (mode === 'api' && secret) {
-        if (!isVaultInitialized()) { throw new Error('请先在「API Key 管理」中创建保险箱') }
-        const ok = await verifyVault(pwd)
-        if (!ok) throw new Error('主密码错误')
-        encryptedKey = await encryptSecret(secret, pwd)
-        keyFingerprint = fingerprint(secret)
+      const ok = await verifyVault(pwd)
+      if (!ok) { setErr('主密码错误'); return }
+      const enc = await encryptSecret(secret.trim(), pwd)
+      const fp = fingerprint(secret.trim())
+      const now = new Date().toISOString()
+      // 解析已获取的余额为额度快照（若成功获取）
+      const quotaMatch = balance?.match(/剩余\s*([\d,]+(?:\.\d+)?)/)
+      const quotaTotal = quotaMatch ? Number(quotaMatch[1].replace(/,/g, '')) : 0
+      const account: AppState['accounts'][number] = {
+        id: uid('acc'), providerId: provider.id, label: provider.shortName, mode: 'api',
+        encryptedKey: enc, keyFingerprint: fp, apiUrl: apiUrl || undefined, note: note.trim(),
+        createdAt: now, updatedAt: now,
       }
-      onSubmit({
-        providerId, label: label.trim() || provider!.shortName, mode, encryptedKey, keyFingerprint,
-        apiUrl: provider?.apiBaseUrl, // 自动填入官方 API 地址
-      })
-    } catch (e: any) { alert(e.message ?? '保存失败') } finally { setBusy(false) }
+      const quota: QuotaSnapshot | undefined = quotaTotal > 0 ? {
+        id: uid('q'), accountId: account.id, unit: 'token' as CreditUnit, total: quotaTotal, used: 0,
+        capturedAt: now, source: 'api' as const,
+      } : undefined
+      onSave({ account, quota, pwd })
+    } catch (e: any) { setErr(e.message ?? '保存失败') }
+    finally { setBusy(false) }
   }
 
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="modal">
-        <div className="modal-head"><h3>添加账户</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
-        <div className="modal-body">
-          <div className="field">
-            <label>选择平台</label>
-            <div className="provider-picker">
-              {PROVIDERS.map(p => (
-                <button key={p.id} className={`provider-opt ${providerId === p.id ? 'selected' : ''}`} onClick={() => setProviderId(p.id)}>
-                  <ProviderLogo provider={p} size={28} />
-                  <span className="p-name">{p.shortName}</span>
-                </button>
-              ))}
+      <div className="modal account-form-modal" style={{ maxWidth: 520 }}>
+        <div className="modal-head">
+          <div className="row" style={{ gap: 10 }}>
+            <ProviderLogo provider={provider} size={30} />
+            <div>
+              <h3 style={{ margin: 0 }}>添加账户</h3>
+              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>填写下方信息以添加并加密保存</div>
             </div>
           </div>
-          {provider && (
-            <>
-              <div className="field">
-                <label>账户名称</label>
-                <input className="input" placeholder={`例如：我的 ${provider.shortName} 账户`} value={label} onChange={e => setLabel(e.target.value)} />
-              </div>
-              <div className="field">
-                <label>数据方式</label>
-                <select className="select" value={mode} onChange={e => setMode(e.target.value as AccountMode)}>
-                  {availableModes.map(m => <option key={m} value={m}>{MODE_LABEL[m]}</option>)}
-                </select>
-                <div className="desc">
-                  {mode === 'api' ? '保存官方 API Key（加密）后可只读查询用量。' :
-                   mode === 'subscription' ? '订阅制：记录订阅与到期，用量到官方页面查看。' :
-                   '平台无公开用量 API：请到官方页面查看后，在看板中手动录入额度。'}
-                </div>
-              </div>
-              {mode === 'api' && (
-                <>
-                  <div className="field-row">
-                    <div className="field">
-                      <label>API Key</label>
-                      <input className="input" type="password" placeholder="sk-..." value={secret} onChange={e => setSecret(e.target.value)} />
-                    </div>
-                    <div className="field">
-                      <label>主密码</label>
-                      <input className="input" type="password" placeholder="用于加密" value={pwd} onChange={e => setPwd(e.target.value)} />
-                    </div>
-                  </div>
-                </>
-              )}
-            </>
-          )}
+          <button className="icon-btn" onClick={onClose}><X size={18} /></button>
         </div>
-        <div className="modal-foot">
-          <button className="btn" onClick={onClose}>取消</button>
-          <button className="btn primary" onClick={submit} disabled={!providerId || busy}>添加账户</button>
+        <div className="modal-body">
+          {/* 行1：平台名（固定写死） */}
+          <div className="form-row">
+            <label className="form-label">平台名称</label>
+            <div className="form-static"><ProviderLogo provider={provider} size={22} /> <b>{provider.name}</b><span className="tag gray" style={{ marginLeft: 'auto' }}>固定</span></div>
+          </div>
+          {/* 行2：API 链接地址（只读可点击直达创建 key 页） */}
+          <div className="form-row">
+            <label className="form-label">API 链接地址 <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>· 点击前往官方创建 Key</span></label>
+            <button className="form-link" onClick={() => { void openExternal(keyUrl); }} title={keyUrl}>
+              <span>{provider.apiBaseUrl || '—'}</span><ExternalLink size={13} />
+            </button>
+            <div className="form-hint">只读 · 点击上述地址可直达官方 API Key 管理页</div>
+          </div>
+          {/* 行3：备注（必填，用于 API Key 管理页筛选） */}
+          <div className="form-row">
+            <label className="form-label">备注 <span className="req">*</span> <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>· 用于 API Key 管理页分类查询</span></label>
+            <input className="input" placeholder="例如：[文本] 日常对话 / [图片] 生成" value={note} onChange={e => setNote(e.target.value)} />
+            <div className="form-hint">用 [分类] 开头可在 Key 管理页按分类下拉筛选</div>
+          </div>
+          {/* 行4：API Key 输入 + 自动获取余额 */}
+          <div className="form-row">
+            <label className="form-label">API Key <span className="req">*</span> <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>· 输入后自动获取余额</span></label>
+            <div className="row" style={{ gap: 8 }}>
+              <input className="input" style={{ flex: 1 }} type="text" placeholder="粘贴你的 API Key（明文输入）" value={secret} onChange={e => { setSecret(e.target.value); setBalance(null) }} />
+              <button className="btn sm" onClick={() => void fetchBalance()} disabled={fetching || !secret.trim()}>
+                <RefreshCw size={13} style={fetching ? { animation: 'acm-spin 1s linear infinite' } : undefined} /> {fetching ? '获取中' : '获取余额'}
+              </button>
+            </div>
+            <div className={`balance-box ${balance ? 'has' : ''}`}>
+              <Wallet size={13} /> {balance ?? '余额未获取（可选，可稍后手动录入）'}
+            </div>
+          </div>
+          {/* 主密码（加密必需） */}
+          <div className="form-row">
+            <label className="form-label">主密码 <span className="req">*</span> <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>· 用于加密密钥</span></label>
+            <input className="input" type="text" placeholder="输入主密码" value={pwd} onChange={e => setPwd(e.target.value)} />
+          </div>
+          {err && <div className="form-error">{err}</div>}
+        </div>
+        <div className="modal-foot account-form-foot">
+          <button className="btn btn-close" onClick={onClose}>关闭</button>
+          <button className="btn btn-reset" onClick={reset}>重置</button>
+          <button className="btn btn-add" onClick={() => void submit()} disabled={busy}>{busy ? '添加中…' : '添加'}</button>
         </div>
       </div>
     </div>
   )
 }
+
 
 function VaultModal({ initialized, currentPwd, onClose, onInit, notify }: {
   initialized: boolean

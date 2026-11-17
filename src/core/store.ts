@@ -64,7 +64,8 @@ export function addAccount(
 ): AppState {
   const now = new Date().toISOString()
   const account: Account = { id: uid('acc'), ...input, createdAt: now, updatedAt: now }
-  return { ...state, accounts: [...state.accounts, account] }
+  // 新账户放到最前（API Key 管理页置顶显示）
+  return { ...state, accounts: [account, ...state.accounts] }
 }
 
 /** 局部更新账户（编辑名称/API 地址/备注/密钥等） */

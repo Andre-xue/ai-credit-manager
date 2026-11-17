@@ -93,6 +93,29 @@ button { cursor: pointer; }
 .btn.ghost:hover { background: var(--panel-2); color: var(--text); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 
+/* 三色操作按钮（添加账户弹窗） */
+.btn.btn-close { background: var(--panel-2); border-color: var(--border-strong); color: var(--text-2); }
+.btn.btn-reset { background: #fff7ed; border-color: #fed7aa; color: #c2410c; }
+.btn.btn-reset:hover { background: #ffedd5; }
+.btn.btn-add { background: #059669; border-color: #059669; color: #fff; font-weight: 600; }
+.btn.btn-add:hover { background: #047857; border-color: #047857; }
+.account-form-foot { justify-content: space-between !important; gap: 10px; }
+.account-form-foot .btn { flex: 1; padding: 10px 0; font-size: 13px; }
+.form-error { background: var(--red-soft); color: var(--red); font-size: 12px; padding: 9px 12px; border-radius: 7px; margin-top: 12px; }
+
+/* 添加账户表单行 */
+.form-row { margin-bottom: 18px; }
+.form-row:last-child { margin-bottom: 0; }
+.form-label { display: block; font-size: 12.5px; font-weight: 600; color: var(--text); margin-bottom: 7px; }
+.form-label .req { color: var(--red); }
+.form-static { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; font-size: 13px; }
+.form-link { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 10px 12px; background: var(--primary-soft); border: 1px solid var(--border); border-radius: 8px; color: var(--primary); font-size: 12.5px; text-align: left; }
+.form-link:hover { border-color: var(--primary); }
+.form-link span { font-family: ui-monospace, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.form-hint { font-size: 11px; color: var(--text-3); margin-top: 5px; }
+.balance-box { display: flex; align-items: center; gap: 7px; margin-top: 8px; padding: 9px 12px; border-radius: 7px; font-size: 12px; background: var(--panel-2); color: var(--text-3); border: 1px dashed var(--border-strong); }
+.balance-box.has { background: var(--green-soft, #ecfdf5); color: var(--green); border: 1px solid #a7f3d0; font-weight: 500; }
+
 .content { padding: 26px 30px 50px; max-width: 1240px; margin: 0 auto; }
 
 /* Stats */

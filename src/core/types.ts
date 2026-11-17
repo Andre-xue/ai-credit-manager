@@ -26,6 +26,8 @@ export interface ProviderDefinition {
   checkinUrl?: string
   /** 官方 API base_url（自动填充到账户的链接地址） */
   apiBaseUrl?: string
+  /** 官方创建/管理 API Key 的页面（仅跳转，由本人操作） */
+  apiKeyUrl?: string
   color: string
   initials: string
   /** 该平台账户支持的数据获取方式 */
