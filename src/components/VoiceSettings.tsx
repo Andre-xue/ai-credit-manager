@@ -11,7 +11,6 @@ import {
   loadVoiceSample, saveVoiceSample, deleteVoiceSample, recordVoiceSample,
   cloneVoiceFromSample, getClonedVoiceId, type VoiceSample,
 } from '../core/voiceClone'
-import { requirePermission } from '../core/permissions'
 import { isDesktopApp, openExternal } from '../core/openExternal'
 import { VOICE_PROVIDERS } from '../core/voiceProviders'
 import {
@@ -117,7 +116,6 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
 
   const doRecord = async () => {
     if (desktop) { notify('桌面端 WebView 不提供浏览器录音接口，请用「选择音频文件」导入样本'); return }
-    if (!requirePermission('microphone', notify)) return
     try {
       notify('开始录音，8 秒后自动结束…')
       const blob = await recordVoiceSample(8)

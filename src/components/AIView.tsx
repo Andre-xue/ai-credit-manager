@@ -28,7 +28,6 @@ import { PROVIDER_MAP } from '../data/providers'
 import {
   pickAttachment, currentPlatform, type AttachmentKind, type PickedAttachment,
 } from '../core/attachments'
-import { requirePermission, type PermissionKey } from '../core/permissions'
 import {
   enginesFor, enginesFromRemote, hasCatalog, REASONING_LEVELS, REASONING_DESC, toReasoningEffort,
   type ReasoningLevel,
@@ -313,10 +312,6 @@ export function AIView({ notify, accounts }: {
       ]
 
   const onPickAttachment = async (kind: AttachmentKind) => {
-    const needed: PermissionKey = kind === 'camera' ? 'camera'
-      : kind === 'file' ? 'files'
-        : platform === 'desktop' ? 'photosApp' : 'photoVideo'
-    if (!requirePermission(needed, notify)) return
     setAttachOpen(false)
     setPicking(true)
     try {
@@ -412,10 +407,7 @@ export function AIView({ notify, accounts }: {
                 <Cpu size={13} /> 引擎 <ChevronDown size={13} />
               </button>
             )}
-            <button className="ai-icon-btn call" onClick={() => {
-              if (!requirePermission('microphone', notify)) return
-              setCallOpen(true)
-            }} disabled={!callEnabled}
+            <button className="ai-icon-btn call" onClick={() => setCallOpen(true)} disabled={!callEnabled}
               title={callEnabled ? 'AI 语音通话' : '当前分类模型不支持语音通话'}><Phone size={17} /></button>
             <div className="ai-model-wrap">
               <button className="ai-icon-btn" onClick={() => { setAttachOpen(v => !v); setModelOpen(false); setCategoryOpen(false) }} title="添加附件"><Plus size={18} /></button>
