@@ -25,8 +25,15 @@ export function UpdateModal({ onClose, notify }: { onClose: () => void; notify: 
       if (platform === 'desktop') {
         const u = await checkDesktopUpdate()
         if (!alive) return
-        if (u) { setLatest(u.version); setNotes(u.body ?? ''); setPhase('available') }
-        else setPhase('latest')
+        if (u) { setLatest(u.version); setNotes(u.body ?? ''); setPhase('available'); return }
+        // 没有签名更新清单时退回 GitHub Releases 检查：提示手动下载安装包
+        const info = await checkReleaseUpdate()
+        if (!alive) return
+        if (!info) { setPhase('error'); return }
+        setLatest(info.latest)
+        setNotes(info.notes)
+        setReleaseUrl(info.releaseUrl)
+        setPhase(info.hasUpdate ? 'manual' : 'latest')
         return
       }
       if (platform === 'miniapp') {
@@ -140,6 +147,14 @@ export function UpdateModal({ onClose, notify }: { onClose: () => void; notify: 
               )}
               {platform === 'miniapp' && (
                 <div className="upd-hint">小程序由微信平台托管更新：检测到新版本后会自动下载，下载完成会弹窗询问是否重启。也可在微信「发现 → 小程序 → 我的小程序」中下拉刷新检查。</div>
+              )}
+              {platform === 'desktop' && (
+                <>
+                  <div className="upd-hint">当前安装包未配置签名更新通道，无法静默升级。请到 GitHub 下载页获取最新安装包，下载后覆盖安装即可，数据不会丢失。</div>
+                  <a className="btn primary" style={{ width: '100%', justifyContent: 'center' }} href={releaseUrl || 'https://github.com/Andre-xue/ai-credit-manager/releases/latest'} target="_blank" rel="noreferrer">
+                    <ExternalLink size={16} /> 前往下载页
+                  </a>
+                </>
               )}
             </div>
           )}

@@ -58,6 +58,24 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      # 缺少签名密钥时禁用 updater 产物生成，避免 tauri build 直接失败；
+      # 此时仍能产出正常安装包，应用更新页会自动改为「前往 GitHub 下载」。
+      - name: Prepare updater config
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY 未配置，本次构建无签名更新包（更新页提示手动下载）"
+            node <<'NODE'
+            const fs = require('fs')
+            const p = 'desktop/src-tauri/tauri.conf.json'
+            const d = JSON.parse(fs.readFileSync(p, 'utf8'))
+            d.bundle.createUpdaterArtifacts = false
+            fs.writeFileSync(p, JSON.stringify(d, null, 2) + '\n')
+            NODE
+          fi
+
       - name: Install Tauri CLI & build installer
         working-directory: desktop
         shell: bash
