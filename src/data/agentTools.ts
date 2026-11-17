@@ -81,11 +81,12 @@ export const AGENT_TOOLS: AgentTool[] = [
     localApp: { bundleIds: ['com.zhihuishu.chatglm', 'com.zhipu.chatglm'], exeNames: ['ChatGLM.exe'] },
   },
   {
-    id: 'minimax', name: 'MiniMax', nameEn: 'MiniMax', region: 'cn', category: '对话助手', canCheckin: true,
-    downloadUrl: 'https://www.minimaxi.com/', checkinUrl: 'https://www.minimaxi.com/',
-    checkinTip: '网页/App 账户菜单 →「每日签到」，每日约 400 积分，第 4/7 天有额外奖励；积分有效期约 30 天。',
-    icon: icon('minimax'), color: '#0f172a', desc: '稀宇科技旗下 AI 助手，海螺视频、语音合成与文本模型一体的创作工具。',
-    localApp: { bundleIds: ['com.minimax.hub', 'com.minimax.MiniMax'], exeNames: ['MiniMax.exe'] },
+    id: 'minimax', name: 'MiniMax Code', nameEn: 'MiniMax Code', region: 'cn', category: '对话助手', canCheckin: true,
+    // 签到在 MiniMax Code / Agent 的「用量」页（网页端也能签），官方国内站 agent.minimax.cn
+    downloadUrl: 'https://agent.minimax.cn/', checkinUrl: 'https://agent.minimax.cn/',
+    checkinTip: 'MiniMax Code / Agent 登录后进「用量」页 → 每日签到，每日 400 积分，第 4/7 天各 1000，满一周 4000；积分 30 天有效。注意：「MiniMax Design」是设计工具，没有签到，请勿混淆。签到需手动点，不会自动到账。',
+    icon: icon('minimax'), color: '#0f172a', desc: '稀宇科技旗下 AI Agent，海螺视频、语音合成与深度研究一体；签到在 MiniMax Code。',
+    // 本机常见的 MiniMax Design（com.minimax.hub）是设计工具、无签到，不作为签到客户端映射。
   },
   {
     id: 'trae', name: 'Trae', nameEn: 'Trae', region: 'cn', category: '编程开发', canCheckin: true,
