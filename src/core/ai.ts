@@ -2,7 +2,7 @@
 // 对话历史仅存本机 localStorage，不纳入账单数据的云同步——聊天是私密且高频的内容，
 // 与额度数据分离可避免同步载荷膨胀，也符合用户对对话隐私的预期。
 
-import { cloud, LLM_PROXY_CONFIG } from './cloud'
+import { LLM_PROXY_CONFIG } from './cloud'
 import { isDesktopApp, isNativeApp } from './openExternal'
 import type { ChatCompletionContentPart } from '@tencent-ai/workbuddy-cloud-sdk'
 
@@ -32,10 +32,53 @@ export const SYSTEM_PROMPT = [
 
 const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 
-/** 拉取可用模型列表（过滤 disabled），空列表交给 UI 处理 */
+/**
+ * 拉取可用模型列表（过滤 disabled），空列表交给 UI 处理。
+ * 关键：模型目录是公开接口，只能带 publishableKey，绝不能带登录态 Authorization。
+ * 云 SDK 的 fetch 在登录后会自动附加用户 token，导致该接口 401 —— 这正是
+ * "未登录有模型、登录后模型消失并报请先登录" 的根因，所以这里绕开 SDK 直连。
+ */
 export async function listModels(): Promise<AiModel[]> {
-  const models = await cloud.llm.models.list()
-  return models.filter(m => m.disabled !== true).map(m => ({ id: m.id, name: m.name ?? m.id }))
+  const url = `${LLM_PROXY_CONFIG.endpoint}/.cloud/llm/models`
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'x-wb-webapp-access-key': LLM_PROXY_CONFIG.publishableKey,
+  }
+  let text: string
+  if (isNativeApp()) {
+    const { CapacitorHttp } = await import('@capacitor/core')
+    const res = await CapacitorHttp.request({ url, method: 'GET', headers, responseType: 'text' })
+    if (res.status < 200 || res.status >= 300) throw new Error(`模型列表请求失败（${res.status}）`)
+    text = typeof res.data === 'string' ? res.data : JSON.stringify(res.data ?? '')
+  } else {
+    const res = await fetch(url, { method: 'GET', headers })
+    text = await res.text()
+    if (!res.ok) throw new Error(`模型列表请求失败（${res.status}）：${text.slice(0, 120)}`)
+  }
+  const json = JSON.parse(text)
+  const raw: any[] = Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : [])
+  return raw
+    .filter(m => m && typeof m.id === 'string' && m.disabled !== true)
+    .map(m => ({ id: m.id, name: m.name ?? m.id }))
+}
+
+/** 统一解析云端 SSE：兼容 content 与 reasoning_content 两种内容字段 */
+function parseSse(raw: string, onDelta?: (text: string) => void): string {
+  let answer = ''
+  let reasoning = ''
+  for (const line of raw.split('\n')) {
+    const t = line.trim()
+    if (!t.startsWith('data:')) continue
+    const d = t.slice(5).trim()
+    if (!d || d === '[DONE]') continue
+    try {
+      const j = JSON.parse(d)
+      const delta = j?.choices?.[0]?.delta
+      if (delta?.content) { answer += delta.content; onDelta?.(delta.content) }
+      else if (delta?.reasoning_content) { reasoning += delta.reasoning_content; onDelta?.(delta.reasoning_content) }
+    } catch { /* 忽略非 JSON 行 */ }
+  }
+  return answer || reasoning
 }
 
 export function loadHistory(): ChatMessage[] {
@@ -144,43 +187,26 @@ export async function streamChat(
       connectTimeout: 20000,
     })
     if (res.status < 200 || res.status >= 300) throw new Error(`云端请求失败（${res.status}），请检查网络`)
-    // 解析 SSE：累加 data: 帧里的 choices[0].delta.content
     const raw = typeof res.data === 'string' ? res.data : JSON.stringify(res.data ?? '')
-    let answer = ''
-    let reasoning = ''
-    for (const line of raw.split('\n')) {
-      const t = line.trim()
-      if (!t.startsWith('data:')) continue
-      const d = t.slice(5).trim()
-      if (!d || d === '[DONE]') continue
-      try {
-        const j = JSON.parse(d)
-        const delta = j?.choices?.[0]?.delta
-        if (delta?.content) answer += delta.content
-        else if (delta?.reasoning_content) reasoning += delta.reasoning_content
-      } catch { /* 忽略非 JSON 行 */ }
-    }
-    const full = answer || reasoning
-    if (full) onDelta(full)
+    const full = parseSse(raw, onDelta)
     return full
   }
 
-  let answer = ''
-  for await (const chunk of cloud.llm.chat.completions.create({
-    model,
-    messages,
-    stream: true,
-    conversationId,
+  // Web：登录后 SDK 会自动带用户 token 导致免费模型接口 401，这里显式只带 publishableKey
+  const res = await fetch(`${LLM_PROXY_CONFIG.endpoint}/.cloud/llm/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream',
+      'x-wb-webapp-access-key': LLM_PROXY_CONFIG.publishableKey,
+      'X-Conversation-ID': conversationId,
+    },
+    body: JSON.stringify({ ...body, conversationId }),
     signal,
-    ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
-  })) {
-    const delta = chunk.choices?.[0]?.delta
-    if (delta?.content) {
-      answer += delta.content
-      onDelta(delta.content)
-    }
-  }
-  return answer
+  })
+  const text = await res.text()
+  if (!res.ok) throw new Error(`云端请求失败（${res.status}）：${text.slice(0, 160)}`)
+  return parseSse(text, onDelta)
 }
 
 /** 把 SDK/网络错误转成用户可读的中文提示 */

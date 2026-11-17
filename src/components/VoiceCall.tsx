@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Phone, PhoneOff, Mic, MicOff, Volume2, Loader2, Keyboard, Send, ShieldCheck,
 } from 'lucide-react'
-import { speak, stopSpeak, getSavedVoice } from '../core/tts'
+import { speak, stopSpeak, getSavedVoice, unlockTts } from '../core/tts'
 import { isNativeApp, isDesktopApp } from '../core/openExternal'
 
 type Engine = 'capacitor' | 'web' | 'none'
@@ -177,6 +177,8 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock }
 
   const startListening = async () => {
     if (!sessionActive.current || busyRef.current) return
+    // 用户手势内预热 TTS，否则 Android WebView 里后续 AI 回复常无法发声
+    unlockTts()
     const ok = await ensurePermission()
     if (!ok) { setFallbackOpen(true); return }
 

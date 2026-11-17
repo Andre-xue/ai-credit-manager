@@ -65,6 +65,23 @@ export function saveRate(r: number): void {
   try { localStorage.setItem(RATE_KEY, String(r)) } catch { /* 忽略 */ }
 }
 
+let ttsUnlocked = false
+
+/**
+ * 在用户手势（点麦克风/发送）中预热系统 TTS。
+ * Android WebView 常要求先有用户手势才允许后续 speechSynthesis 发声。
+ */
+export function unlockTts(): void {
+  if (ttsUnlocked || typeof window === 'undefined' || !('speechSynthesis' in window)) return
+  try {
+    const u = new SpeechSynthesisUtterance(' ')
+    u.volume = 0
+    u.lang = 'zh-CN'
+    window.speechSynthesis.speak(u)
+    ttsUnlocked = true
+  } catch { /* 忽略：部分 WebView 不支持朗读空文本 */ }
+}
+
 let activeCallback: ((state: 'start' | 'end' | 'error') => void) | null = null
 
 export function isSpeaking(): boolean {
