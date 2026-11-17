@@ -1,5 +1,5 @@
-// 设置页「语音朗读」区块：系统音色选择、方言音色（需第三方 TTS）、试听、语速、
-// 第三方 TTS 配置、音色文件下载管理（单槽位互斥）。
+// 「语音配置」独立模块：系统音色选择、方言音色（需第三方 TTS）、试听、语速、
+// 第三方 TTS 配置、音色文件下载管理（单槽位互斥）、声音样本录音/克隆。
 
 import { useEffect, useState } from 'react'
 import { Volume2, Play, Square, Download, Trash2, Loader2, Info, MapPin, Globe2, Mic } from 'lucide-react'

@@ -50,7 +50,7 @@ type CsvImportPreview =
   | { kind: 'quotas'; quotas: ReturnType<typeof parseQuotasCsv> }
   | { kind: 'usage'; events: UsageEventInput[] }
 
-type Tab = 'ai' | 'dashboard' | 'checkin' | 'benefits' | 'keys' | 'usage' | 'settings'
+type Tab = 'ai' | 'dashboard' | 'checkin' | 'benefits' | 'keys' | 'usage' | 'voice' | 'settings'
 
 const UNIT_LABEL: Record<CreditUnit, string> = {
   credit: '积分', token: 'Tokens', request: '次', currency: '元', day: '天',
@@ -468,14 +468,15 @@ function App() {
     { id: 'benefits', label: '福利中心', icon: Gift },
     { id: 'keys', label: 'API Key 管理', icon: KeyRound },
     { id: 'usage', label: '用量与费用', icon: BarChart3 },
+    { id: 'voice', label: '语音配置', icon: Volume2 },
     { id: 'settings', label: '设置', icon: Settings },
   ]
 
   // 移动端底部导航：AI 置于正中间（看板/签到/福利 · AI · 密钥/用量/设置）
-  const bottomTabs: Tab[] = ['dashboard', 'checkin', 'benefits', 'ai', 'keys', 'usage', 'settings']
+  const bottomTabs: Tab[] = ['dashboard', 'checkin', 'benefits', 'ai', 'keys', 'usage', 'voice', 'settings']
   const shortLabel: Record<Tab, string> = {
     ai: 'AI', dashboard: '看板', checkin: '签到', benefits: '福利',
-    keys: '密钥', usage: '用量', settings: '设置',
+    keys: '密钥', usage: '用量', voice: '语音', settings: '设置',
   }
 
   return (
@@ -595,6 +596,12 @@ function App() {
               notify(`已导入 ${events.length} 条用量记录`)
             }}
           />}
+
+          {tab === 'voice' && <div className="set-content">
+            <SettingsSection title="语音配置" desc="朗读音色、方言、语速与声音克隆 · 所有配置仅保存在此设备" icon={Volume2} tone="blue">
+              <div style={{ padding: '4px 2px 2px' }}><VoiceSettings notify={notify} /></div>
+            </SettingsSection>
+          </div>}
 
           {tab === 'settings' && <SettingsView
             state={state}
@@ -2857,10 +2864,6 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
             <SettingsRow title="测试通知" desc="发送一条本地测试提醒，验证权限与显示">
               <button className="btn sm" onClick={onTestNotify}>发送测试</button>
             </SettingsRow>
-          </SettingsSection>
-
-          <SettingsSection title="语音朗读" desc="AI 回复朗读音色与方言" icon={Volume2} tone="blue">
-            <div style={{ padding: '4px 2px 2px' }}><VoiceSettings notify={notify} /></div>
           </SettingsSection>
         </>}
 
