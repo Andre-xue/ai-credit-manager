@@ -42,7 +42,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERCN0ZDNzZFMDE3M0IwQTAKUldTZ3NITUJic2QvMndEQ3pXeDZhT3ZLZzFoMWRuTGF1M1JQMTRVbkhDd2FNa2toZmVSM2ZqY2IK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI4N0E2MEIzOTA4QTc4QTMKUldTamVJcVFzMkI2dUN6R01VcG8yUGpkQnVtWVhkeXdzVTMwRUZCdFJZR3R0TnFGMndEdGJ2TC8K",
       "endpoints": [
         "https://github.com/Andre-xue/ai-credit-manager/releases/latest/download/latest.json"
       ],
