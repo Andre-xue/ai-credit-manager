@@ -7,7 +7,7 @@
 import { isDesktopApp, isNativeApp } from './openExternal'
 
 /** 与 tauri.conf.json / package.json 保持一致 */
-export const APP_VERSION = '0.1.61'
+export const APP_VERSION = '0.1.62'
 
 const REPO = 'Andre-xue/ai-credit-manager'
 const RELEASES_API = `https://api.github.com/repos/${REPO}/releases/latest`
@@ -45,6 +45,8 @@ export interface UpdateInfo {
   publishedAt?: string
   /** 网络/接口错误说明；有值时界面展示具体原因而不是"检查网络" */
   error?: string
+  /** 该 Release 是否已经上传桌面安装包与更新清单 */
+  installersReady?: boolean
 }
 
 interface GitHubRelease {
@@ -70,12 +72,16 @@ export async function checkReleaseUpdate(): Promise<UpdateInfo | null> {
     const rel = await res.json() as GitHubRelease
     const latest = rel.tag_name?.replace(/^v/i, '') ?? ''
     if (!latest) return { ...base, error: 'GitHub 未返回版本号' }
+    const assets = rel.assets ?? []
+    const installersReady = assets.some(a => a.name === 'latest.json')
+      && assets.some(a => /\.(dmg|exe|msi|AppImage|deb)$/i.test(a.name))
     return {
       ...base,
       latest,
       hasUpdate: versionGreater(latest, APP_VERSION),
       notes: rel.body ?? '',
       publishedAt: rel.published_at,
+      installersReady,
     }
   } catch (e) {
     return { ...base, error: `无法连接 GitHub：${(e as Error)?.message ?? String(e)}` }

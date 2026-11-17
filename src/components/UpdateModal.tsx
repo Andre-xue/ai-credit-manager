@@ -6,6 +6,7 @@ import {
   installDesktopUpdate, relaunchApp, dockerUpdateCommands, latestApkUrl,
   checkMiniappUpdate, type UpdatePlatform,
 } from '../core/updater'
+import { openExternal } from '../core/openExternal'
 
 type Phase = 'checking' | 'available' | 'latest' | 'downloading' | 'ready' | 'error' | 'manual'
 
@@ -34,7 +35,12 @@ export function UpdateModal({ onClose, notify }: { onClose: () => void; notify: 
         setLatest(info.latest)
         setNotes(info.notes)
         setReleaseUrl(info.releaseUrl)
-        setPhase(info.hasUpdate ? 'manual' : 'latest')
+        if (!info.hasUpdate) { setPhase('latest'); return }
+        if (info.installersReady === false) {
+          setErrMsg('新版本已发布，但桌面安装包还在构建中（通常几分钟）。请稍后再点检查更新。')
+          setPhase('error'); return
+        }
+        setPhase('manual')
         return
       }
       if (platform === 'miniapp') {
@@ -103,13 +109,13 @@ export function UpdateModal({ onClose, notify }: { onClose: () => void; notify: 
                 <>
                   <div className="upd-hint">安卓 APK 需手动下载安装（系统要求用户确认）。下载后覆盖安装即可，数据不会丢失。</div>
                   {apkUrl ? (
-                    <a className="btn primary" style={{ width: '100%', justifyContent: 'center' }} href={apkUrl} target="_blank" rel="noreferrer">
+                    <button className="btn primary" style={{ width: '100%' }} onClick={() => void openExternal(apkUrl)}>
                       <Smartphone size={16} /> 下载最新 APK
-                    </a>
+                    </button>
                   ) : (
-                    <a className="btn" style={{ width: '100%', justifyContent: 'center' }} href={releaseUrl || 'https://github.com/Andre-xue/ai-credit-manager/releases/latest'} target="_blank" rel="noreferrer">
+                    <button className="btn" style={{ width: '100%' }} onClick={() => void openExternal(releaseUrl || 'https://github.com/Andre-xue/ai-credit-manager/releases/latest')}>
                       <ExternalLink size={16} /> 前往下载页
-                    </a>
+                    </button>
                   )}
                 </>
               )}
@@ -152,9 +158,9 @@ export function UpdateModal({ onClose, notify }: { onClose: () => void; notify: 
               {platform === 'desktop' && (
                 <>
                   <div className="upd-hint">当前安装包未配置签名更新通道，无法静默升级。请到 GitHub 下载页获取最新安装包，下载后覆盖安装即可，数据不会丢失。</div>
-                  <a className="btn primary" style={{ width: '100%', justifyContent: 'center' }} href={releaseUrl || 'https://github.com/Andre-xue/ai-credit-manager/releases/latest'} target="_blank" rel="noreferrer">
+                  <button className="btn primary" style={{ width: '100%' }} onClick={() => void openExternal(releaseUrl || 'https://github.com/Andre-xue/ai-credit-manager/releases/latest')}>
                     <ExternalLink size={16} /> 前往下载页
-                  </a>
+                  </button>
                 </>
               )}
             </div>
