@@ -114,8 +114,9 @@ export async function streamChat(
 
 /** 把 SDK/网络错误转成用户可读的中文提示 */
 export function friendlyAiError(error: unknown): string {
-  const e = error as { name?: string; message?: string; code?: string }
+  const e = error as { name?: string; message?: string; code?: string; cors?: boolean }
   if (e?.name === 'AbortError') return '已停止生成'
+  if (e?.cors) return '浏览器直连被跨域拦截，请在桌面客户端使用（走本地代理），或检查平台是否开放 API。'
   const msg = e?.message ?? String(error ?? '')
   const low = msg.toLowerCase()
   if (low.includes('quota') || low.includes('credit') || low.includes('额度')) return '模型额度不足，请稍后再试'

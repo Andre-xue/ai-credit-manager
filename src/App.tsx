@@ -32,6 +32,7 @@ import { openExternal, openTool, isDesktopApp, isAppInstalled, biometricAvailabl
 import { cloud, type CloudUser } from './core/cloud'
 import { AIView } from './components/AIView'
 import { VoiceSettings } from './components/VoiceSettings'
+import { NOTE_CATEGORIES, buildNote, categoryFromNote, type NoteCategory } from './core/modelCategories'
 import { pullPayload, pushPayload, applyPayload, getLastSyncAt, getClientId, checkRemoteVersion, setBaseline, getRemoteVersion, type PullResult } from './core/sync'
 import { CloudLoginModal } from './components/CloudLogin'
 
@@ -439,7 +440,7 @@ function App() {
         </header>
 
         <div className={`content ${tab === 'ai' ? 'content-ai' : ''}`}>
-          {tab === 'ai' && <AIView notify={notify} />}
+          {tab === 'ai' && <AIView notify={notify} accounts={state.accounts} sessionPwd={sessionPwd} />}
           {tab === 'dashboard' && <>
           <div className="stats-grid">
             <StatCard icon={<Wallet size={17} />} color="blue" label="资源总估值" value={`¥${portfolioValue.toFixed(0)}`} hint={`${state.accounts.length} 个账户 · 单价可校准`} />
@@ -1386,7 +1387,8 @@ function KeyEditModal({ account, provider, currentKey, onClose, onSave, notify }
 }) {
   const [label, setLabel] = useState(account.label)
   const [apiUrl, setApiUrl] = useState(account.apiUrl ?? '')
-  const [note, setNote] = useState(account.note ?? '')
+  const [noteCat, setNoteCat] = useState<NoteCategory>(() => categoryFromNote(account.note))
+  const [noteExtra, setNoteExtra] = useState(() => (account.note ?? '').replace(/^\[[^\]]+\]\s*/, '').split(/[:：]/).slice(1).join(':').trim())
   const [newKey, setNewKey] = useState('')
 
   return (
@@ -1411,9 +1413,12 @@ function KeyEditModal({ account, provider, currentKey, onClose, onSave, notify }
             {provider.apiBaseUrl && <div className="desc">官方地址：{provider.apiBaseUrl}（留空则自动使用此地址）</div>}
           </div>
           <div className="field">
-            <label>备注 (用途)</label>
-            <input className="input" placeholder="[分类] 说明，如 [文本] 对话" value={note} onChange={e => setNote(e.target.value)} />
-            <div className="desc">用方括号包裹分类（如 [文本]、[图片]、[语音]），即可在列表页按分类快速筛选。</div>
+            <label>模型分类</label>
+            <select className="select" value={noteCat} onChange={e => setNoteCat(e.target.value as NoteCategory)}>
+              {NOTE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <input className="input" style={{ marginTop: 8 }} placeholder="补充说明（可选）" value={noteExtra} onChange={e => setNoteExtra(e.target.value)} />
+            <div className="desc">分类决定 AI 助手里该模型的用途与联动</div>
           </div>
           <div className="field">
             <label>更换 API Key（留空表示不修改）</label>
@@ -1425,7 +1430,7 @@ function KeyEditModal({ account, provider, currentKey, onClose, onSave, notify }
           <button className="btn" onClick={onClose}>取消</button>
           <button className="btn primary" onClick={() => {
             if (!label.trim()) { notify('名称不能为空'); return }
-            onSave({ label: label.trim(), apiUrl: apiUrl.trim(), note: note.trim() }, newKey.trim() || undefined)
+            onSave({ label: label.trim(), apiUrl: apiUrl.trim(), note: buildNote(noteCat, noteExtra) }, newKey.trim() || undefined)
           }}>保存</button>
         </div>
       </div>
@@ -1682,6 +1687,7 @@ function AccountFormModal({ provider, sessionPwd, onClose, onSave }: {
   onSave: (data: { account: AppState['accounts'][number]; quota?: QuotaSnapshot; pwd: string }) => void
 }) {
   const [note, setNote] = useState('')
+  const [noteCat, setNoteCat] = useState<NoteCategory>('通用型')
   const [secret, setSecret] = useState('')
   const [balance, setBalance] = useState<string | null>(null)
   const [fetching, setFetching] = useState(false)
@@ -1708,11 +1714,10 @@ function AccountFormModal({ provider, sessionPwd, onClose, onSave }: {
     finally { setFetching(false) }
   }
 
-  const reset = () => { setNote(''); setSecret(''); setBalance(null); setErr('') }
+  const reset = () => { setNote(''); setNoteCat('通用型'); setSecret(''); setBalance(null); setErr('') }
 
   const submit = async () => {
     setErr('')
-    if (!note.trim()) { setErr('请填写备注'); return }
     if (!secret.trim()) { setErr('请填写 API Key'); return }
     if (!isVaultInitialized()) { setErr('请先在「设置 → 安全」创建保险箱'); return }
     // 加密密码自动取自已解锁会话或指纹存储
@@ -1730,7 +1735,7 @@ function AccountFormModal({ provider, sessionPwd, onClose, onSave }: {
       const quotaTotal = quotaMatch ? Number(quotaMatch[1].replace(/,/g, '')) : 0
       const account: AppState['accounts'][number] = {
         id: uid('acc'), providerId: provider.id, label: provider.shortName, mode: 'api',
-        encryptedKey: enc, keyFingerprint: fp, apiUrl: apiUrl || undefined, note: note.trim(),
+        encryptedKey: enc, keyFingerprint: fp, apiUrl: apiUrl || undefined, note: buildNote(noteCat, note),
         createdAt: now, updatedAt: now,
       }
       const quota: QuotaSnapshot | undefined = quotaTotal > 0 ? {
@@ -1769,11 +1774,14 @@ function AccountFormModal({ provider, sessionPwd, onClose, onSave }: {
             </button>
             <div className="form-hint">只读 · 点击上述地址可直达官方 API Key 管理页</div>
           </div>
-          {/* 行3：备注（必填，用于 API Key 管理页筛选） */}
+          {/* 行3：模型分类（写死下拉）+ 可选说明 */}
           <div className="form-row">
-            <label className="form-label">备注 <span className="req">*</span> <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>· 用于 API Key 管理页分类查询</span></label>
-            <input className="input" placeholder="例如：[文本] 日常对话 / [图片] 生成" value={note} onChange={e => setNote(e.target.value)} />
-            <div className="form-hint">用 [分类] 开头可在 Key 管理页按分类下拉筛选</div>
+            <label className="form-label">模型分类 <span className="req">*</span> <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>· 决定 AI 助手里该模型的用途与联动</span></label>
+            <select className="select" value={noteCat} onChange={e => setNoteCat(e.target.value as NoteCategory)}>
+              {NOTE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <input className="input" style={{ marginTop: 8 }} placeholder="补充说明（可选），例如：日常对话 / 批量生图" value={note} onChange={e => setNote(e.target.value)} />
+            <div className="form-hint">分类按该模型的官方真实用途选择；AI 助手将按此分类展示与调用</div>
           </div>
           {/* 行4：API Key 输入 + 自动获取余额 */}
           <div className="form-row">

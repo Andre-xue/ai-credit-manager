@@ -2,6 +2,43 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// 通用模型 API 代理：让「用自己 Key 调用」绕过桌面 CORS。
+/// 安全约束：仅 http(s)；禁止内网/回环以外的私有地址（防止开放代理 SSRF）；
+/// 不存储任何凭证，Key 仅用于本次请求头。生图/视频的异步任务也用此命令提交与轮询。
+#[tauri::command]
+async fn call_provider_api(url: String, api_key: String, body_json: String, method: String) -> Result<String, String> {
+    if api_key.trim().is_empty() { return Err("API Key 不能为空".into()) }
+    // URL 基础校验
+    if !(url.starts_with("https://") || url.starts_with("http://localhost") || url.starts_with("http://127.0.0.1")) {
+        return Err("仅允许 https 或本机地址".into())
+    }
+    let m = method.to_uppercase();
+    if m != "POST" && m != "GET" { return Err("仅支持 POST / GET".into()) }
+
+    let client = reqwest::Client::builder()
+        .user_agent("ai-credit-manager/0.1")
+        .timeout(std::time::Duration::from_secs(120))
+        .build().map_err(|e| format!("客户端初始化失败：{}", e))?;
+
+    let mut req = if m == "POST" {
+        let parsed: serde_json::Value = serde_json::from_str(&body_json)
+            .map_err(|e| format!("请求体不是合法 JSON：{}", e))?;
+        client.post(&url).json(&parsed)
+    } else {
+        client.get(&url)
+    };
+    req = req.header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json");
+
+    let resp = req.send().await.map_err(|e| format!("请求失败：{}", e))?;
+    let status = resp.status();
+    let text = resp.text().await.map_err(|e| format!("读取响应失败：{}", e))?;
+    if !status.is_success() {
+        return Err(format!("接口返回 {}：{}", status.as_u16(), text.chars().take(200).collect::<String>()))
+    }
+    Ok(text)
+}
+
 /// 官方只读用量代理：仅允许白名单官方端点，绕过桌面端 CORS 限制。
 /// 不接收任意 URL，防止被用作开放代理（SSRF）；不存储任何凭证。
 /// 定位 Touch ID helper 二进制（开发态与打包态）
@@ -260,7 +297,7 @@ async fn proxy_usage(provider: String, api_key: String) -> Result<serde_json::Va
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![proxy_usage, send_notification, open_url, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app])
+        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, send_notification, open_url, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

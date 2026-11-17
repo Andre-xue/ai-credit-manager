@@ -707,3 +707,60 @@ tbody tr:hover { background: var(--panel-2); }
 .voice-config .form-label { margin-top: 10px; }
 .voice-config-note { font-size: 10.5px; color: var(--text-3); line-height: 1.6; margin: 10px 0; }
 .voice-config-actions { display: flex; gap: 8px; }
+
+/* ===== AI 分类联动与语音通话 ===== */
+.ai-icon-btn.call { color: var(--primary); }
+.ai-icon-btn:disabled { opacity: .35; cursor: not-allowed; }
+.ai-model-option { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ai-model-option small { font-size: 10px; color: var(--text-3); }
+.ai-model-notice {
+  display: flex; align-items: flex-start; gap: 10px; margin: 0 0 12px; padding: 11px 14px;
+  background: var(--primary-soft); border: 1px solid #c7d2fe; border-radius: 10px;
+  font-size: 12px; color: var(--text-2); line-height: 1.6;
+}
+.ai-model-notice b { color: var(--primary); }
+.ai-model-notice > div { flex: 1; }
+.ai-model-notice .btn { flex-shrink: 0; }
+
+/* 语音通话 */
+.call-overlay {
+  position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center;
+  background: rgba(15,23,42,.72); backdrop-filter: blur(8px);
+}
+.call-panel {
+  width: min(92vw, 400px); padding: 34px 28px 30px; text-align: center;
+  background: linear-gradient(160deg, #1e1b4b, #312e81 55%, #4338ca);
+  border-radius: 26px; color: #fff; box-shadow: 0 24px 80px rgba(0,0,0,.4);
+}
+.call-title { font-size: 15px; opacity: .85; letter-spacing: .5px; }
+.call-timer { font-size: 13px; opacity: .6; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.call-orb {
+  width: 120px; height: 120px; margin: 30px auto 18px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.1); border: 2px solid rgba(255,255,255,.18);
+  transition: .3s;
+}
+.call-orb.listening { background: rgba(16,185,129,.28); border-color: #34d399; box-shadow: 0 0 0 12px rgba(52,211,153,.12); }
+.call-orb.thinking { background: rgba(251,191,36,.22); border-color: #fbbf24; }
+.call-orb.speaking { background: rgba(96,165,250,.28); border-color: #60a5fa; box-shadow: 0 0 0 12px rgba(96,165,250,.12); }
+.call-status { font-size: 14px; font-weight: 500; min-height: 20px; }
+.call-live {
+  margin: 16px auto 0; padding: 11px 14px; background: rgba(255,255,255,.1);
+  border-radius: 12px; font-size: 13px; line-height: 1.6; max-width: 320px;
+}
+.call-reply {
+  margin: 10px auto 0; padding: 11px 14px; background: rgba(255,255,255,.16);
+  border-radius: 12px; font-size: 12.5px; line-height: 1.6; max-width: 320px;
+  max-height: 110px; overflow: auto;
+}
+.call-controls { display: flex; align-items: center; justify-content: center; gap: 26px; margin-top: 34px; }
+.call-btn {
+  width: 62px; height: 62px; border-radius: 50%; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: .15s;
+}
+.call-btn.mic { background: rgba(255,255,255,.18); color: #fff; }
+.call-btn.mic.active { background: #34d399; color: #053e2a; }
+.call-btn.mic:disabled { opacity: .4; cursor: not-allowed; }
+.call-btn.hangup { background: #ef4444; color: #fff; }
+.call-btn:active { transform: scale(.94); }
+.call-hint { margin-top: 24px; font-size: 11px; opacity: .55; line-height: 1.6; }
