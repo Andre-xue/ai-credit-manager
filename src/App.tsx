@@ -31,6 +31,7 @@ import {
 import { openExternal, openTool, isDesktopApp, isAppInstalled, biometricAvailable, biometricAuth } from './core/openExternal'
 import { cloud, type CloudUser } from './core/cloud'
 import { AIView } from './components/AIView'
+import { VoiceSettings } from './components/VoiceSettings'
 import { pullPayload, pushPayload, applyPayload, getLastSyncAt, getClientId, checkRemoteVersion, setBaseline, getRemoteVersion, type PullResult } from './core/sync'
 import { CloudLoginModal } from './components/CloudLogin'
 
@@ -2529,6 +2530,10 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
             <div style={{ padding: '2px 16px 12px', fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.7 }}>
               支持微信扫码、手机号验证码、邮箱验证码、WorkBuddy 账号登录。登录后任意端的增删改会在约 5 秒内自动同步到其他端，无需手动操作；切回应用时也会立即检查更新。同步内容包含账户、额度、签到、用量与加密密钥（密文），各端需用同一主密码解锁。
             </div>
+          </SettingsSection>
+
+          <SettingsSection title="语音朗读" desc="AI 回复朗读音色与方言">
+            <div style={{ padding: '4px 16px 10px' }}><VoiceSettings notify={notify} /></div>
           </SettingsSection>
 
           <SettingsSection title="通用" desc="提醒与预警行为">

@@ -2,12 +2,13 @@
 // 布局自适应：桌面居中宽栏、移动端占满屏；流式输出、可中止、快捷提问。
 
 import { useEffect, useRef, useState } from 'react'
-import { Sparkles, Send, Square, Plus, ChevronDown, Bot, User, Trash2, CornerDownLeft } from 'lucide-react'
+import { Sparkles, Send, Square, Plus, ChevronDown, Bot, User, Trash2, CornerDownLeft, Volume2, VolumeX } from 'lucide-react'
 import {
   listModels, loadHistory, saveHistory, rotateConversationId,
   loadModel, saveModel, streamChat, friendlyAiError,
   type ChatMessage, type AiModel,
 } from '../core/ai'
+import { speak, stopSpeak, getSavedVoice } from '../core/tts'
 
 const QUICK_PROMPTS = [
   { icon: '📊', title: '如何管理我的 AI 订阅费用？', desc: '给出预算与额度控制建议' },
@@ -24,6 +25,7 @@ export function AIView({ notify }: { notify: (m: string) => void }) {
   const [model, setModel] = useState<string>('')
   const [modelOpen, setModelOpen] = useState(false)
   const [streamingText, setStreamingText] = useState('')
+  const [speakingId, setSpeakingId] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -78,6 +80,17 @@ export function AIView({ notify }: { notify: (m: string) => void }) {
   }
 
   const stop = () => { abortRef.current?.abort(); setGenerating(false) }
+
+  const toggleSpeak = (m: ChatMessage) => {
+    if (speakingId === m.id) { stopSpeak(); setSpeakingId(null); return }
+    const ok = speak(m.content, getSavedVoice(), (state) => {
+      if (state === 'end' || state === 'error') setSpeakingId(null)
+    })
+    if (!ok) { notify('当前环境不支持语音朗读'); return }
+    setSpeakingId(m.id)
+  }
+
+  useEffect(() => () => { stopSpeak() }, [])
 
   const clear = () => {
     if (generating) stop()
@@ -149,7 +162,16 @@ export function AIView({ notify }: { notify: (m: string) => void }) {
               {messages.map(m => (
                 <div key={m.id} className={`ai-msg ${m.role}`}>
                   <div className="ai-avatar">{m.role === 'assistant' ? <Bot size={16} /> : <User size={16} />}</div>
-                  <div className="ai-bubble">{m.content}</div>
+                  <div className="ai-msg-body">
+                    <div className="ai-bubble">{m.content}</div>
+                    {m.role === 'assistant' && m.content && (
+                      <button className={`ai-speak ${speakingId === m.id ? 'active' : ''}`}
+                        onClick={() => toggleSpeak(m)} title={speakingId === m.id ? '停止朗读' : '朗读此回复'}>
+                        {speakingId === m.id ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                        <span>{speakingId === m.id ? '停止' : '朗读'}</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
               {generating && streamingText && (
