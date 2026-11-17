@@ -4,11 +4,24 @@
 import { useState } from 'react'
 import { X, Smartphone, Mail, QrCode, ShieldCheck, Loader2, KeyRound } from 'lucide-react'
 import { cloud, type CloudUser } from '../core/cloud'
+import type { PasswordResetChallenge } from '@tencent-ai/workbuddy-cloud-sdk'
 import { isDesktopApp, isNativeApp } from '../core/openExternal'
 
 type Method = 'phone' | 'email' | 'password' | 'wechat' | 'workbuddy'
 const isMail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
 const isMobile = (v: string) => /^1\d{10}$/.test(v)
+
+/** 把云端英文报错翻译成可操作的中文提示 */
+function friendlyAuthError(message: string): string {
+  const m = String(message ?? '')
+  if (/password not set|no password|password.*(not set|unset)/i.test(m)) {
+    return '该账号还没有设置密码：早期用手机号注册/登录的账号无法补设密码，请改用「手机号 + 验证码」登录；邮箱账号可在下方点「设置密码」后即可用密码登录。'
+  }
+  if (/invalid.*(password|credential)|wrong password|password.*incorrect/i.test(m)) return '密码错误，请重新输入'
+  if (/user not found|no user|account not found|not registered/i.test(m)) return '账号不存在，请确认账号或先用验证码注册'
+  if (/too many|rate limit|429/i.test(m)) return '尝试次数过多，请稍后再试'
+  return m
+}
 
 export function CloudLoginModal({ onClose, onSuccess }: {
   onClose: () => void
@@ -24,6 +37,10 @@ export function CloudLoginModal({ onClose, onSuccess }: {
   const [password, setPassword] = useState('')
   const [account, setAccount] = useState('')
   const [regPassword, setRegPassword] = useState('')
+  const [showReset, setShowReset] = useState(false)
+  const [resetChallenge, setResetChallenge] = useState<PasswordResetChallenge | null>(null)
+  const [resetCode, setResetCode] = useState('')
+  const [resetNewPwd, setResetNewPwd] = useState('')
   const oauthBlocked = isDesktopApp() || isNativeApp()
 
   const isPhone = method === 'phone'
@@ -76,8 +93,39 @@ export function CloudLoginModal({ onClose, onSuccess }: {
       const done = isMobile(v)
         ? await cloud.auth.signInWithPassword({ phone: v, password })
         : await cloud.auth.signInWithPassword({ email: v, password })
-      if (done.error) { setErr(done.error.message); return }
+      if (done.error) { setErr(friendlyAuthError(done.error.message)); return }
       onSuccess(done.data.user as CloudUser)
+    } finally { setBusy(false) }
+  }
+
+  /** 邮箱账号设置/找回密码：先发重置验证码（PASSWORD_RESET），再用验证码 + 新密码完成 */
+  const startReset = async () => {
+    setErr('')
+    const v = account.trim()
+    if (!isMail(v)) { setErr('设置密码需要邮箱地址；手机号账号请改用验证码登录'); return }
+    setBusy(true)
+    try {
+      const r = await cloud.auth.resetPasswordForEmail(v)
+      if (r.error) { setErr(friendlyAuthError(r.error.message)); return }
+      setResetChallenge(r.data)
+      setErr('重置验证码已发送到邮箱，请查收后填写下方验证码与新密码')
+    } finally { setBusy(false) }
+  }
+
+  const finishReset = async () => {
+    setErr('')
+    if (!resetChallenge) { setErr('请先获取邮箱重置验证码'); return }
+    if (!resetCode.trim()) { setErr('请输入邮箱收到的验证码'); return }
+    if (resetNewPwd.length < 6) { setErr('新密码至少 6 位'); return }
+    setBusy(true)
+    try {
+      const r = await resetChallenge.updateUser({ nonce: resetCode.trim(), password: resetNewPwd })
+      if (r.error) { setErr(friendlyAuthError(r.error.message)); return }
+      setShowReset(false)
+      setResetChallenge(null)
+      setPassword(resetNewPwd)
+      setErr('')
+      onSuccess(r.data.user as CloudUser)
     } finally { setBusy(false) }
   }
 
@@ -168,12 +216,36 @@ export function CloudLoginModal({ onClose, onSuccess }: {
               <input className="input" type="password" value={password} onChange={e => { setPassword(e.target.value); setErr('') }} placeholder="账号密码" disabled={busy} />
             </label>
             <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 8, lineHeight: 1.6 }}>
-              提示：首次用验证码登录/注册时可设置密码；未设置过密码的账号请改用邮箱或手机号验证码登录。平台账号以邮箱或手机号为标识，暂不支持纯自定义用户名。
+              只有设置过密码的账号才能用密码登录。早期用手机号验证码注册的账号没有密码，请切回「手机号」用验证码登录；邮箱账号可点下方「设置 / 找回密码」设好后即可用密码登录。
             </div>
-            {err && <div style={{ color: 'var(--red)', fontSize: 12, marginTop: 10 }}>{err}</div>}
+            {err && <div style={{ color: err.startsWith('重置验证码') ? 'var(--green)' : 'var(--red)', fontSize: 12, marginTop: 10, lineHeight: 1.6 }}>{err}</div>}
             <button className="btn primary" style={{ width: '100%', marginTop: 18, justifyContent: 'center' }} onClick={() => void signInPassword()} disabled={busy}>
               {busy ? <><Loader2 size={14} className="spin" /> 登录中…</> : '密码登录'}
             </button>
+            <button className="form-link" style={{ marginTop: 12 }} onClick={() => { setShowReset(v => !v); setErr(''); setResetChallenge(null); setResetCode(''); setResetNewPwd('') }}>
+              {showReset ? '收起' : '邮箱账号设置 / 找回密码'}
+            </button>
+            {showReset && <>
+              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 10, lineHeight: 1.6 }}>
+                仅支持邮箱：向注册邮箱发送重置验证码，验证后设置新密码并自动登录。手机号账号无法使用此功能。
+              </div>
+              <label className="form-label" style={{ marginTop: 10 }}>
+                新密码（至少 6 位）
+                <input className="input" type="password" value={resetNewPwd} onChange={e => { setResetNewPwd(e.target.value); setErr('') }} placeholder="设置新密码" disabled={busy} />
+              </label>
+              <label className="form-label" style={{ marginTop: 10 }}>
+                邮箱验证码
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input className="input" value={resetCode} onChange={e => { setResetCode(e.target.value); setErr('') }} placeholder="邮箱收到的验证码" disabled={busy} />
+                  <button className="btn" type="button" onClick={() => void startReset()} disabled={busy} style={{ whiteSpace: 'nowrap' }}>
+                    {resetChallenge ? '重新发送' : '发送验证码'}
+                  </button>
+                </div>
+              </label>
+              <button className="btn primary" style={{ width: '100%', marginTop: 12, justifyContent: 'center' }} onClick={() => void finishReset()} disabled={busy}>
+                {busy ? <><Loader2 size={14} className="spin" /> 处理中…</> : '设置密码并登录'}
+              </button>
+            </>}
           </>}
 
           {method === 'wechat' && <>
@@ -201,7 +273,7 @@ export function CloudLoginModal({ onClose, onSuccess }: {
           </>}
 
           <p style={{ fontSize: 11, color: 'var(--text-3)', margin: '16px 0 0', lineHeight: 1.6 }}>
-            支持手机号 / 邮箱验证码、手机号 / 邮箱密码（需先设置）、网页版微信扫码与 WorkBuddy 账号。QQ / 抖音 / 支付宝扫码暂未开放。
+            支持手机号 / 邮箱验证码、邮箱密码（需先设置）、网页版微信扫码与 WorkBuddy 账号。手机号老账号请用验证码登录，无法补设密码。QQ / 抖音 / 支付宝扫码暂未开放。
           </p>
         </div>
       </div>
