@@ -16,15 +16,15 @@ import { VoiceCall } from './VoiceCall'
 import {
   MODEL_CATEGORIES, CATEGORY_META, categoryForModel, type ModelCategory,
 } from '../core/modelCategories'
-import { callByCategory } from '../core/providerCall'
+import { callByCategory, fetchProviderModels } from '../core/providerCall'
 import type { Account } from '../core/types'
-import { decryptSecret } from '../core/crypto'
+import { decryptSecret, getBiometricPassword } from '../core/crypto'
 import { PROVIDER_MAP } from '../data/providers'
 import {
   pickAttachment, currentPlatform, type AttachmentKind, type PickedAttachment,
 } from '../core/attachments'
 import {
-  enginesFor, hasCatalog, REASONING_LEVELS, toReasoningEffort,
+  enginesFor, enginesFromRemote, hasCatalog, REASONING_LEVELS, toReasoningEffort,
   type ReasoningLevel,
 } from '../data/engines'
 
@@ -57,6 +57,9 @@ export function AIView({ notify, accounts, sessionPwd }: {
   const [picking, setPicking] = useState(false)
   const [enginePanelOpen, setEnginePanelOpen] = useState(false)
   const [engineId, setEngineId] = useState<string>('')
+  const [remoteEngines, setRemoteEngines] = useState<string[] | null>(null)
+  const [engineSource, setEngineSource] = useState<'remote' | 'builtin' | 'none'>('none')
+  const [loadingEngines, setLoadingEngines] = useState(false)
   const [reasoning, setReasoning] = useState<ReasoningLevel>('Off')
   const [reasoningOpen, setReasoningOpen] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
@@ -96,9 +99,13 @@ export function AIView({ notify, accounts, sessionPwd }: {
     [category, allOptions])
   const selectedOption = allOptions.find(o => o.key === model) ?? null
   const canChat = !selectedOption || selectedOption.free || CATEGORY_META[selectedOption.category].canChat
-  // 当前自有账户 → 该平台的引擎目录（按倍率升序）
+  // 当前自有账户 → 引擎列表：动态拉取优先，内置目录兜底
   const currentAccount = selectedOption?.account ?? null
-  const engines = useMemo(() => currentAccount ? enginesFor(currentAccount.providerId) : [], [currentAccount])
+  const engines = useMemo(() => {
+    if (!currentAccount) return []
+    if (engineSource === 'remote' && remoteEngines?.length) return enginesFromRemote(currentAccount.providerId, remoteEngines)
+    return enginesFor(currentAccount.providerId)
+  }, [currentAccount, engineSource, remoteEngines])
   const selectedEngine = engines.find(e => e.id === engineId) ?? null
 
   useEffect(() => {
@@ -109,13 +116,39 @@ export function AIView({ notify, accounts, sessionPwd }: {
     }
   }, [allOptions, model])
 
-  // 切换平台账户时：自动选该平台倍率最低的引擎；推理等级不低于引擎支持时保留
+  // 选中自有账户后：用其 Key 动态拉取真实可用引擎（/v1/models）；失败回退内置目录
+  useEffect(() => {
+    let alive = true
+    setRemoteEngines(null)
+    if (!currentAccount) { setEngineSource('none'); return () => { alive = false } }
+    const acct = currentAccount
+    const pwd = sessionPwd || getBiometricPassword() || ''
+    if (!acct.encryptedKey || !pwd) {
+      setEngineSource('builtin')
+      return () => { alive = false }
+    }
+    ;(async () => {
+      setLoadingEngines(true)
+      try {
+        const key = await decryptSecret(acct.encryptedKey!, pwd)
+        const ids = await fetchProviderModels(acct, key)
+        if (!alive) return
+        setRemoteEngines(ids)
+        setEngineSource('remote')
+      } catch {
+        if (!alive) return
+        setEngineSource('builtin')  // 拉取失败（CORS/Key无权限/私有协议）→ 内置目录
+      } finally { if (alive) setLoadingEngines(false) }
+    })()
+    return () => { alive = false }
+  }, [currentAccount, sessionPwd])
+
+  // 引擎列表变化时：保留仍有效的选择，否则优先旗舰模型（无旗舰则取第一个）
   useEffect(() => {
     if (currentAccount) {
-      const list = enginesFor(currentAccount.providerId)
-      setEngineId(prev => list.some(e => e.id === prev) ? prev : (list[0]?.id ?? ''))
+      setEngineId(prev => engines.some(e => e.id === prev) ? prev : (engines.find(e => e.flagship)?.id ?? engines[0]?.id ?? ''))
     } else setEngineId('')
-  }, [currentAccount])
+  }, [currentAccount, engines])
 
   /** 统一取回复：用户自己的账户走其 API，否则走平台免费模型 */
   const getReply = async (content: string, history: ChatMessage[], signal?: AbortSignal, images?: string[]): Promise<string> => {
@@ -423,7 +456,12 @@ export function AIView({ notify, accounts, sessionPwd }: {
             <div className="engine-panel-head">
               <div>
                 <div className="engine-panel-title">模型引擎</div>
-                <div className="engine-panel-sub">{PROVIDER_MAP[currentAccount.providerId]?.shortName ?? currentAccount.label} · 按 token 消耗从低到高</div>
+                <div className="engine-panel-sub">
+                  {PROVIDER_MAP[currentAccount.providerId]?.shortName ?? currentAccount.label} · 按 token 消耗从低到高
+                  {loadingEngines && ' · 正在获取实时引擎…'}
+                  {!loadingEngines && engineSource === 'remote' && ' · 实时获取'}
+                  {!loadingEngines && engineSource === 'builtin' && ' · 内置参考'}
+                </div>
               </div>
               <button className="icon-btn" onClick={() => setEnginePanelOpen(false)}><X size={17} /></button>
             </div>
@@ -442,7 +480,8 @@ export function AIView({ notify, accounts, sessionPwd }: {
                   {engineId === e.id && <span className="engine-check">✓</span>}
                 </button>
               ))}
-              {engines.length === 0 && <div className="engine-empty">该平台暂无内置引擎目录。<br />请到 API Key 管理页检查账户平台，或手动填写引擎名。</div>}
+              {loadingEngines && <div className="engine-empty"><Loader2 size={22} className="spin" /><div style={{ marginTop: 10 }}>正在从官方接口获取可用引擎…</div></div>}
+              {!loadingEngines && engines.length === 0 && <div className="engine-empty">该平台暂无内置引擎目录。<br />请到 API Key 管理页检查账户平台，或手动填写引擎名。</div>}
             </div>
             <div className="engine-note">
               <Info size={12} /> 倍率为参考值，用于排序；实际计费以官方账单为准。部分引擎需订阅或支持推理等级。

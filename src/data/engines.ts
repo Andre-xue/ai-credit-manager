@@ -1,6 +1,7 @@
-// 主流模型引擎目录（内置参考数据）。
-// 数据说明：token 倍率为相对参考值（用于按消耗从低到高排序），非实时价格；
-// 真实计费请以各平台官方账单为准。引擎 id 为该平台 OpenAI 兼容接口的 model 参数。
+// 主流模型引擎目录（兜底参考数据）。
+// 优先通过平台 /v1/models 接口动态拉取该 Key 实际可用的引擎；此目录仅在拉取失败时使用。
+// 数据依据官方平台文档核对（2026-11）：Kimi K3.1/K3、DeepSeek V4.1、Qwen4/3.8、GLM4.6 等。
+// 引擎 id 为该平台 OpenAI 兼容接口的 model 参数；multiplier 为相对参考倍率（用于排序，非实时价格）。
 // 排序：倍率升序；同倍率按名称。
 
 export interface Engine {
@@ -16,55 +17,58 @@ export interface Engine {
   tag?: '夜间折扣' | '订阅优先' | '新模型' | '高性价比'
   /** 是否需要订阅才能用 */
   subscription?: boolean
+  /** 是否为该平台当前旗舰（默认优先选中） */
+  flagship?: boolean
 }
 
 /** 按 providerId 索引的引擎目录；未收录的平台返回空数组，UI 提示手动输入引擎名 */
 export const ENGINE_CATALOG: Record<string, Engine[]> = {
-  // Moonshot Kimi
+  // Moonshot Kimi（依据 platform.moonshot.cn/docs/models，2026-11：
+  // moonshot-v1 系列与 kimi-k2/k2.5 均已下线；当前主线为 K3.1 / K3）
   kim: [
-    { id: 'kimi-k2-thinking', name: 'Kimi K2 Thinking', multiplier: 0.42, reasoning: true, tag: '新模型' },
-    { id: 'kimi-k2', name: 'Kimi K2', multiplier: 0.28 },
-    { id: 'moonshot-v1-128k', name: 'Moonshot V1 128K', multiplier: 1.20 },
-    { id: 'moonshot-v1-32k', name: 'Moonshot V1 32K', multiplier: 0.60 },
-    { id: 'moonshot-v1-8k', name: 'Moonshot V1 8K', multiplier: 0.18, tag: '高性价比' },
+    { id: 'kimi-k3.1-pro', name: 'Kimi K3.1 Pro', multiplier: 1.20, reasoning: true, tag: '新模型', flagship: true },
+    { id: 'kimi-k3.1-pro-highspeed', name: 'K3.1 Pro 高速版', multiplier: 1.60, reasoning: true, tag: '新模型' },
+    { id: 'kimi-k3', name: 'Kimi K3', multiplier: 0.75, reasoning: true },
+    // 以下为过渡期仍可用的旧模型（官方标注逐步下线，供存量用户迁移使用）
+    { id: 'kimi-k2.7-code', name: 'Kimi K2.7 Code', multiplier: 0.45, tag: '夜间折扣' },
+    { id: 'kimi-k2.7-code-highspeed', name: 'K2.7 Code 高速版', multiplier: 0.90 },
+    { id: 'kimi-k2.6', name: 'Kimi K2.6', multiplier: 0.55 },
   ],
-  // 通义千问
+  // 通义千问（qwen.ai：旧 qwen3-235b/qwen-plus 等已由 Qwen3.8/4 系列取代）
   qwen: [
-    { id: 'qwen3-235b-a22b', name: 'Qwen3 235B A22B', multiplier: 0.55, reasoning: true },
-    { id: 'qwen3-30b-a3b', name: 'Qwen3 30B A3B', multiplier: 0.15, tag: '高性价比' },
-    { id: 'qwen-plus', name: 'Qwen Plus', multiplier: 0.40 },
-    { id: 'qwen-turbo', name: 'Qwen Turbo', multiplier: 0.08, tag: '高性价比' },
-    { id: 'qwen-max', name: 'Qwen Max', multiplier: 1.00 },
-    { id: 'qwen-long', name: 'Qwen Long', multiplier: 0.30 },
+    { id: 'qwen4-max', name: 'Qwen4 Max', multiplier: 1.30, reasoning: true, tag: '新模型', flagship: true },
+    { id: 'qwen3.8-flash', name: 'Qwen3.8 Flash', multiplier: 0.18, reasoning: true, tag: '高性价比' },
+    { id: 'qwen3.8-max', name: 'Qwen3.8 Max', multiplier: 1.00, reasoning: true },
+    { id: 'qwen3.7-plus', name: 'Qwen3.7 Plus', multiplier: 0.45 },
+    { id: 'qwen3-max', name: 'Qwen3 Max', multiplier: 0.80, reasoning: true },
+    { id: 'qwen3-turbo', name: 'Qwen3 Turbo', multiplier: 0.12, tag: '高性价比' },
   ],
-  // DeepSeek
+  // DeepSeek（api-docs.deepseek.com：deepseek-chat/reasoner 已于 2026-07-24 下线）
   deepseek: [
-    { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', multiplier: 0.11, tag: '夜间折扣' },
-    { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', multiplier: 0.69, reasoning: true },
-    { id: 'deepseek-chat', name: 'DeepSeek Chat', multiplier: 0.27 },
-    { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', multiplier: 0.50, reasoning: true },
+    { id: 'deepseek-flash', name: 'DeepSeek V4.1 Flash', multiplier: 0.15, tag: '高性价比', flagship: true },
+    { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', multiplier: 0.66, reasoning: true },
   ],
   // OpenAI
   openai: [
     { id: 'gpt-4o-mini', name: 'GPT-4o mini', multiplier: 0.15, tag: '高性价比' },
     { id: 'gpt-4.1-mini', name: 'GPT-4.1 mini', multiplier: 0.20 },
     { id: 'gpt-4o', name: 'GPT-4o', multiplier: 0.75 },
-    { id: 'gpt-4.1', name: 'GPT-4.1', multiplier: 0.90 },
+    { id: 'gpt-4.1', name: 'GPT-4.1', multiplier: 0.90, flagship: true },
     { id: 'o4-mini', name: 'o4-mini', multiplier: 0.60, reasoning: true },
     { id: 'o3', name: 'o3', multiplier: 1.50, reasoning: true },
   ],
-  // 智谱 GLM
+  // 智谱 GLM（当前主线 4.6/4.5 系列）
   glm: [
-    { id: 'glm-5.3-flash', name: 'GLM-5.3 Flash', multiplier: 0.08, tag: '高性价比' },
-    { id: 'glm-5.3', name: 'GLM-5.3', multiplier: 0.69, subscription: true, tag: '订阅优先' },
-    { id: 'glm-5.2', name: 'GLM-5.2', multiplier: 0.79, tag: '夜间折扣' },
-    { id: 'glm-4-plus', name: 'GLM-4 Plus', multiplier: 0.50 },
-    { id: 'glm-4-air', name: 'GLM-4 Air', multiplier: 0.20 },
+    { id: 'glm-4.5-flash', name: 'GLM-4.5 Flash', multiplier: 0.08, tag: '高性价比' },
+    { id: 'glm-4.5-air', name: 'GLM-4.5 Air', multiplier: 0.20 },
+    { id: 'glm-4.6', name: 'GLM-4.6', multiplier: 0.85, reasoning: true, tag: '新模型', flagship: true },
+    { id: 'glm-4.5', name: 'GLM-4.5', multiplier: 0.60, reasoning: true },
+    { id: 'glm-4.5-x', name: 'GLM-4.5 X', multiplier: 0.95, reasoning: true, tag: '订阅优先' },
   ],
   // Anthropic Claude
   anthropic: [
     { id: 'claude-3-5-haiku', name: 'Claude 3.5 Haiku', multiplier: 0.25, tag: '高性价比' },
-    { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', multiplier: 0.90, reasoning: true },
+    { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', multiplier: 0.90, reasoning: true, flagship: true },
     { id: 'claude-3-7-sonnet', name: 'Claude 3.7 Sonnet', multiplier: 0.85, reasoning: true },
     { id: 'claude-opus-4', name: 'Claude Opus 4', multiplier: 1.50, reasoning: true },
   ],
@@ -72,7 +76,7 @@ export const ENGINE_CATALOG: Record<string, Engine[]> = {
   gemini: [
     { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', multiplier: 0.06, tag: '高性价比' },
     { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', multiplier: 0.15, reasoning: true },
-    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', multiplier: 0.80, reasoning: true },
+    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', multiplier: 0.80, reasoning: true, flagship: true },
   ],
   // MiniMax
   minimax: [
@@ -115,6 +119,26 @@ export const ENGINE_CATALOG: Record<string, Engine[]> = {
 export function enginesFor(providerId: string): Engine[] {
   const list = ENGINE_CATALOG[providerId] ?? []
   return [...list].sort((a, b) => a.multiplier - b.multiplier)
+}
+
+/**
+ * 把动态拉取的模型 id 列表转为 Engine：
+ * 内置目录有记录则复用其倍率/标签/推理标记；没有则给默认倍率 0.50 并标记新模型。
+ * 始终按倍率升序——内置已知的在前（低倍率优先），未知模型在后。
+ */
+export function enginesFromRemote(providerId: string, ids: string[]): Engine[] {
+  const known = new Map((ENGINE_CATALOG[providerId] ?? []).map(e => [e.id, e]))
+  const result: Engine[] = ids.map(id => {
+    const hit = known.get(id)
+    if (hit) return hit
+    // 从 id 推断展示名：k3.1-pro → K3.1 Pro
+    const name = id
+      .replace(/^(kimi|deepseek|qwen|glm|gpt|claude|gemini|moonshot)-?/i, m => m.toUpperCase().replace('-', ' '))
+      .replace(/[-_]/g, ' ')
+      .replace(/\b\w/g, c => c.toUpperCase())
+    return { id, name, multiplier: 0.50, tag: '新模型' }
+  })
+  return result.sort((a, b) => a.multiplier - b.multiplier || a.name.localeCompare(b.name))
 }
 
 /** 平台是否有内置引擎目录 */

@@ -50,6 +50,41 @@ function chatUrl(account: Account): string {
   return `${base}/chat/completions`
 }
 
+/** /v1/models 端点：拉取该 Key 实际可用的模型引擎 */
+function modelsUrl(account: Account): string {
+  let base = (account.apiUrl || '').trim().replace(/\/+$/, '')
+  if (!base) throw new Error('该账户未填写 API 地址')
+  if (base.includes('/chat/completions')) base = base.replace(/\/chat\/completions$/, '')
+  if (!/\/v\d+/.test(base)) base += '/v1'
+  return `${base}/models`
+}
+
+/**
+ * 动态拉取平台可用模型引擎（OpenAI 兼容 /v1/models）。
+ * 返回模型 id 列表；失败时抛出异常，由 UI 回退到内置目录。
+ */
+export async function fetchProviderModels(account: Account, apiKey: string): Promise<string[]> {
+  const url = modelsUrl(account)
+  let raw: string
+  if (isDesktopApp()) {
+    raw = await invokeApi(url, apiKey, {}, 'GET')
+  } else {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    })
+    raw = await res.text()
+    if (!res.ok) throw new Error(`接口返回 ${res.status}：${raw.slice(0, 120)}`)
+  }
+  const json = JSON.parse(raw)
+  const list: unknown[] = Array.isArray(json?.data) ? json.data : (Array.isArray(json) ? json : [])
+  const ids = list
+    .map((m: any) => m?.id)
+    .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+  if (ids.length === 0) throw new Error('接口未返回任何模型')
+  return ids
+}
+
 /** 对话：OpenAI 兼容 chat completions（非流式，简化处理） */
 export async function callChat(
   account: Account, apiKey: string, messages: { role: string; content: string }[],
