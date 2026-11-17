@@ -7,10 +7,11 @@
 import { isDesktopApp, isNativeApp } from './openExternal'
 
 /** 与 tauri.conf.json / package.json 保持一致 */
-export const APP_VERSION = '0.1.67'
+export const APP_VERSION = '0.1.68'
 
 const REPO = 'Andre-xue/ai-credit-manager'
 const RELEASES_API = `https://api.github.com/repos/${REPO}/releases/latest`
+const RELEASES_LIST_API = `https://api.github.com/repos/${REPO}/releases?per_page=10`
 const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`
 
 export type UpdatePlatform = 'desktop' | 'android' | 'docker' | 'web' | 'miniapp'
@@ -47,6 +48,8 @@ export interface UpdateInfo {
   error?: string
   /** 该 Release 是否已经上传桌面安装包与更新清单 */
   installersReady?: boolean
+  /** true = 最新版桌面包尚未就绪，回退到了最近一个带完整安装包的版本 */
+  fallback?: boolean
 }
 
 interface GitHubRelease {
@@ -54,10 +57,38 @@ interface GitHubRelease {
   body?: string
   published_at?: string
   assets?: Array<{ name: string; browser_download_url: string }>
+  draft?: boolean
+  prerelease?: boolean
 }
 
-/** 从 GitHub Releases 查询最新版本（Web/Docker/安卓用） */
-export async function checkReleaseUpdate(): Promise<UpdateInfo | null> {
+/** 一个 Release 是否带有完整的桌面安装包与更新清单 */
+function hasDesktopInstallers(rel: GitHubRelease): boolean {
+  const assets = rel.assets ?? []
+  return assets.some(a => a.name === 'latest.json')
+    && assets.some(a => /\.(dmg|exe|msi|AppImage|deb)$/i.test(a.name))
+}
+
+function toInfo(rel: GitHubRelease, fallback: boolean): UpdateInfo {
+  const latest = rel.tag_name?.replace(/^v/i, '') ?? ''
+  const ready = hasDesktopInstallers(rel)
+  return {
+    current: APP_VERSION,
+    latest,
+    hasUpdate: versionGreater(latest, APP_VERSION),
+    releaseUrl: `https://github.com/${REPO}/releases/tag/${rel.tag_name}`,
+    notes: rel.body ?? '',
+    publishedAt: rel.published_at,
+    installersReady: ready,
+    fallback,
+  }
+}
+
+/**
+ * 从 GitHub Releases 查询最新版本（Web/Docker/安卓用）。
+ * requireDesktopInstaller=true（桌面端）时：若最新版桌面包仍在构建，
+ * 自动回退到最近一个带完整安装包的版本，界面始终给出可下载按钮。
+ */
+export async function checkReleaseUpdate(requireDesktopInstaller = false): Promise<UpdateInfo | null> {
   const base: UpdateInfo = {
     current: APP_VERSION, latest: '', hasUpdate: false, releaseUrl: RELEASES_PAGE, notes: '',
   }
@@ -72,17 +103,20 @@ export async function checkReleaseUpdate(): Promise<UpdateInfo | null> {
     const rel = await res.json() as GitHubRelease
     const latest = rel.tag_name?.replace(/^v/i, '') ?? ''
     if (!latest) return { ...base, error: 'GitHub 未返回版本号' }
-    const assets = rel.assets ?? []
-    const installersReady = assets.some(a => a.name === 'latest.json')
-      && assets.some(a => /\.(dmg|exe|msi|AppImage|deb)$/i.test(a.name))
-    return {
-      ...base,
-      latest,
-      hasUpdate: versionGreater(latest, APP_VERSION),
-      notes: rel.body ?? '',
-      publishedAt: rel.published_at,
-      installersReady,
+
+    // 桌面端：最新版如果还没有桌面包，往前找最近一个完整版本
+    if (requireDesktopInstaller && !hasDesktopInstallers(rel)) {
+      const listRes = await fetch(RELEASES_LIST_API, { headers: { Accept: 'application/vnd.github+json' } })
+      if (listRes.ok) {
+        const list = await listRes.json() as GitHubRelease[]
+        const usable = list.find(r => !r.draft && !r.prerelease && hasDesktopInstallers(r))
+        if (usable) return toInfo(usable, true)
+      }
+      // 拉取列表失败或没有可用版本：回报构建中，由界面提示稍后重试
+      return { ...toInfo(rel, false), installersReady: false }
     }
+
+    return toInfo(rel, false)
   } catch (e) {
     return { ...base, error: `无法连接 GitHub：${(e as Error)?.message ?? String(e)}` }
   }

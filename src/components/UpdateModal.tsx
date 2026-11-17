@@ -20,6 +20,7 @@ export function UpdateModal({ onClose, notify }: { onClose: () => void; notify: 
   const [downloadedMb, setDownloadedMb] = useState(0)
   const [copied, setCopied] = useState(false)
   const [apkUrl, setApkUrl] = useState<string | null>(null)
+  const [fallback, setFallback] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -29,17 +30,20 @@ export function UpdateModal({ onClose, notify }: { onClose: () => void; notify: 
         if (!alive) return
         if (u) { setLatest(u.version); setNotes(u.body ?? ''); setPhase('available'); return }
         // 没有签名更新清单时退回 GitHub Releases 检查：提示手动下载安装包
-        const info = await checkReleaseUpdate()
+        // 传 true：若最新版桌面包仍在构建，自动回退到最近一个带完整安装包的版本
+        const info = await checkReleaseUpdate(true)
         if (!alive) return
         if (!info || info.error) { setErrMsg(info?.error ?? '检查更新失败'); setPhase('error'); return }
         setLatest(info.latest)
         setNotes(info.notes)
         setReleaseUrl(info.releaseUrl)
+        setFallback(info.fallback === true)
         if (!info.hasUpdate) { setPhase('latest'); return }
         if (info.installersReady === false) {
           setErrMsg('新版本已发布，但桌面安装包还在构建中（通常几分钟）。请稍后再点检查更新。')
           setPhase('error'); return
         }
+        // 回退版本或没有签名通道：引导到对应版本的下载页手动安装（覆盖安装不丢数据）
         setPhase('manual')
         return
       }
@@ -157,9 +161,11 @@ export function UpdateModal({ onClose, notify }: { onClose: () => void; notify: 
               )}
               {platform === 'desktop' && (
                 <>
-                  <div className="upd-hint">当前安装包未配置签名更新通道，无法静默升级。请到 GitHub 下载页获取最新安装包，下载后覆盖安装即可，数据不会丢失。</div>
+                  <div className="upd-hint">{fallback
+                    ? '检测到一个更新的版本，但其桌面安装包还在构建中。下面提供的是最近一个可直接安装的稳定版本，下载覆盖安装即可，数据不会丢失。等新版本构建完成后，再检查更新即可继续升级。'
+                    : '当前安装包未配置签名更新通道，无法静默升级。请到 GitHub 下载页获取最新安装包，下载后覆盖安装即可，数据不会丢失。'}</div>
                   <button className="btn primary" style={{ width: '100%' }} onClick={() => void openExternal(releaseUrl || 'https://github.com/Andre-xue/ai-credit-manager/releases/latest')}>
-                    <ExternalLink size={16} /> 前往下载页
+                    <ExternalLink size={16} /> {fallback ? `前往下载 ${versionText}` : '前往下载页'}
                   </button>
                 </>
               )}
