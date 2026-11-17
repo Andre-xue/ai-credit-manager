@@ -498,7 +498,7 @@ function DashboardView({ views, onAdd, onRemove, onEditQuota, notify }: {
 }) {
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const PAGE_SIZE = 3
+  const PAGE_SIZE = 6
   useEffect(() => { setPage(1) }, [views.length])
   const cur = Math.min(page, Math.max(1, Math.ceil(views.length / PAGE_SIZE)))
   const pageViews = views.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE)
