@@ -2792,6 +2792,7 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
   const [bioSwitchBusy, setBioSwitchBusy] = useState(false)
   const [setTab, setSetTab] = useState<'general' | 'data' | 'security'>('general')
   const [, setPermTick] = useState(0)
+  const [accountHelpOpen, setAccountHelpOpen] = useState(false)
   const [devices, setDevices] = useState<DeviceRecord[]>(() => loadDevices())
   const platform = currentPlatform()
   const permDefs = platform === 'desktop' ? DESKTOP_PERMISSIONS : MOBILE_PERMISSIONS
@@ -2897,7 +2898,7 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
               : '未登录，无法查看账号与设备'}>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button className="btn sm" onClick={onLogin}>{cloudUser ? '切换账号' : '登录'}</button>
-                <button className="btn sm ghost" onClick={() => void openExternal('https://www.workbuddy.cn')}>账号中心</button>
+                <button className="btn sm ghost" onClick={() => setAccountHelpOpen(true)}>账号中心</button>
               </div>
             </SettingsRow>
             {cloudUser && <>
@@ -2905,7 +2906,7 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
                 <span className="set-status-dot ok" />
               </SettingsRow>
               <SettingsRow title="换绑 / 修改资料" desc="云端账号资料需到 WorkBuddy 官方账号中心修改；本应用不保存明文凭证">
-                <button className="btn sm" onClick={() => void openExternal('https://www.workbuddy.cn')}>前往修改</button>
+                <button className="btn sm" onClick={() => setAccountHelpOpen(true)}>前往修改</button>
               </SettingsRow>
             </>}
             <div className="voice-section-label" style={{ marginTop: 12 }}>本机可见登录设备 <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>（{devices.length}）</span></div>
@@ -3081,7 +3082,36 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
           </div>
         </div>
       )}
+
+      {accountHelpOpen && <AccountHelpModal onClose={() => setAccountHelpOpen(false)} />}
     </>
+  )
+}
+
+/** 账号中心指引：官方没有可直接跳转的个人中心 URL，给出准确客户端路径并指向官方文档 */
+function AccountHelpModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal" style={{ maxWidth: 480 }}>
+        <div className="modal-head"><h3>账号中心 / 修改资料</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
+        <div className="modal-body">
+          <div className="notice-box"><Info size={15} /><div>WorkBuddy 官方没有公开可直接跳转的个人中心网址，直接打开官网会落到下载页。请按下面官方路径进入账号中心。</div></div>
+          <ol style={{ fontSize: 13, lineHeight: 2, margin: '14px 0 0', paddingLeft: 22 }}>
+            <li>桌面客户端：点左下角头像 → 设置 → 个人主页 / 账号设置</li>
+            <li>手机 App：侧边栏点用户名旁齿轮 → 账号设置</li>
+            <li>网页端：登录 WorkBuddy 官网后，点右上角头像 → 个人中心</li>
+            <li>在个人中心可修改头像、昵称、手机号、邮箱等资料</li>
+          </ol>
+          <p style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.7, marginTop: 12 }}>
+            注意：WorkBuddy 暂不支持“换绑”已有账号的手机号；所谓切换登录手机号，是用另一个手机号登录对应账号，不会把新号码绑定到当前账号。
+          </p>
+        </div>
+        <div className="modal-foot">
+          <button className="btn" onClick={onClose}>关闭</button>
+          <button className="btn primary" onClick={() => void openExternal('https://www.codebuddy.cn/docs/workbuddyapp/Settings')}><ExternalLink size={14} /> 打开官方设置文档</button>
+        </div>
+      </div>
+    </div>
   )
 }
 
