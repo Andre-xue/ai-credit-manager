@@ -38,12 +38,13 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   {
     id: 'qwen', name: '通义千问', shortName: '通义', category: 'llm',
-    officialUrl: 'https://dashscope.console.aliyun.com/', usageUrl: 'https://dashscope.console.aliyun.com/overview',
+    officialUrl: 'https://bailian.console.aliyun.com/', usageUrl: 'https://bailian.console.aliyun.com/cn-beijing/model/market',
     color: '#615ced', initials: '通', modes: ['manual'],
-    checkinUrl: 'https://dashscope.console.aliyun.com/coupon',
-    apiBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    apiKeyUrl: 'https://dashscope.console.aliyun.com/apiKey',
-    note: '阿里云百炼控制台查看额度。',
+    checkinUrl: 'https://bailian.console.aliyun.com/',
+    // 阿里云百炼新版业务空间专属域名；{WorkspaceId} 请在控制台「业务空间详情」查看后替换
+    apiBaseUrl: 'https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+    apiKeyUrl: 'https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key',
+    note: 'API 地址中的 {WorkspaceId} 需替换为你的业务空间 ID；旧 dashscope.aliyuncs.com 域名仍可用。',
   },
   {
     id: 'kim', name: 'Moonshot Kimi', shortName: 'Kimi', category: 'llm',

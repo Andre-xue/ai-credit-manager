@@ -5,7 +5,7 @@ const PROVIDERS = [
   { id:'anthropic', name:'Anthropic Claude', short:'Claude', cat:'大模型', url:'https://console.anthropic.com/settings/usage', checkin:'', color:'#d97757', initials:'CL', note:'控制台查看用量' },
   { id:'gemini', name:'Google Gemini', short:'Gemini', cat:'大模型', url:'https://aistudio.google.com/app/apikey', checkin:'', color:'#4285f4', initials:'GE', note:'AI Studio 免费额度' },
   { id:'deepseek', name:'DeepSeek', short:'DeepSeek', cat:'大模型', url:'https://platform.deepseek.com/usage', checkin:'', color:'#4d6bfe', initials:'DS', note:'控制台查看余额' },
-  { id:'qwen', name:'通义千问', short:'通义', cat:'大模型', url:'https://dashscope.console.aliyun.com/overview', checkin:'', color:'#615ced', initials:'通', note:'百炼控制台查看额度' },
+  { id:'qwen', name:'通义千问', short:'通义', cat:'大模型', url:'https://bailian.console.aliyun.com/', checkin:'', color:'#615ced', initials:'通', note:'百炼控制台查看额度' },
   { id:'kim', name:'Moonshot Kimi', short:'Kimi', cat:'大模型', url:'https://platform.moonshot.cn/console/info', checkin:'', color:'#1a1a1a', initials:'K', note:'控制台查看余额' },
   { id:'doubao', name:'豆包 / 火山方舟', short:'豆包', cat:'大模型', url:'https://console.volcengine.com/ark', checkin:'', color:'#f04142', initials:'豆', note:'火山方舟控制台' },
   { id:'glm', name:'智谱 GLM', short:'GLM', cat:'大模型', url:'https://open.bigmodel.cn/usercenter', checkin:'', color:'#3859ff', initials:'G', note:'开放平台查看余额' },
