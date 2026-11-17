@@ -12,6 +12,7 @@ import {
   cloneVoiceFromSample, getClonedVoiceId, type VoiceSample,
 } from '../core/voiceClone'
 import { requirePermission } from '../core/permissions'
+import { isDesktopApp } from '../core/openExternal'
 import {
   hasTtsConfig, getTtsConfig, saveTtsConfig, clearTtsConfig,
   getActiveVoiceFile, hasDownloadedVoice, deleteActiveVoiceFile, switchVoice,
@@ -111,7 +112,10 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
     notify(config.provider ? '语音服务配置已保存' : '已清除语音服务配置')
   }
 
+  const desktop = isDesktopApp()
+
   const doRecord = async () => {
+    if (desktop) { notify('桌面端 WebView 不提供浏览器录音接口，请用「选择音频文件」导入样本'); return }
     if (!requirePermission('microphone', notify)) return
     try {
       notify('开始录音，8 秒后自动结束…')
@@ -119,6 +123,21 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
       setSample(await saveVoiceSample(blob, '录音样本.webm'))
       notify('声音样本已保存，可点击「克隆为 AI 发音」')
     } catch (e) { notify((e as Error).message ?? '录音失败') }
+  }
+
+  const pickNativeAudio = async () => {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog')
+      const picked = await open({ multiple: false, filters: [{ name: '音频文件', extensions: ['wav', 'mp3', 'm4a', 'aac', 'ogg', 'webm'] }] })
+      if (typeof picked !== 'string') return
+      const { readFile } = await import('@tauri-apps/plugin-fs')
+      const bytes = await readFile(picked)
+      const ext = picked.split('.').pop()?.toLowerCase() ?? ''
+      const mime = ext === 'wav' ? 'audio/wav' : ext === 'mp3' ? 'audio/mpeg' : ext === 'm4a' ? 'audio/mp4' : `audio/${ext}`
+      const blob = new Blob([bytes], { type: mime })
+      setSample(await saveVoiceSample(blob, picked.split('/').pop() ?? picked))
+      notify('音频样本已导入，可点击「克隆为 AI 发音」')
+    } catch (e) { notify((e as Error)?.message ?? '读取音频文件失败') }
   }
 
   const doPickFile = async (file?: File) => {
@@ -226,9 +245,15 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
       {/* 声音克隆 */}
       <div className="voice-section-label dialect"><Volume2 size={14} /> 声音克隆（录音 / 音频文件 → AI 发音）</div>
       <div className="voice-row" style={{ flexWrap: 'wrap', gap: 8 }}>
-        <button className="btn sm" onClick={() => void doRecord()}><Mic size={14} /> 录音 8 秒</button>
-        <button className="btn sm" onClick={() => fileRef.current?.click()}><Volume2 size={14} /> 选择音频文件</button>
-        <input ref={fileRef} type="file" accept="audio/*" style={{ display: 'none' }} onChange={e => { void doPickFile(e.target.files?.[0]); e.target.value = '' }} />
+        <button className="btn sm" disabled={desktop} title={desktop ? '桌面 WebView 不支持浏览器录音' : '录制 8 秒声音样本'} onClick={() => void doRecord()}><Mic size={14} /> 录音 8 秒</button>
+        {desktop ? (
+          <button className="btn sm primary" onClick={() => void pickNativeAudio()}><Volume2 size={14} /> 选择音频文件</button>
+        ) : (
+          <>
+            <button className="btn sm" onClick={() => fileRef.current?.click()}><Volume2 size={14} /> 选择音频文件</button>
+            <input ref={fileRef} type="file" accept="audio/*" style={{ display: 'none' }} onChange={e => { void doPickFile(e.target.files?.[0]); e.target.value = '' }} />
+          </>
+        )}
         <button className="btn sm primary" disabled={!sample || cloning} onClick={() => void doClone()}>
           {cloning ? '克隆中…' : '克隆为 AI 发音'}
         </button>
@@ -237,6 +262,7 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
       {sample && <div className="voice-hint">样本：{sample.name}（{(sample.size / 1024).toFixed(0)} KB）</div>}
       {clonedId && <div className="voice-hint">已克隆音色：{clonedId} · AI 回复优先走第三方代理合成</div>}
       {!ttsConfigured && <div className="voice-hint"><Info size={13} /> 声音克隆需要第三方语音服务代理（下方配置）；内置免费模型不提供克隆能力。</div>}
+      {desktop && <div className="voice-hint"><Info size={13} /> 桌面 WebView 不提供浏览器录音接口，系统授权开关也无法补上；请用「选择音频文件」导入样本（可先用 QuickTime 等工具录音）。</div>}
 
       {/* 第三方 TTS 配置 */}
       <button className="voice-config-toggle" onClick={() => setConfigOpen(v => !v)}>

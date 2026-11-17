@@ -2938,7 +2938,15 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
 
         {setTab === 'security' && <>
           <SettingsSection title="系统授权权限" desc={`${platform === 'desktop' ? '桌面客户端' : '手机客户端'} · 开启后才能使用对应功能`} icon={Lock} tone="indigo">
-            <div className="set-about-note" style={{ marginBottom: 10 }}>下列开关用于登记你已在系统弹窗中授权的权限。应用会在对应功能入口检查；麦克风/相机/通知等可主动申请的权限会先尝试申请。</div>
+            <div className="set-about-note" style={{ marginBottom: 10 }}>下列开关用于登记你已在系统弹窗中授权的权限，并作为本应用的功能门禁。它不会替代系统授权；若当前运行环境（如桌面 WebView）根本不提供该能力，打开开关也不会让功能可用。</div>
+            <button className="btn sm" style={{ marginBottom: 10 }} onClick={() => {
+              const rows: string[] = []
+              if ('Notification' in window) rows.push(`通知：${Notification.permission}`)
+              const md = navigator.mediaDevices as MediaDevices | undefined
+              rows.push(`麦克风接口：${md?.getUserMedia ? '可用' : '当前环境不提供'}`)
+              rows.push(`语音识别接口：${'SpeechRecognition' in window || 'webkitSpeechRecognition' in window ? '可用' : '当前环境不提供'}`)
+              notify(rows.join(' · '))
+            }}><Info size={13} /> 检测当前环境实际能力</button>
             {permDefs.map(def => (
               <SettingsRow key={def.key} title={def.label} desc={def.desc}>
                 <Toggle checked={permState[def.key] === true} onChange={(v) => {
