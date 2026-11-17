@@ -89,6 +89,14 @@ export const PROVIDERS: ProviderDefinition[] = [
     note: '开放平台查看余额。',
   },
   {
+    id: 'tencent', name: '腾讯云混元', shortName: '混元', category: 'llm',
+    officialUrl: 'https://cloud.tencent.com/product/hunyuan', usageUrl: 'https://console.cloud.tencent.com/tokenhub',
+    color: '#0052d9', initials: '腾', modes: ['manual'],
+    apiBaseUrl: 'https://api.hunyuan.cloud.tencent.com/v1',
+    apiKeyUrl: 'https://console.cloud.tencent.com/tokenhub',
+    note: '腾讯云 TokenHub（混元 Hy 系列），OpenAI 兼容接口；控制台查看用量。',
+  },
+  {
     id: 'siliconflow', name: 'SiliconFlow 硅基流动', shortName: '硅基流动', category: 'llm',
     officialUrl: 'https://www.siliconflow.cn/', usageUrl: 'https://cloud.siliconflow.cn',
     color: '#7c3aed', initials: 'SF', modes: ['manual'],
@@ -413,6 +421,21 @@ export const PROVIDERS: ProviderDefinition[] = [
     apiKeyUrl: 'https://jina.ai/',
     note: '嵌入、重排序与网页读取 API。',
   },
+
+  // ==================== 本地部署模型 ====================
+  // 说明：本地模型走独立添加页（路径 + 本机实时探测的网关端口），apiBaseUrl 留空。
+  {
+    id: 'local-ollama', name: 'Ollama（本地）', shortName: 'Ollama', category: 'local',
+    officialUrl: 'https://ollama.com/', usageUrl: 'https://ollama.com/',
+    color: '#ffffff', initials: 'OL', modes: ['api'],
+    note: '本机 Ollama 服务，默认端口 11434；网关地址由本机实时探测，不可修改。',
+  },
+  {
+    id: 'local-comfyui', name: 'ComfyUI（本地）', shortName: 'ComfyUI', category: 'local',
+    officialUrl: 'https://github.com/comfyanonymous/ComfyUI', usageUrl: 'https://github.com/comfyanonymous/ComfyUI',
+    color: '#1f9e7a', initials: 'CF', modes: ['api'],
+    note: '本机 ComfyUI 服务，默认端口 8188；网关地址由本机实时探测，不可修改。',
+  },
 ]
 
 export const PROVIDER_MAP: Record<string, ProviderDefinition> = Object.fromEntries(
@@ -421,11 +444,11 @@ export const PROVIDER_MAP: Record<string, ProviderDefinition> = Object.fromEntri
 
 /** 功能分类的顺序与中文标签（用于平台选择弹窗分组） */
 export const CATEGORY_ORDER: ProviderDefinition['category'][] = [
-  'llm', 'code', 'image', 'video', 'voice', 'search', 'design', 'embedding', 'other',
+  'llm', 'code', 'image', 'video', 'voice', 'search', 'design', 'embedding', 'local', 'other',
 ]
 
 export const CATEGORY_LABEL: Record<ProviderDefinition['category'], string> = {
   llm: '文本大模型', code: '编程助手', image: '图像生成', video: '视频生成',
   voice: '语音音频', search: '搜索研究', design: '设计工具', embedding: '嵌入向量',
-  other: '其他',
+  local: '本地模型', other: '其他',
 }

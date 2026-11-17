@@ -336,13 +336,65 @@ async fn proxy_usage(provider: String, api_key: String) -> Result<serde_json::Va
         .map_err(|e| format!("解析响应失败：{}", e))
 }
 
+/// 探测本机正在监听的本地模型服务端口（Ollama / ComfyUI / LM Studio 等）。
+/// 用 TCP connect 判断端口是否开放：能连上即视为该服务在本机真实运行。
+/// 返回实际可连接的网关地址与端口，前端只读展示、不可修改。
+#[tauri::command]
+fn detect_local_services() -> Result<Vec<serde_json::Value>, String> {
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::time::Duration;
+
+    // 端口 -> 服务名（含常见本地推理/绘图服务）
+    let candidates: &[(u16, &str)] = &[
+        (11434, "Ollama"),
+        (8188, "ComfyUI"),
+        (1234, "LM Studio"),
+        (8080, "本地服务"),
+        (8000, "本地服务"),
+        (5000, "本地服务"),
+        (7860, "Gradio/SD WebUI"),
+        (3000, "本地服务"),
+    ];
+    let hosts = ["127.0.0.1", "localhost"];
+    let mut found: Vec<serde_json::Value> = Vec::new();
+    let mut seen_ports: Vec<u16> = Vec::new();
+
+    for (port, name) in candidates {
+        let mut ok_host: Option<&str> = None;
+        for host in hosts {
+            let target = format!("{}:{}", host, port);
+            if let Ok(addrs) = target.to_socket_addrs() {
+                for addr in addrs {
+                    if TcpStream::connect_timeout(&addr, Duration::from_millis(250)).is_ok() {
+                        ok_host = Some(host);
+                        break;
+                    }
+                }
+            }
+            if ok_host.is_some() { break }
+        }
+        if let Some(host) = ok_host {
+            let host = if host == "localhost" { "127.0.0.1" } else { host };
+            found.push(serde_json::json!({
+                "service": name,
+                "host": host,
+                "port": port,
+                "url": format!("http://{}:{}", host, port),
+            }));
+            seen_ports.push(*port);
+        }
+    }
+    let _ = seen_ports; // 保留以便后续扩展去重逻辑
+    Ok(found)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app])
+        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

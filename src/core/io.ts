@@ -2,6 +2,7 @@
 // 设计目标：导出什么格式就能导回什么格式；CSV 可被 Excel 直接打开。
 // 纯函数、无浏览器依赖，便于单元测试。
 import type { AppState, Account, AccountMode, CreditUnit, QuotaSnapshot } from './types'
+import { isLocalProvider } from './types'
 import { PROVIDER_MAP } from '../data/providers'
 import { exportState } from './store'
 import { splitCsvLine, parseUsageCsv, type UsageEventInput } from './csv'
@@ -68,6 +69,17 @@ export function exportByFormat(
   state: AppState,
   latestQuota: (quotas: QuotaSnapshot[], id: string) => QuotaSnapshot | undefined,
 ): { content: string; mime: string; ext: string } {
+  // 本地模型（Ollama/ComfyUI 等）不参与任何导出：路径含本机信息，无跨端意义
+  const localIds = new Set(state.accounts.filter(a => isLocalProvider(a.providerId)).map(a => a.id))
+  if (localIds.size) {
+    state = {
+      ...state,
+      accounts: state.accounts.filter(a => !localIds.has(a.id)),
+      quotas: state.quotas.filter(q => !localIds.has(q.accountId)),
+      usage: state.usage.filter(u => !localIds.has(u.accountId)),
+      checkins: state.checkins.filter(c => !c.accountId || !localIds.has(c.accountId)),
+    }
+  }
   switch (format) {
     case 'json': return { content: exportJson(state), mime: 'application/json', ext: 'json' }
     case 'accounts-csv': return { content: exportAccountsCsv(state), mime: 'text/csv', ext: 'csv' }

@@ -148,6 +148,27 @@ describe('导出/导入往返', () => {
   })
 })
 
+describe('本地模型不参与导出', () => {
+  it('JSON / 账户 CSV 导出都会排除 local- 本地模型账户及其数据', () => {
+    const s = sampleState()
+    const localAcc: Account = {
+      id: 'loc1', providerId: 'local-ollama', label: 'llama3', mode: 'api',
+      apiUrl: 'http://127.0.0.1:11434', note: '本地',
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+    }
+    s.accounts.push(localAcc)
+    s.quotas = [...s.quotas, { id: 'q2', accountId: 'loc1', unit: 'token', total: 0, used: 0, capturedAt: '2026-01-01T00:00:00.000Z', source: 'manual' }]
+    const json = exportByFormat('json', s, latestQuota).content
+    expect(json).not.toContain('local-ollama')
+    expect(json).not.toContain('loc1')
+    const csv = exportByFormat('accounts-csv', s, latestQuota).content
+    expect(csv).not.toContain('local-ollama')
+    expect(csv).not.toContain('llama3')
+    // 普通账户仍在
+    expect(csv).toContain('openai')
+  })
+})
+
 describe('noteCategory 备注分类', () => {
   it('识别 [分类] 格式', () => {
     expect(noteCategory('[文本] 日常对话')).toBe('文本')

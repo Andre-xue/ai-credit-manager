@@ -5,6 +5,7 @@
 
 import { cloud } from './cloud'
 import type { AppState } from './types'
+import { isLocalProvider } from './types'
 import type { KeyBackupFile } from './keyBackup'
 import { getVaultSyncMaterial, applyVaultSyncMaterial, type VaultSyncMaterial } from './crypto'
 
@@ -98,8 +99,17 @@ export async function pushPayload(appState: AppState, newBackups?: KeyBackupFile
 
     const remotePrev = existing?.payload as SyncPayload | undefined
     const backups = [...(remotePrev?.keyBackups ?? []), ...(newBackups ?? [])].slice(-MAX_CLOUD_BACKUPS)
+    // 本地模型（Ollama/ComfyUI 等）不进云同步
+    const localIds = new Set(appState.accounts.filter(a => isLocalProvider(a.providerId)).map(a => a.id))
+    const syncState: AppState = localIds.size ? {
+      ...appState,
+      accounts: appState.accounts.filter(a => !localIds.has(a.id)),
+      quotas: appState.quotas.filter(q => !localIds.has(q.accountId)),
+      usage: appState.usage.filter(u => !localIds.has(u.accountId)),
+      checkins: appState.checkins.filter(c => !c.accountId || !localIds.has(c.accountId)),
+    } : appState
     const payload: SyncPayload = {
-      appState,
+      appState: syncState,
       vault: getVaultSyncMaterial(),
       keyBackups: backups,
       clientAt: new Date().toISOString(),
@@ -133,10 +143,20 @@ export async function pushPayload(appState: AppState, newBackups?: KeyBackupFile
 }
 
 /** 把云端载荷应用到本地：先应用保险箱材料，再以云端数据为准整体覆盖本地。 */
-export function applyPayload(payload: SyncPayload, _local: AppState): AppState {
+export function applyPayload(payload: SyncPayload, local: AppState): AppState {
   if (payload.vault) applyVaultSyncMaterial(payload.vault)
   try { localStorage.setItem(LAST_SYNC_KEY, payload.clientAt) } catch { /* 忽略 */ }
-  return payload.appState
+  // 云端不含本地模型：把本机已有的本地模型账户与其关联数据保留下来
+  const localAccounts = local.accounts.filter(a => isLocalProvider(a.providerId))
+  if (!localAccounts.length) return payload.appState
+  const localIds = new Set(localAccounts.map(a => a.id))
+  return {
+    ...payload.appState,
+    accounts: [...payload.appState.accounts, ...localAccounts],
+    quotas: [...payload.appState.quotas, ...local.quotas.filter(q => localIds.has(q.accountId))],
+    usage: [...payload.appState.usage, ...local.usage.filter(u => localIds.has(u.accountId))],
+    checkins: [...payload.appState.checkins, ...local.checkins.filter(c => !!c.accountId && localIds.has(c.accountId))],
+  }
 }
 
 export function getLastSyncAt(): string | null {

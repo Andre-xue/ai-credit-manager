@@ -27,6 +27,7 @@ export interface ProviderDefinition {
     | 'search'     // 搜索/研究
     | 'design'     // 设计工具
     | 'embedding'  // 嵌入/向量
+    | 'local'      // 本地部署模型（Ollama / ComfyUI 等）
     | 'other'
   officialUrl: string
   /** 官方用量/账单页面，用于跳转（本人登录后查看） */
@@ -176,4 +177,12 @@ export interface AccountView {
   daysUntilReset?: number
   /** 用量耗尽预测 */
   forecast?: import('./forecast').Forecast
+}
+
+/** 本地部署模型账户的 providerId 统一前缀（Ollama / ComfyUI 等） */
+export const LOCAL_PROVIDER_PREFIX = 'local-'
+
+/** 该账户是否为本地模型（本地模型不进云同步、备份与导出） */
+export function isLocalProvider(providerId: string | undefined | null): boolean {
+  return !!providerId && providerId.startsWith(LOCAL_PROVIDER_PREFIX)
 }

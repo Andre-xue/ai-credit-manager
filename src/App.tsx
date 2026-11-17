@@ -8,6 +8,8 @@ import {
   Cloud, Bell, Database, Volume2, HardDrive, Palette, RotateCcw,
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
+import { isLocalProvider } from './core/types'
+import { detectLocalServices, type LocalService } from './core/localServices'
 import { PROVIDERS, PROVIDER_MAP, CATEGORY_LABEL, CATEGORY_ORDER } from './data/providers'
 import {
   loadState, saveState, uid, updateAccount, removeAccount, upsertQuota, latestQuota, toggleCheckin,
@@ -62,7 +64,7 @@ const MODE_LABEL: Record<AccountMode, string> = {
 
 const CATEGORY_ICON: Record<ProviderDefinition['category'], typeof Code2> = {
   llm: Sparkles, code: Code2, image: Image, video: Film, voice: Mic,
-  search: Search, design: PenTool, embedding: Layers, other: CircleHelp,
+  search: Search, design: PenTool, embedding: Layers, local: HardDrive, other: CircleHelp,
 }
 
 function App() {
@@ -688,7 +690,18 @@ function App() {
         onClose={() => setAddOpen(false)}
         onPick={(pid) => { setAddOpen(false); setFormProviderId(pid) }}
       />}
-      {formProviderId && <AccountFormModal
+      {formProviderId && isLocalProvider(formProviderId) && <LocalAccountFormModal
+        provider={PROVIDER_MAP[formProviderId]} sessionPwd={sessionPwd}
+        onClose={() => setFormProviderId(null)}
+        onSave={(account, pwd) => {
+          setState(s => ({ ...s, accounts: [{ ...account }, ...s.accounts] }))
+          if (pwd && !sessionPwd) setSessionPwd(pwd)
+          setFormProviderId(null)
+          notify(`已添加本地模型「${account.label}」`)
+        }}
+        notify={notify}
+      />}
+      {formProviderId && !isLocalProvider(formProviderId) && <AccountFormModal
         provider={PROVIDER_MAP[formProviderId]} sessionPwd={sessionPwd}
         onClose={() => setFormProviderId(null)}
         onSave={(data) => {
@@ -1904,6 +1917,102 @@ function UsageView({ state, notify, onBudget, onAddUsage, onImport, onPriceChang
 }
 
 /** 第一步：选择要添加的平台 */
+/** 本地模型独立添加页：路径为 Key，网关端口由本机实时探测（只读不可改） */
+function LocalAccountFormModal({ provider, sessionPwd, onClose, onSave, notify }: {
+  provider: ProviderDefinition; sessionPwd: string;
+  onClose: () => void;
+  onSave: (account: AppState['accounts'][number], pwd: string) => void;
+  notify: (m: string) => void;
+}) {
+  const [services, setServices] = useState<LocalService[]>([])
+  const [selected, setSelected] = useState<LocalService | null>(null)
+  const [path, setPath] = useState('')
+  const [note, setNote] = useState('')
+  const [detecting, setDetecting] = useState(true)
+  const [detectErr, setDetectErr] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const detect = async () => {
+    setDetecting(true); setDetectErr('')
+    const r = await detectLocalServices()
+    setServices(r.services)
+    setDetectErr(r.error ?? '')
+    if (r.services.length) setSelected(prev => prev ?? r.services[0])
+    setDetecting(false)
+  }
+  useEffect(() => { void detect() }, [])
+
+  const submit = async () => {
+    if (!selected) { notify('请先选择本机探测到的服务'); return }
+    if (!path.trim()) { notify('请填写模型路径地址'); return }
+    if (!isVaultInitialized()) { notify('请先在「设置 → 安全」创建保险箱'); return }
+    const pwd = sessionPwd || getBiometricPassword() || ''
+    if (!pwd) { notify('请先在「API Key 管理」页解锁保险箱后再添加'); return }
+    setBusy(true)
+    try {
+      if (!(await verifyVault(pwd))) { notify('主密码错误'); return }
+      // Key 值 = 模型路径地址；apiUrl = 探测到的本机网关（不可改）
+      const enc = await encryptSecret(path.trim(), pwd)
+      const now = new Date().toISOString()
+      const account: AppState['accounts'][number] = {
+        id: uid('acc'), providerId: provider.id, label: path.trim().split(/[\\/]/).pop() || provider.shortName,
+        mode: 'api', encryptedKey: enc, keyFingerprint: fingerprint(path.trim()),
+        apiUrl: selected.url, note: note.trim() || `本地 ${selected.service}`,
+        createdAt: now, updatedAt: now,
+      }
+      onSave(account, pwd)
+    } catch (e) { notify((e as Error)?.message ?? '保存失败') }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal account-form-modal" style={{ maxWidth: 520 }}>
+        <div className="modal-head">
+          <div className="row" style={{ gap: 10 }}>
+            <ProviderLogo provider={provider} size={30} />
+            <div>
+              <h3 style={{ margin: 0 }}>添加本地模型 · {provider.shortName}</h3>
+              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>网关地址由本机实时探测，不可修改</div>
+            </div>
+          </div>
+          <button className="icon-btn" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="modal-body">
+          <div className="form-row">
+            <label className="form-label">本机服务（实时探测 · 网关与端口不可改）</label>
+            {detecting ? <div className="form-static">正在扫描本机监听端口…</div> : services.length === 0
+              ? <div className="form-static" style={{ color: 'var(--red)' }}>{detectErr || '未检测到本机服务，请确认服务已启动'}</div>
+              : <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {services.map(s => (
+                  <button key={`${s.host}:${s.port}`} className={`backup-option ${selected?.port === s.port ? 'active' : ''}`} onClick={() => setSelected(s)}>
+                    <span><b>{s.service}</b><small>{s.url}</small></span>
+                  </button>
+                ))}
+              </div>}
+            <button className="btn sm" style={{ marginTop: 8 }} onClick={() => void detect()} disabled={detecting}>重新探测</button>
+          </div>
+          <div className="form-row" style={{ marginTop: 12 }}>
+            <label className="form-label">模型路径地址（作为 Key 值加密保存）</label>
+            <input className="input" value={path} onChange={e => setPath(e.target.value)} placeholder="如 /models/llama3 或 C:\models\xxx.gguf" disabled={busy} />
+          </div>
+          <div className="form-row" style={{ marginTop: 12 }}>
+            <label className="form-label">备注（可选）</label>
+            <input className="input" value={note} onChange={e => setNote(e.target.value)} placeholder="用途说明" disabled={busy} />
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 10, lineHeight: 1.6 }}>
+            本地模型仅保存在本机，不参与云同步、备份与导出（路径含本机信息，无跨端意义）。
+          </div>
+        </div>
+        <div className="modal-foot">
+          <button className="btn" onClick={onClose}>取消</button>
+          <button className="btn primary" onClick={() => void submit()} disabled={busy || !selected}>{busy ? '保存中…' : '添加本地模型'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function PlatformPickerModal({ onClose, onPick }: {
   onClose: () => void; onPick: (providerId: string) => void
 }) {

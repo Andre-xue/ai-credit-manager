@@ -2,6 +2,7 @@
 // 备份文件是自包含的：密文备份带保险箱同步材料，明文备份带解密后的 Key。
 
 import type { AppState, Account, CheckinRecord, QuotaSnapshot, UsageEvent } from './types'
+import { isLocalProvider } from './types'
 import { decryptSecret, encryptSecret, fingerprint, getVaultSyncMaterial, applyVaultSyncMaterial, type VaultSyncMaterial } from './crypto'
 import { isNativeApp, isDesktopApp } from './openExternal'
 import { pushPayload } from './sync'
@@ -58,7 +59,8 @@ export async function buildKeyBackup(
   format: KeyBackupFormat,
   pwd?: string,
 ): Promise<KeyBackupFile> {
-  const targets = state.accounts.filter(a => accountIds.includes(a.id))
+  // 本地模型（Ollama/ComfyUI 等）只存本机路径，不进任何备份
+  const targets = state.accounts.filter(a => accountIds.includes(a.id) && !isLocalProvider(a.providerId))
   if (targets.length === 0) throw new Error('没有可备份的账户')
   if (format === 'plain' && !pwd) throw new Error('明文备份需要验证主密码')
 
