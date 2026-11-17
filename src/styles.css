@@ -66,6 +66,13 @@ button { cursor: pointer; }
 }
 .compliance b { color: var(--amber); font-weight: 600; }
 
+/* 侧边栏显示/隐藏 */
+.sidebar-collapsed .sidebar { display: none; }
+.sidebar-toggle { margin-left: auto; opacity: .55; }
+.sidebar-toggle:hover { opacity: 1; }
+.topbar-heading { display: flex; align-items: center; gap: 12px; }
+.sidebar-show { color: var(--text-2); }
+
 /* Main */
 .main { flex: 1; min-width: 0; }
 .topbar {

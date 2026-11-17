@@ -4,7 +4,7 @@ import {
   ExternalLink, Trash2, RefreshCw, AlertTriangle, Info, Check,
   Wallet, Flame, Clock, TrendingUp, Lock, Unlock, Download, X, Copy, CircleHelp,
   Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Gift, Eye, Pencil, Fingerprint,
-  Film, Layers, Monitor,
+  Film, Layers, Monitor, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { PROVIDERS, PROVIDER_MAP, CATEGORY_LABEL, CATEGORY_ORDER } from './data/providers'
@@ -54,6 +54,13 @@ const CATEGORY_ICON: Record<ProviderDefinition['category'], typeof Code2> = {
 function App() {
   const [state, setState] = useState<AppState>(() => loadState())
   const [tab, setTab] = useState<Tab>('dashboard')
+  const [sidebarVisible, setSidebarVisible] = useState<boolean>(() => {
+    try { return localStorage.getItem('acm.sidebar.visible') !== '0' } catch { return true }
+  })
+  const toggleSidebar = () => setSidebarVisible(v => {
+    try { localStorage.setItem('acm.sidebar.visible', v ? '0' : '1') } catch { /* 忽略 */ }
+    return !v
+  })
   const [addOpen, setAddOpen] = useState(false)
   const [formProviderId, setFormProviderId] = useState<string | null>(null)
   const [vaultOpen, setVaultOpen] = useState(false)
@@ -214,9 +221,9 @@ function App() {
     .reduce((s, u) => s + u.estimatedCost, 0)
   const portfolioValue = totalPortfolioValue(state)
 
-  const tabs: Array<{ id: Tab; label: string; icon: typeof LayoutDashboard; badge?: number }> = [
+  const tabs: Array<{ id: Tab; label: string; icon: typeof LayoutDashboard }> = [
     { id: 'dashboard', label: '额度看板', icon: LayoutDashboard },
-    { id: 'checkin', label: 'AI Agent工具（签到）', icon: CalendarCheck2, badge: pendingCheckins.length },
+    { id: 'checkin', label: 'AI Agent工具（签到）', icon: CalendarCheck2 },
     { id: 'benefits', label: '福利中心', icon: Gift },
     { id: 'keys', label: 'API Key 管理', icon: KeyRound },
     { id: 'usage', label: '用量与费用', icon: BarChart3 },
@@ -224,7 +231,7 @@ function App() {
   ]
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${sidebarVisible ? '' : 'sidebar-collapsed'}`}>
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark"><Sparkles size={18} /></div>
@@ -232,15 +239,15 @@ function App() {
             <div className="brand-name">AI 积分管家</div>
             <div className="brand-sub">Credit Manager</div>
           </div>
+          <button className="icon-btn sidebar-toggle" onClick={toggleSidebar} title="隐藏侧边栏"><PanelLeftClose size={17} /></button>
         </div>
         <nav className="nav">
           {tabs.map((t) => {
             const Icon = t.icon
             return (
-              <button key={t.id} className={`nav-item ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>
+              <button key={t.id} className={`nav-item ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)} title={t.label}>
                 <Icon size={17} />
                 <span>{t.label}</span>
-                {t.badge ? <span className="badge">{t.badge}</span> : null}
               </button>
             )
           })}
@@ -255,9 +262,12 @@ function App() {
 
       <main className="main">
         <header className="topbar">
-          <div>
-            <h1>{tabs.find((t) => t.id === tab)?.label}</h1>
-            <div className="subtitle">本地优先存储 · 数据仅保存在此设备</div>
+          <div className="topbar-heading">
+            {!sidebarVisible && <button className="icon-btn sidebar-show" onClick={toggleSidebar} title="显示侧边栏"><PanelLeftOpen size={18} /></button>}
+            <div>
+              <h1>{tabs.find((t) => t.id === tab)?.label}</h1>
+              <div className="subtitle">本地优先存储 · 数据仅保存在此设备</div>
+            </div>
           </div>
           <div className="topbar-actions">
             <button className="btn primary" onClick={() => setAddOpen(true)}><Plus size={16} /> 添加账户</button>
