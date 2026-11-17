@@ -98,6 +98,100 @@ async fn open_url(url: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 检测本机是否安装了指定客户端。
+/// macOS：用 mdfind 按官方 bundle id 精确匹配（Spotlight 索引）；Windows：查注册表 App Paths / where。
+/// 仅做只读检测，不启动任何程序。
+#[tauri::command]
+async fn is_app_installed(bundle_ids: Vec<String>, exe_names: Vec<String>) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        for bid in &bundle_ids {
+            if bid.is_empty() { continue }
+            // 允许字母数字、点、横线，防止命令注入
+            if !bid.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') { continue }
+            if let Ok(out) = std::process::Command::new("mdfind")
+                .arg(format!("kMDItemCFBundleIdentifier == '{}'", bid)).output() {
+                if !out.stdout.is_empty() { return Ok(true) }
+            }
+        }
+        // mdfind 索引未建立时，回退检查常见安装目录
+        if let Ok(out) = std::process::Command::new("ls").arg("/Applications").output() {
+            let names = String::from_utf8_lossy(&out.stdout).to_lowercase();
+            for exe in &exe_names {
+                let stem = exe.trim_end_matches(".exe").to_lowercase();
+                if !stem.is_empty() && names.contains(&stem) { return Ok(true) }
+            }
+        }
+        Ok(false)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        for exe in &exe_names {
+            if exe.is_empty() { continue }
+            if !exe.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == ' ') { continue }
+            // 注册表 App Paths
+            if let Ok(out) = std::process::Command::new("reg")
+                .args(["query", &format!("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\{}", exe)])
+                .output() {
+                if out.status.success() { return Ok(true) }
+            }
+            // PATH 中查找
+            if let Ok(out) = std::process::Command::new("where").arg(exe).output() {
+                if out.status.success() { return Ok(true) }
+            }
+        }
+        Ok(false)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (bundle_ids, exe_names);
+        Ok(false)
+    }
+}
+
+/// 唤醒本机已安装的客户端。命中第一个可用标识即打开，返回是否成功发起。
+/// 调用方应在失败时回退到官网，保证始终有可用出口。
+#[tauri::command]
+async fn open_local_app(bundle_ids: Vec<String>, exe_names: Vec<String>) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = &exe_names; // macOS 仅用 bundle id 唤醒
+        for bid in &bundle_ids {
+            if bid.is_empty() { continue }
+            if !bid.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') { continue }
+            if let Ok(out) = std::process::Command::new("mdfind")
+                .arg(format!("kMDItemCFBundleIdentifier == '{}'", bid)).output() {
+                if !out.stdout.is_empty() {
+                    std::process::Command::new("open").arg("-b").arg(bid).spawn()
+                        .map_err(|e| format!("唤醒客户端失败：{}", e))?;
+                    return Ok(true)
+                }
+            }
+        }
+        Ok(false)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        for exe in &exe_names {
+            if exe.is_empty() { continue }
+            if !exe.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == ' ') { continue }
+            if let Ok(out) = std::process::Command::new("where").arg(exe).output() {
+                if out.status.success() {
+                    std::process::Command::new("cmd").args(["/C", "start", "", exe]).spawn()
+                        .map_err(|e| format!("唤醒客户端失败：{}", e))?;
+                    return Ok(true)
+                }
+            }
+        }
+        Ok(false)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (bundle_ids, exe_names);
+        Ok(false)
+    }
+}
+
 #[tauri::command]
 async fn send_notification(title: String, body: String) -> Result<(), String> {
     // 用系统原生命令发通知，避免引入额外 crate（本机无外网时也能编译）。
@@ -158,7 +252,7 @@ async fn proxy_usage(provider: String, api_key: String) -> Result<serde_json::Va
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![proxy_usage, send_notification, open_url, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir])
+        .invoke_handler(tauri::generate_handler![proxy_usage, send_notification, open_url, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

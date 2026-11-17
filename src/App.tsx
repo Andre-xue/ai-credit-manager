@@ -4,7 +4,7 @@ import {
   ExternalLink, Trash2, RefreshCw, AlertTriangle, Info, Check,
   Wallet, Flame, Clock, TrendingUp, Lock, Unlock, Download, X, Copy, CircleHelp,
   Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Gift, Eye, Pencil, Fingerprint,
-  Film, Layers,
+  Film, Layers, Monitor,
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { PROVIDERS, PROVIDER_MAP, CATEGORY_LABEL, CATEGORY_ORDER } from './data/providers'
@@ -28,7 +28,7 @@ import {
   type ExportFormat, type ServiceEntry, exportByFormat, detectCsvKind, isJsonImport,
   parseAccountsCsv, parseQuotasCsv, isServiceList, parseServiceList, noteCategory,
 } from './core/io'
-import { openExternal, isDesktopApp, biometricAvailable, biometricAuth } from './core/openExternal'
+import { openExternal, openTool, isDesktopApp, isAppInstalled, biometricAvailable, biometricAuth } from './core/openExternal'
 
 /** CSV 导入预览：解析后的数据按类型区分 */
 type CsvImportPreview =
@@ -514,6 +514,25 @@ function OutLink({ url, label, className = 'btn sm ghost', title, notify, style 
   )
 }
 
+/** 智能打开工具：桌面端优先唤醒本机客户端，未安装则打开官网 */
+function ToolLink({ tool, label, className = 'btn sm ghost', title, notify, icon: Icon = ExternalLink }: {
+  tool: AgentTool; label: React.ReactNode; className?: string; title?: string;
+  notify: (m: string) => void; icon?: typeof ExternalLink
+}) {
+  const url = tool.checkinUrl ?? tool.downloadUrl
+  return (
+    <button className={className} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }} title={title ?? `${tool.name} 官方站点`}
+      onClick={async () => {
+        const { opened, via } = await openTool(tool.localApp, url)
+        if (!opened) notify(`打开失败，请手动访问官方站点：${url}`)
+        else if (via === 'local') notify(`已唤醒本机「${tool.name}」客户端`)
+        else if (!isDesktopApp()) notify('已在新标签页打开官方页面，请本人操作')
+      }}>
+      {label} <Icon size={12} />
+    </button>
+  )
+}
+
 function DashboardView({ views, onAdd, onRemove, onEditQuota, notify }: {
   views: AccountView[]; onAdd: () => void; onRemove: (id: string) => void; onEditQuota: (id: string) => void;
   notify: (m: string) => void
@@ -637,6 +656,22 @@ function AgentToolsView({ checkins, notify, onToggle }: {
   const today = todayISO()
   const [region, setRegion] = useState<'all' | AgentRegion>('all')
   const [keyword, setKeyword] = useState('')
+  const [installed, setInstalled] = useState<Set<string>>(new Set())
+
+  // 桌面端：启动时异步检测本机已安装的客户端
+  useEffect(() => {
+    if (!isDesktopApp()) return
+    let alive = true
+    ;(async () => {
+      const hits = new Set<string>()
+      for (const t of AGENT_TOOLS) {
+        if (!t.localApp) continue
+        if (await isAppInstalled(t.localApp.bundleIds, t.localApp.exeNames)) hits.add(t.id)
+      }
+      if (alive) setInstalled(hits)
+    })()
+    return () => { alive = false }
+  }, [])
 
   const isDone = (id: string) => checkins.some(c => c.providerId === id && c.date === today && c.done)
   const doneCount = CHECKIN_TOOLS.filter(t => isDone(t.id)).length
@@ -650,6 +685,7 @@ function AgentToolsView({ checkins, notify, onToggle }: {
 
   const ToolCard = ({ t }: { t: AgentTool }) => {
     const done = t.canCheckin && isDone(t.id)
+    const hasLocal = installed.has(t.id)
     return (
       <article className="agent-card">
         <div className="agent-card-top">
@@ -668,6 +704,7 @@ function AgentToolsView({ checkins, notify, onToggle }: {
         <div className="agent-card-badges">
           <span className="agent-chip" style={{ color: t.color, background: `${t.color}12` }}>{t.category}</span>
           <span className="agent-chip muted">{t.region === 'cn' ? '国内' : '海外'}</span>
+          {hasLocal && <span className="agent-chip local"><Monitor size={10} /> 本机已装</span>}
         </div>
         <p className="agent-desc">{t.desc}</p>
         <div className={`agent-tip ${t.canCheckin ? 'checkin' : 'benefit'}`}>
@@ -676,14 +713,14 @@ function AgentToolsView({ checkins, notify, onToggle }: {
         </div>
         <div className="agent-card-actions">
           {t.canCheckin && <>
-            <OutLink url={t.checkinUrl ?? t.downloadUrl} label="前往签到" className="btn sm primary" notify={notify}
-              title={`打开 ${t.name} 官方页，由你本人完成签到`} />
+            <ToolLink tool={t} label={hasLocal ? '打开签到' : '前往签到'} className="btn sm primary"
+              title={hasLocal ? `唤醒本机 ${t.name} 客户端（未安装则打开官网）` : `打开 ${t.name} 官方页签到`} notify={notify} />
             <button className="btn sm" onClick={() => onToggle(t.id)} title={done ? '标记为未签到' : '标记今日已签到'}>
               {done ? '撤销标记' : '标记完成'}
             </button>
           </>}
-          <OutLink url={t.downloadUrl} label={t.canCheckin ? '官方下载' : '前往官网'} className="btn sm ghost" notify={notify}
-            title={`打开 ${t.name} 官方站点`} />
+          <ToolLink tool={t} label={hasLocal ? '打开客户端' : t.canCheckin ? '官方下载' : '前往官网'} className="btn sm ghost"
+            title={hasLocal ? `唤醒本机 ${t.name} 客户端` : `打开 ${t.name} 官方站点`} notify={notify} />
         </div>
       </article>
     )
@@ -721,7 +758,7 @@ function AgentToolsView({ checkins, notify, onToggle }: {
       <div className="notice-box">
         <Info size={15} />
         <div>
-          <b>可签到</b>仅指官方确有「每日签到 / 登录领积分」机制；免费额度、试用、新用户赠金归为<b>无签到</b>。图标为各平台官方 logo（本地存储，离线可用），下载与签到均跳转官方站点，由你本人登录完成。本工具不模拟登录、不自动领取。活动规则以各平台实时页面为准。
+          <b>可签到</b>仅指官方确有「每日签到 / 登录领积分」机制；免费额度、试用、新用户赠金归为<b>无签到</b>。图标为各平台官方 logo（本地存储，离线可用）。<b>桌面端</b>点击跳转会优先唤醒本机已安装的客户端（卡片显示「本机已装」），未安装则打开官网；网页端直接打开官网。签到由你本人在官方端完成，本工具不模拟登录、不自动领取。规则以各平台实时页面为准。
         </div>
       </div>
 

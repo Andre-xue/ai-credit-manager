@@ -25,6 +25,42 @@ export async function biometricAuth(): Promise<boolean> {
   } catch { return false }
 }
 
+/** 检测本机是否安装了指定客户端（仅桌面端有效） */
+export async function isAppInstalled(bundleIds: string[], exeNames: string[]): Promise<boolean> {
+  if (!isDesktopApp()) return false
+  try {
+    const w = window as unknown as { __TAURI_INTERNALS__?: { invoke?: (cmd: string, args: Record<string, unknown>) => Promise<boolean> } }
+    if (!w.__TAURI_INTERNALS__?.invoke) return false
+    return await w.__TAURI_INTERNALS__.invoke('is_app_installed', { bundleIds, exeNames })
+  } catch { return false }
+}
+
+/** 唤醒本机客户端。返回是否成功发起 */
+export async function openLocalApp(bundleIds: string[], exeNames: string[]): Promise<boolean> {
+  if (!isDesktopApp()) return false
+  try {
+    const w = window as unknown as { __TAURI_INTERNALS__?: { invoke?: (cmd: string, args: Record<string, unknown>) => Promise<boolean> } }
+    if (!w.__TAURI_INTERNALS__?.invoke) return false
+    return await w.__TAURI_INTERNALS__.invoke('open_local_app', { bundleIds, exeNames })
+  } catch { return false }
+}
+
+/**
+ * 智能打开官方工具：桌面端优先唤醒本机已安装的客户端，失败或网页端则打开官网。
+ * 返回 { opened: 是否已发起跳转, via: 'local' | 'web' }。
+ */
+export async function openTool(
+  localApp: { bundleIds: string[]; exeNames: string[] } | undefined,
+  fallbackUrl: string,
+): Promise<{ opened: boolean; via: 'local' | 'web' }> {
+  if (isDesktopApp() && localApp) {
+    const launched = await openLocalApp(localApp.bundleIds, localApp.exeNames)
+    if (launched) return { opened: true, via: 'local' }
+  }
+  const opened = await openExternal(fallbackUrl)
+  return { opened, via: 'web' }
+}
+
 /** 在系统默认浏览器中打开官方页面。返回是否成功发起 */
 export async function openExternal(url: string): Promise<boolean> {
   if (!url || !/^https?:\/\//.test(url)) return false

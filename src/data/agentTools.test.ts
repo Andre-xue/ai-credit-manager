@@ -54,4 +54,18 @@ describe('AI Agent 工具目录一致性', () => {
       expect(t.canCheckin).toBe(true)
     }
   })
+
+  it('本地客户端映射结构合法且至少覆盖主流工具', () => {
+    const withLocal = AGENT_TOOLS.filter(t => t.localApp)
+    expect(withLocal.length).toBeGreaterThanOrEqual(15)
+    for (const t of withLocal) {
+      expect(t.localApp!.bundleIds.length + t.localApp!.exeNames.length).toBeGreaterThan(0)
+      for (const b of t.localApp!.bundleIds) expect(b).toMatch(/^[A-Za-z0-9.\-]+$/)
+      for (const e of t.localApp!.exeNames) expect(e.toLowerCase().endsWith('.exe')).toBe(true)
+    }
+    // 本机常见客户端应有映射
+    for (const id of ['workbuddy', 'doubao', 'kimi', 'chatgpt', 'claude', 'gemini']) {
+      expect(AGENT_TOOLS.find(t => t.id === id)?.localApp).toBeDefined()
+    }
+  })
 })

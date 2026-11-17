@@ -10,6 +10,13 @@ export type AgentRegion = 'cn' | 'global'
 export type AgentCategory =
   | '综合办公' | '对话助手' | '编程开发' | 'AI 搜索' | '图像设计' | '视频创作' | 'Agent 平台'
 
+export interface LocalApp {
+  /** macOS 官方 bundle id 候选（按顺序探测，命中即唤醒） */
+  bundleIds: string[]
+  /** Windows 官方可执行文件名 / 开始菜单名候选 */
+  exeNames: string[]
+}
+
 export interface AgentTool {
   id: string
   name: string        // 中文名
@@ -31,6 +38,8 @@ export interface AgentTool {
   color: string
   /** 一句话定位 */
   desc: string
+  /** 本地客户端标识（有桌面端的工具才配置；缺失则直接走官网） */
+  localApp?: LocalApp
 }
 
 const icon = (id: string) => `/agent-icons/${id}.png`
@@ -42,18 +51,21 @@ export const AGENT_TOOLS: AgentTool[] = [
     downloadUrl: 'https://www.workbuddy.cn/', checkinUrl: 'https://www.workbuddy.cn/',
     checkinTip: '客户端左下角头像 →「Buddy 加油站」每日签到，每日 100 积分，连签 7/14/28 天有额外奖励；积分当月有效，手机端无入口。',
     icon: icon('workbuddy'), color: '#00b96b', desc: '腾讯出品的 AI Agent 办公工作台，本地文件批处理、定时任务、手机远程控电脑。',
+    localApp: { bundleIds: ['com.tencent.workbuddy.mac'], exeNames: ['WorkBuddy.exe'] },
   },
   {
     id: 'doubao', name: '豆包', nameEn: 'Doubao', region: 'cn', category: '对话助手', canCheckin: true,
     downloadUrl: 'https://www.doubao.com/', checkinUrl: 'https://www.doubao.com/',
     checkinTip: '电脑版左下角签到窗，或头像 →「免费用豆包」；每日 200 额度、周一翻倍，30 天累计约 8800；额度 30 天有效，手机端无入口。',
     icon: icon('doubao'), color: '#f04142', desc: '字节跳动的 AI 助手，对话、写作、绘图、PPT 一站式，电脑版「豆包工作」可操作本地文件。',
+    localApp: { bundleIds: ['com.bot.pc.doubao'], exeNames: ['Doubao.exe'] },
   },
   {
     id: 'yuanbao', name: '腾讯元宝', nameEn: 'Tencent Yuanbao', region: 'cn', category: '对话助手', canCheckin: true,
     downloadUrl: 'https://yuanbao.tencent.com/', checkinUrl: 'https://yuanbao.tencent.com/',
     checkinTip: '手机 App →「福利中心」每日签到攒积分，可兑话费券、视频会员等；积分有有效期，以 App 实时页面为准。',
     icon: icon('yuanbao'), color: '#4f6bfe', desc: '腾讯旗下 AI 助手，全功能免费，支持文档处理、AI 搜索与多模态生成。',
+    localApp: { bundleIds: ['com.tencent.yuanbao', 'com.tencent.Yuanbao'], exeNames: ['Yuanbao.exe'] },
   },
   {
     id: 'coze', name: '扣子', nameEn: 'Coze', region: 'cn', category: 'Agent 平台', canCheckin: true,
@@ -66,24 +78,28 @@ export const AGENT_TOOLS: AgentTool[] = [
     downloadUrl: 'https://chatglm.cn/', checkinUrl: 'https://chatglm.cn/',
     checkinTip: '网页/App 每日登录领积分，连续登录有额外奖励；积分规则以账户页实时显示为准。',
     icon: icon('zhipu'), color: '#3859ff', desc: '智谱 AI 的对话助手，基于 GLM 模型，支持长文本、文件解析与智能体。',
+    localApp: { bundleIds: ['com.zhihuishu.chatglm', 'com.zhipu.chatglm'], exeNames: ['ChatGLM.exe'] },
   },
   {
     id: 'minimax', name: 'MiniMax', nameEn: 'MiniMax', region: 'cn', category: '对话助手', canCheckin: true,
     downloadUrl: 'https://www.minimaxi.com/', checkinUrl: 'https://www.minimaxi.com/',
     checkinTip: '网页/App 账户菜单 →「每日签到」，每日约 400 积分，第 4/7 天有额外奖励；积分有效期约 30 天。',
     icon: icon('minimax'), color: '#0f172a', desc: '稀宇科技旗下 AI 助手，海螺视频、语音合成与文本模型一体的创作工具。',
+    localApp: { bundleIds: ['com.minimax.hub', 'com.minimax.MiniMax'], exeNames: ['MiniMax.exe'] },
   },
   {
     id: 'trae', name: 'Trae', nameEn: 'Trae', region: 'cn', category: '编程开发', canCheckin: true,
     downloadUrl: 'https://www.trae.cn/', checkinUrl: 'https://www.trae.cn/',
     checkinTip: '免费版账户菜单 →「签到」，每日约 100 积分；积分与规则以客户端账户页为准。',
     icon: icon('trae'), color: '#3b82f6', desc: '字节跳动的 AI 原生 IDE，Builder 模式可从自然语言直接生成完整项目。',
+    localApp: { bundleIds: ['com.trae.app', 'com.trae.ide'], exeNames: ['Trae.exe'] },
   },
   {
     id: 'qoder', name: '通义灵码 / Qoder', nameEn: 'Qoder', region: 'cn', category: '编程开发', canCheckin: true,
     downloadUrl: 'https://qoder.com/', checkinUrl: 'https://qoder.com/',
     checkinTip: '桌面客户端每日约 100 Credits，学生教师另有额度；具体以客户端账户页为准。',
     icon: icon('qoder'), color: '#615ced', desc: '阿里旗下 AI 编程工具，代码补全、Agent 模式与仓库级理解。',
+    localApp: { bundleIds: ['com.alibaba.qoder', 'com.qoder.app'], exeNames: ['Qoder.exe'] },
   },
   {
     id: 'metaso', name: '秘塔 AI 搜索', nameEn: 'Metaso', region: 'cn', category: 'AI 搜索', canCheckin: true,
@@ -96,6 +112,7 @@ export const AGENT_TOOLS: AgentTool[] = [
     downloadUrl: 'https://yiyan.baidu.com/', checkinUrl: 'https://yiyan.baidu.com/',
     checkinTip: 'App「我的」→ 每日签到，或网页头像菜单 → 签到；按连续天数发放充电值，规则以官方页面为准。',
     icon: icon('yiyan'), color: '#4e6ef2', desc: '百度的 AI 助手，基于文心大模型，支持多模态问答与插件生态。',
+    localApp: { bundleIds: ['com.baidu.wenxin', 'com.baidu.yiyan'], exeNames: ['Yiyan.exe'] },
   },
 
   // ==================== 国内 · 无签到 ====================
@@ -104,18 +121,21 @@ export const AGENT_TOOLS: AgentTool[] = [
     downloadUrl: 'https://www.kimi.com/', icon: icon('kimi'), color: '#1a1a1a',
     benefitTip: '基础对话与长文档阅读免费；Kimi Agent 每月约 6 次免费任务。无每日签到。',
     desc: '月之暗面出品，长文本处理见长，支持超长文档阅读与深度研究。',
+    localApp: { bundleIds: ['com.moonshot.kimichat', 'com.moonshot.Kimi'], exeNames: ['Kimi.exe'] },
   },
   {
     id: 'deepseek', name: 'DeepSeek', nameEn: 'DeepSeek', region: 'cn', category: '对话助手', canCheckin: false,
     downloadUrl: 'https://www.deepseek.com/', icon: icon('deepseek'), color: '#4d6bfe',
     benefitTip: '网页版与 App 基础对话免费，API 按量计费。无每日签到。',
     desc: '深度求索的推理大模型，代码与数学能力强，API 价格亲民。',
+    localApp: { bundleIds: ['com.deepseek.dsh', 'com.deepseek.chat'], exeNames: ['DeepSeek.exe'] },
   },
   {
     id: 'tongyi', name: '通义千问', nameEn: 'Qwen', region: 'cn', category: '对话助手', canCheckin: false,
     downloadUrl: 'https://tongyi.aliyun.com/', icon: icon('tongyi'), color: '#615ced',
     benefitTip: '个人版对话、文档解析基本不限量，生视频每日约 15 次。无每日签到。',
     desc: '阿里云的大模型助手，表格清洗、文档解析与 Qwen Code 编程一应俱全。',
+    localApp: { bundleIds: ['com.alibaba.qwen', 'com.aliyun.tongyi'], exeNames: ['Tongyi.exe'] },
   },
   {
     id: 'kling', name: '可灵', nameEn: 'Kling', region: 'cn', category: '视频创作', canCheckin: false,
@@ -186,42 +206,49 @@ export const AGENT_TOOLS: AgentTool[] = [
     downloadUrl: 'https://chatgpt.com/', icon: icon('chatgpt'), color: '#10a37f',
     benefitTip: '免费用户有限次调用模型，达上限自动降级；图像生成每日约 2–3 张。无每日签到。',
     desc: 'OpenAI 的旗舰助手，对话、数据分析、图像生成与深度研究。',
+    localApp: { bundleIds: ['com.openai.codex', 'com.openai.chatgpt'], exeNames: ['ChatGPT.exe'] },
   },
   {
     id: 'claude', name: 'Claude', nameEn: 'Claude', region: 'global', category: '对话助手', canCheckin: false,
     downloadUrl: 'https://claude.ai/', icon: icon('claude'), color: '#d97757',
     benefitTip: '免费版按用量限额使用，无每日签到；Pro 订阅解锁更高额度。',
     desc: 'Anthropic 的 AI 助手，长文本与代码能力出色，支持 Projects 与 artifacts。',
+    localApp: { bundleIds: ['com.anthropic.claudefordesktop'], exeNames: ['Claude.exe'] },
   },
   {
     id: 'gemini', name: 'Gemini', nameEn: 'Google Gemini', region: 'global', category: '对话助手', canCheckin: false,
     downloadUrl: 'https://gemini.google.com/', icon: icon('gemini'), color: '#4285f4',
     benefitTip: 'Flash 模式文本对话基本不限量，Pro 每日有限次，Deep Research 每月约 5 份。无签到。',
     desc: 'Google 的多模态 AI 助手，深度集成 Gmail、Drive 与搜索。',
+    localApp: { bundleIds: ['com.google.GeminiMacOS', 'com.google.gemini'], exeNames: ['Gemini.exe'] },
   },
   {
     id: 'copilot', name: 'Microsoft Copilot', nameEn: 'Microsoft Copilot', region: 'global', category: '对话助手', canCheckin: false,
     downloadUrl: 'https://copilot.microsoft.com/', icon: icon('copilot'), color: '#0f6cbd',
     benefitTip: '免费版有限次对话与图像生成，集成 Bing 搜索。无每日签到。',
     desc: '微软的 AI 助手，深度嵌入 Windows、Office 与 Edge 浏览器。',
+    localApp: { bundleIds: ['com.microsoft.copilot'], exeNames: ['Copilot.exe'] },
   },
   {
     id: 'github-copilot', name: 'GitHub Copilot', nameEn: 'GitHub Copilot', region: 'global', category: '编程开发', canCheckin: false,
     downloadUrl: 'https://github.com/features/copilot', icon: icon('github-copilot'), color: '#24292f',
     benefitTip: '个人用户每月有免费补全与对话额度，超出需订阅。无每日签到。',
     desc: 'GitHub 的 AI 编程助手，代码补全、聊天与 Agent 模式。',
+    localApp: { bundleIds: ['com.github.copilot'], exeNames: ['GitHub Copilot.exe'] },
   },
   {
     id: 'cursor', name: 'Cursor', nameEn: 'Cursor', region: 'global', category: '编程开发', canCheckin: false,
     downloadUrl: 'https://cursor.com/', icon: icon('cursor'), color: '#111827',
     benefitTip: '免费版有有限次高级请求额度，属免费层而非签到。',
     desc: 'AI 原生代码编辑器，Tab 补全、Composer 多文件编辑与 Agent 模式。',
+    localApp: { bundleIds: ['com.todesktop.230313mzl4w4u92', 'com.cursor.Cursor'], exeNames: ['Cursor.exe'] },
   },
   {
     id: 'grok', name: 'Grok', nameEn: 'Grok', region: 'global', category: '对话助手', canCheckin: false,
     downloadUrl: 'https://grok.com/', icon: icon('grok'), color: '#1a1a1a',
     benefitTip: '免费版有限次请求，实时接入 X 平台信息。无每日签到。',
     desc: 'xAI 旗下助手，擅长实时资讯与幽默风格对话。',
+    localApp: { bundleIds: ['com.xai.grok', 'com.xai.Grok'], exeNames: ['Grok.exe'] },
   },
   {
     id: 'perplexity', name: 'Perplexity', nameEn: 'Perplexity', region: 'global', category: 'AI 搜索', canCheckin: false,
@@ -246,6 +273,7 @@ export const AGENT_TOOLS: AgentTool[] = [
     downloadUrl: 'https://windsurf.com/', icon: icon('windsurf'), color: '#0ea5e9',
     benefitTip: '免费版有有限次高级交互额度，属免费层而非签到。',
     desc: 'AI 编程 IDE，Cascade 流式协作擅长跨文件重构。',
+    localApp: { bundleIds: ['com.exafunction.windsurf'], exeNames: ['Windsurf.exe'] },
   },
 ]
 
