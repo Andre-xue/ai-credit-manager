@@ -149,6 +149,14 @@ export function hasCatalog(providerId: string): boolean {
 /** 推理等级：界面四档 → SDK reasoning_effort */
 export type ReasoningLevel = 'Off' | 'Low' | 'High' | 'Max'
 export const REASONING_LEVELS: ReasoningLevel[] = ['Off', 'Low', 'High', 'Max']
+
+/** 各等级的中文说明（悬停提示 / 手机点选提示） */
+export const REASONING_DESC: Record<ReasoningLevel, string> = {
+  Off: '关闭推理：直接作答，速度最快、消耗最低，适合简单问答',
+  Low: '轻度推理：少量思考，速度与质量均衡，适合日常问题',
+  High: '深度推理：充分思考，答案更严谨，适合复杂问题与代码',
+  Max: '极限推理：最长时间思考，质量优先，消耗最高，适合高难度任务',
+}
 export function toReasoningEffort(level: ReasoningLevel): 'minimal' | 'low' | 'medium' | 'high' | undefined {
   switch (level) {
     case 'Off': return undefined

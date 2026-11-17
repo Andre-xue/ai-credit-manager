@@ -24,7 +24,7 @@ import {
   pickAttachment, currentPlatform, type AttachmentKind, type PickedAttachment,
 } from '../core/attachments'
 import {
-  enginesFor, enginesFromRemote, hasCatalog, REASONING_LEVELS, toReasoningEffort,
+  enginesFor, enginesFromRemote, hasCatalog, REASONING_LEVELS, REASONING_DESC, toReasoningEffort,
   type ReasoningLevel,
 } from '../data/engines'
 
@@ -437,11 +437,16 @@ export function AIView({ notify, accounts, sessionPwd }: {
             <span>{resolvingKey ? <><Loader2 size={12} className="spin" /> 正在解锁密钥…</> : <><CornerDownLeft size={12} /> Enter 发送 · Shift+Enter 换行</>}</span>
             <div className="reasoning-wrap">
               <span>推理等级</span>
-              <button className="reasoning-btn" onClick={() => setReasoningOpen(v => !v)}>{reasoning} <ChevronDown size={12} /></button>
+              <button className="reasoning-btn" onClick={() => setReasoningOpen(v => !v)} title={REASONING_DESC[reasoning]}>{reasoning} <ChevronDown size={12} /></button>
               {reasoningOpen && <div className="reasoning-menu">
                 {REASONING_LEVELS.map(l => (
-                  <button key={l} className={l === reasoning ? 'active' : ''} onClick={() => { setReasoning(l); setReasoningOpen(false) }}>
-                    {l} {l === reasoning && <span>✓</span>}
+                  <button key={l} className={`reasoning-option ${l === reasoning ? 'active' : ''}`} title={REASONING_DESC[l]}
+                    onClick={() => {
+                      setReasoning(l); setReasoningOpen(false)
+                      notify(`${l}：${REASONING_DESC[l]}`)  // 手机端点选后提示（桌面/Docker 也有 title 悬停提示）
+                    }}>
+                    <span className="reasoning-option-label">{l} {l === reasoning && <span>✓</span>}</span>
+                    <small>{REASONING_DESC[l]}</small>
                   </button>
                 ))}
               </div>}

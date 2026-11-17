@@ -854,3 +854,17 @@ tbody tr:hover { background: var(--panel-2); }
 }
 .reasoning-menu button:hover { background: var(--panel-2); }
 .reasoning-menu button.active { color: var(--primary); background: var(--primary-soft); font-weight: 600; }
+
+/* 推理等级选项（含中文说明） */
+.reasoning-menu { min-width: 250px; }
+.reasoning-option { flex-direction: column; align-items: flex-start !important; gap: 3px; padding: 8px 10px !important; }
+.reasoning-option-label { font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.reasoning-option small { font-size: 10px; color: var(--text-3); line-height: 1.45; white-space: normal; }
+.reasoning-option.active small { color: var(--primary); opacity: .8; }
+
+/* 推理等级选项（含中文说明） */
+.reasoning-menu { min-width: 250px; }
+.reasoning-option { flex-direction: column; align-items: flex-start !important; gap: 3px; padding: 8px 10px !important; }
+.reasoning-option-label { font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.reasoning-option small { font-size: 10px; color: var(--text-3); line-height: 1.45; white-space: normal; }
+.reasoning-option.active small { color: var(--primary); opacity: .8; }
