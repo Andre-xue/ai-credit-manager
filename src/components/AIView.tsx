@@ -1,7 +1,7 @@
 // AI 助手聊天页：类 WorkBuddy 的干净对话界面。
 // 布局自适应：桌面居中宽栏、移动端占满屏；流式输出、可中止、快捷提问。
 
-import { useEffect, useRef, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import {
   Sparkles, Send, Square, Plus, ChevronDown, Bot, User, Trash2, CornerDownLeft, Volume2, VolumeX,
   Phone, Layers, ExternalLink, Info, Loader2, FileText, Image as ImageIcon, Video, Camera, Images, X, RotateCcw, Cpu,
@@ -18,7 +18,7 @@ import {
 } from '../core/modelCategories'
 import { callByCategory, fetchProviderModels } from '../core/providerCall'
 import type { Account } from '../core/types'
-import { decryptSecret, getBiometricPassword } from '../core/crypto'
+import { decryptSecret, getBiometricPassword, verifyVault } from '../core/crypto'
 import { PROVIDER_MAP } from '../data/providers'
 import {
   pickAttachment, currentPlatform, type AttachmentKind, type PickedAttachment,
@@ -35,10 +35,9 @@ const QUICK_PROMPTS = [
   { icon: '💡', title: '这个 App 能帮我做什么？', desc: '快速了解全部功能' },
 ]
 
-export function AIView({ notify, accounts, sessionPwd }: {
+export function AIView({ notify, accounts }: {
   notify: (m: string) => void
   accounts: Account[]
-  sessionPwd: string
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadHistory())
   const [input, setInput] = useState('')
@@ -62,6 +61,10 @@ export function AIView({ notify, accounts, sessionPwd }: {
   const [loadingEngines, setLoadingEngines] = useState(false)
   const [reasoning, setReasoning] = useState<ReasoningLevel>('Off')
   const [reasoningOpen, setReasoningOpen] = useState(false)
+  // 自有模型的解密凭据：优先用指纹/人脸模式保存的密码自动解密；纯密码模式则本次会话内输入一次
+  const [aiPwd, setAiPwd] = useState('')
+  const [aiPwdInput, setAiPwdInput] = useState('')
+  const [aiPwdBusy, setAiPwdBusy] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -99,6 +102,29 @@ export function AIView({ notify, accounts, sessionPwd }: {
   const canChat = !selectedOption || selectedOption.free || CATEGORY_META[selectedOption.category].canChat
   // 当前自有账户 → 引擎列表：动态拉取优先，内置目录兜底
   const currentAccount = selectedOption?.account ?? null
+
+  /**
+   * 自有模型解密凭据：与 Key 管理页的解锁状态完全独立。
+   * 优先用指纹/人脸模式保存的凭据自动解密（无感）；纯密码模式用本次会话内输入并验证过的密码。
+   * 这样"解锁"只作用于 Key 管理页，AI 助手不再受其影响，所有平台一致。
+   */
+  const resolvePwd = useCallback(() => getBiometricPassword() || aiPwd || '', [aiPwd])
+  const hasCredential = !!getBiometricPassword() || !!aiPwd
+  const needPwd = !!currentAccount && !!currentAccount.encryptedKey && !hasCredential
+
+  /** 在 AI 页内验证主密码（本次会话记住，验证成功才可用） */
+  const verifyAiPwd = async () => {
+    if (!aiPwdInput) return
+    setAiPwdBusy(true)
+    try {
+      const ok = await verifyVault(aiPwdInput)
+      if (!ok) { notify('主密码错误'); return }
+      setAiPwd(aiPwdInput)
+      setAiPwdInput('')
+      notify('已验证，本次会话调用自有模型无需再次输入')
+    } finally { setAiPwdBusy(false) }
+  }
+
   const engines = useMemo(() => {
     if (!currentAccount) return []
     if (engineSource === 'remote' && remoteEngines?.length) return enginesFromRemote(currentAccount.providerId, remoteEngines)
@@ -123,7 +149,7 @@ export function AIView({ notify, accounts, sessionPwd }: {
     setRemoteEngines(null)
     if (!currentAccount) { setEngineSource('none'); return () => { alive = false } }
     const acct = currentAccount
-    const pwd = sessionPwd || getBiometricPassword() || ''
+    const pwd = resolvePwd()
     if (!acct.encryptedKey || !pwd) {
       setEngineSource('builtin')
       return () => { alive = false }
@@ -142,7 +168,7 @@ export function AIView({ notify, accounts, sessionPwd }: {
       } finally { if (alive) setLoadingEngines(false) }
     })()
     return () => { alive = false }
-  }, [currentAccount, sessionPwd])
+  }, [currentAccount, resolvePwd])
 
   // 引擎列表变化时：保留仍有效的选择，否则优先旗舰模型（无旗舰则取第一个）
   useEffect(() => {
@@ -157,12 +183,17 @@ export function AIView({ notify, accounts, sessionPwd }: {
     // 用户自己的账户：用其 Key 真正调用
     if (opt?.account) {
       const acct = opt.account
-      const pwd = sessionPwd || getBiometricPassword() || ''
       if (!acct.encryptedKey) throw new Error('该账户未配置 API Key，请在 API Key 管理页添加')
-      if (!pwd) throw new Error('请先在 API Key 管理页解锁保险箱后再使用自己的模型')
+      const pwd = resolvePwd()
+      if (!pwd) {
+        // 不再拦截去 Key 管理页解锁，就地提示输入本次会话密码（见输入区上方的内嵌输入）
+        notify('请输入主密码以调用自有模型（本次会话只需一次）')
+        throw Object.assign(new Error('__NEED_AI_PWD__'), { needPwd: true })
+      }
       setResolvingKey(true)
       let apiKey: string
       try { apiKey = await decryptSecret(acct.encryptedKey, pwd) }
+      catch { notify('主密码错误或密钥已变更，请重新输入'); throw Object.assign(new Error('__NEED_AI_PWD__'), { needPwd: true }) }
       finally { setResolvingKey(false) }
       const msgs = [{ role: 'system', content: '你是 AI 积分管家助手，请用简洁中文回答。' }, ...history.slice(-12).map(m => ({ role: m.role, content: m.content })), { role: 'user', content }]
       const r = await callByCategory(acct, apiKey, opt.category, msgs, engineId || undefined, toReasoningEffort(reasoning))
@@ -183,6 +214,8 @@ export function AIView({ notify, accounts, sessionPwd }: {
     const effectiveText = content || '请分析这些附件'
     if (!model) { notify('模型尚未就绪，请稍候'); return }
     if (selectedOption && !canChat) { notify(`${selectedOption.category}模型不支持文字对话，请切换到对话型/通用型`); return }
+    // 自有模型需要先有解密凭据；就地提示在输入区上方输入（不跳转 Key 管理页）
+    if (needPwd) { notify('请先输入主密码以调用自有模型（本次会话只需一次）'); return }
     setInput('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     const imageUrls = attachments.filter(a => a.mime.startsWith('image/')).map(a => a.dataUrl)
@@ -198,8 +231,9 @@ export function AIView({ notify, accounts, sessionPwd }: {
       const answer = await getReply(effectiveText, messages, controller.signal, imageUrls)
       setMessages(prev => [...prev, { id: `${Date.now()}-a`, role: 'assistant', content: answer || '（无回复内容）', at: Date.now() }])
     } catch (e) {
+      const need = (e as { needPwd?: boolean })?.needPwd
       const msg = friendlyAiError(e)
-      if (msg !== '已停止生成') notify(msg)
+      if (!need && msg !== '已停止生成' && !String(msg).includes('NEED_AI_PWD')) notify(msg)
       setStreamingText(prev => {
         if (prev) setMessages(p => [...p, { id: `${Date.now()}-a`, role: 'assistant', content: prev, at: Date.now() }])
         return ''
@@ -420,6 +454,18 @@ export function AIView({ notify, accounts, sessionPwd }: {
                 <button onClick={() => setAttachments(prev => prev.filter((_, j) => j !== i))} title="移除"><X size={13} /></button>
               </div>
             ))}
+          </div>}
+          {/* 自有模型解密密码：与 Key 管理页解锁独立，仅本次会话使用 */}
+          {needPwd && <div className="ai-pwd-gate">
+            <span className="ai-pwd-gate-label"><Info size={13} /> 调用自有模型需验证主密码（本次会话只需一次，与 Key 管理页解锁互不影响）</span>
+            <div className="ai-pwd-gate-row">
+              <input className="input" type="password" placeholder="主密码" value={aiPwdInput}
+                onChange={e => setAiPwdInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') void verifyAiPwd() }} />
+              <button className="btn sm primary" disabled={aiPwdBusy || !aiPwdInput} onClick={() => void verifyAiPwd()}>
+                {aiPwdBusy ? <><Loader2 size={13} className="spin" /> 验证</> : '验证'} 
+              </button>
+            </div>
           </div>}
           <div className="ai-compose-box">
             <textarea ref={textareaRef} className="ai-textarea" rows={1}

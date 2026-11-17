@@ -28,10 +28,12 @@ import {
   type ExportFormat, type ServiceEntry, exportByFormat, detectCsvKind, isJsonImport,
   parseAccountsCsv, parseQuotasCsv, isServiceList, parseServiceList, noteCategory,
 } from './core/io'
-import { openExternal, openTool, isDesktopApp, isAppInstalled, biometricAvailable, biometricAuth } from './core/openExternal'
+import { openExternal, openTool, isDesktopApp, isAppInstalled, biometricAvailable, biometricAuth, biometricLabel } from './core/openExternal'
 import { cloud, type CloudUser } from './core/cloud'
 import { AIView } from './components/AIView'
 import { VoiceSettings } from './components/VoiceSettings'
+import { UpdateModal } from './components/UpdateModal'
+import { APP_VERSION, currentPlatform } from './core/updater'
 import { NOTE_CATEGORIES, buildNote, categoryFromNote, type NoteCategory } from './core/modelCategories'
 import { pullPayload, pushPayload, applyPayload, getLastSyncAt, getClientId, checkRemoteVersion, setBaseline, getRemoteVersion, type PullResult } from './core/sync'
 import { CloudLoginModal } from './components/CloudLogin'
@@ -72,15 +74,26 @@ function App() {
   const [vaultOpen, setVaultOpen] = useState(false)
   const [quotaTarget, setQuotaTarget] = useState<string | null>(null)
   const [usageOpen, setUsageOpen] = useState(false)
+  const [updateOpen, setUpdateOpen] = useState(false)
   const [importData, setImportData] = useState<AppState | null>(null)
   const [csvPreview, setCsvPreview] = useState<CsvImportPreview | null>(null)
   const [servicePreview, setServicePreview] = useState<ServiceEntry[] | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [bioAvailableGlobal, setBioAvailableGlobal] = useState(false)
-  /** 当前会话已验证的主密码，用于明文回填「修改主密码」弹窗 */
+  const [bioLabel, setBioLabel] = useState('指纹')
+  /**
+   * 当前会话已验证的主密码。作用域仅限「API Key 管理页 + 安全设置」这一范畴：
+   * 添加账户加密、修改主密码回填等。AI 助手等其余模块不读此值（各自独立解密），
+   * 因此 Key 管理页的解锁状态不会影响其他功能。指纹/人脸模式则用 biometric 凭据。
+   */
   const [sessionPwd, setSessionPwd] = useState('')
-  useEffect(() => { void biometricAvailable().then(setBioAvailableGlobal) }, [])
+  /** 从设置页指纹/人脸解锁后，带入 Key 管理页的初始解锁密码（仅作用于 Key 页） */
+  const [keyPageInitialPwd, setKeyPageInitialPwd] = useState('')
+  useEffect(() => {
+    void biometricAvailable().then(setBioAvailableGlobal)
+    void biometricLabel().then(setBioLabel)
+  }, [])
 
   useEffect(() => { saveState(state) }, [state])
 
@@ -94,6 +107,19 @@ function App() {
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
     toastTimer.current = window.setTimeout(() => setToast(null), 2600)
   }, [])
+
+  /** 设置页快捷解锁：系统指纹/人脸验证通过后，把已保存凭据带入 Key 管理页自动解锁（仅作用于该页） */
+  const handleBioUnlock = useCallback(async () => {
+    const ok = await biometricAuth('验证身份以解锁 API Key 管理')
+    if (!ok) { notify(`${bioLabel}验证未通过或已取消`); return }
+    const pwd = getBiometricPassword()
+    if (!pwd) { notify('未配置解锁凭据，请先在「解锁方式」中开启'); return }
+    if (!(await verifyVault(pwd))) { notify('解锁凭据已失效，请重新开启'); return }
+    setKeyPageInitialPwd('')
+    window.setTimeout(() => setKeyPageInitialPwd(pwd), 0)
+    setTab('keys')
+    notify(`已通过${bioLabel}验证，正在解锁 API Key 管理页`)
+  }, [notify, bioLabel])
 
   // ============ 云同步 ============
   const [cloudUser, setCloudUser] = useState<CloudUser | null>(null)
@@ -440,7 +466,7 @@ function App() {
         </header>
 
         <div className={`content ${tab === 'ai' ? 'content-ai' : ''}`}>
-          {tab === 'ai' && <AIView notify={notify} accounts={state.accounts} sessionPwd={sessionPwd} />}
+          {tab === 'ai' && <AIView notify={notify} accounts={state.accounts} />}
           {tab === 'dashboard' && <>
           <div className="stats-grid">
             <StatCard icon={<Wallet size={17} />} color="blue" label="资源总估值" value={`¥${portfolioValue.toFixed(0)}`} hint={`${state.accounts.length} 个账户 · 单价可校准`} />
@@ -479,6 +505,7 @@ function App() {
             }}
             onUpdateAccount={(id, patch) => setState(s => updateAccount(s, id, patch))}
             onUnlocked={(pwd) => setSessionPwd(pwd)}
+            initialPwd={keyPageInitialPwd}
           />}
 
           {tab === 'usage' && <UsageView state={state} notify={notify}
@@ -526,7 +553,10 @@ function App() {
               notify('保险箱已重置')
             }}
             onBioAvailable={bioAvailableGlobal}
+            onBioUnlock={() => void handleBioUnlock()}
+            bioLabel={bioLabel}
             sessionPwd={sessionPwd}
+            onCheckUpdate={() => setUpdateOpen(true)}
             onTestNotify={async () => {
               if (!state.settings.systemNotify) { notify('请先开启系统通知'); return }
               const ok = await sendNotification({ title: 'AI 积分管家', body: '通知测试：这是一条本地提醒，不会领取任何福利。' })
@@ -660,6 +690,7 @@ function App() {
       />}
       {exportOpen && <ExportModal state={state} onClose={() => setExportOpen(false)} onExport={(fmt, dir) => { void doExport(fmt, dir); setExportOpen(false) }} />}
       {loginOpen && <CloudLoginModal onClose={() => setLoginOpen(false)} onSuccess={handleCloudLogin} />}
+      {updateOpen && <UpdateModal onClose={() => setUpdateOpen(false)} notify={notify} />}
       {toast && <div className="toast"><Check size={15} /> {toast}</div>}
     </div>
   )
@@ -1012,13 +1043,14 @@ function AgentToolsView({ checkins, notify, onToggle }: {
   )
 }
 
-function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onUpdateAccount, onImportFile, onExport, onUnlocked }: {
+function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onUpdateAccount, onImportFile, onExport, onUnlocked, initialPwd }: {
   state: AppState; notify: (m: string) => void; onOpenVault: () => void;
   onImportFile: (file?: File) => void; onExport: () => void;
   onRemoveKey: (id: string) => void;
   onQuotaFetched: (accountId: string, used: number, total: number | undefined, unit: CreditUnit) => void;
   onUpdateAccount: (id: string, patch: Partial<AppState['accounts'][number]>) => void;
-  onUnlocked: (pwd: string) => void
+  onUnlocked: (pwd: string) => void;
+  initialPwd?: string
 }) {
   const [unlockPwd, setUnlockPwd] = useState('')
   const [vaultPwd, setVaultPwd] = useState('')
@@ -1057,6 +1089,15 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
       notify('已解锁，密钥已明文展示')
     } finally { setBusy(false) }
   }
+
+  // 从设置页指纹/人脸解锁跳转进来时，用带入的已验证密码自动解锁本页
+  const autoUnlockedRef = useRef('')
+  useEffect(() => {
+    if (initialPwd && initialPwd !== autoUnlockedRef.current && !vaultPwd) {
+      autoUnlockedRef.current = initialPwd
+      void unlockWith(initialPwd)
+    }
+  }, [initialPwd])
 
   const backupOne = (a: AppState['accounts'][number]) => {
     const provider = PROVIDER_MAP[a.providerId]
@@ -2474,7 +2515,7 @@ function SettingsRow({ title, desc, children }: { title: string; desc?: string; 
 }
 
 /** 设置中心 */
-function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEnableNotify, onClear, onChangePassword, onResetVault, onBioAvailable, sessionPwd, cloudUser, syncing, lastSyncAt, onLogin, onLogout, onSync }: {
+function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEnableNotify, onClear, onChangePassword, onResetVault, onBioAvailable, onBioUnlock, bioLabel, sessionPwd, cloudUser, syncing, lastSyncAt, onLogin, onLogout, onSync, onCheckUpdate }: {
   state: AppState
   onChange: (patch: Partial<AppState['settings']>) => void
   notify: (m: string) => void
@@ -2485,6 +2526,8 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
   onChangePassword: (oldPwd: string, newPwd: string) => Promise<void>
   onResetVault: () => void
   onBioAvailable: boolean
+  onBioUnlock: () => void
+  bioLabel: string
   sessionPwd: string
   cloudUser: CloudUser | null
   syncing: boolean
@@ -2492,6 +2535,7 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
   onLogin: () => void
   onLogout: () => void
   onSync: () => void
+  onCheckUpdate: () => void
 }) {
   const s = state.settings
   const [confirmClear, setConfirmClear] = useState(false)
@@ -2538,6 +2582,18 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
             <div style={{ padding: '2px 16px 12px', fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.7 }}>
               支持微信扫码、手机号验证码、邮箱验证码、WorkBuddy 账号登录。登录后任意端的增删改会在约 5 秒内自动同步到其他端，无需手动操作；切回应用时也会立即检查更新。同步内容包含账户、额度、签到、用量与加密密钥（密文），各端需用同一主密码解锁。
             </div>
+          </SettingsSection>
+
+          <SettingsSection title="应用更新" desc={`当前版本 v${APP_VERSION} · 检查并安装新版本`}>
+            <SettingsRow title="检查更新" desc={isDesktopApp()
+              ? '桌面端自动下载安装，完成后点击重启生效'
+              : currentPlatform() === 'docker'
+                ? 'Docker 版提供可一键复制的更新命令，在终端执行后自动替换实例'
+                : currentPlatform() === 'android'
+                  ? '安卓端下载最新 APK 覆盖安装，数据不丢失'
+                  : '检测新版本并按平台提示更新方式'}>
+              <button className="btn sm primary" onClick={onCheckUpdate}><RefreshCw size={14} /> 检查更新</button>
+            </SettingsRow>
           </SettingsSection>
 
           <SettingsSection title="语音朗读" desc="AI 回复朗读音色与方言">
@@ -2602,9 +2658,14 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
                   }
                 }}>
                 <option value="password">密码解锁</option>
-                {onBioAvailable && <option value="biometric">指纹解锁</option>}
+                {onBioAvailable && <option value="biometric">{bioLabel}解锁</option>}
               </select>
             </SettingsRow>
+            {onBioAvailable && s.vaultInitialized && (
+              <SettingsRow title={`${bioLabel}快速解锁`} desc={`验证${bioLabel}后直接进入 API Key 管理页并解锁密钥（仅作用于该页）`}>
+                <button className="btn sm" onClick={onBioUnlock}><Fingerprint size={14} /> 验证解锁</button>
+              </SettingsRow>
+            )}
             {bioSwitchOpen && (
               <div className="panel" style={{ padding: 14, marginTop: 4, background: 'var(--panel-2)' }}>
                 <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 10 }}>输入主密码以启用指纹解锁（验证后本机保存）</div>

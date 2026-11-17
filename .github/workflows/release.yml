@@ -61,6 +61,8 @@ jobs:
       - name: Install Tauri CLI & build installer
         working-directory: desktop
         shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
           npm ci
           npx tauri build --bundles "${{ matrix.bundles }}" 2>&1 | tee build.log
@@ -85,11 +87,18 @@ jobs:
           name: installer-${{ matrix.name }}
           path: |
             desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            desktop/src-tauri/target/release/bundle/dmg/*.dmg.sig
             desktop/src-tauri/target/release/bundle/macos/*.app/**
+            desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz
+            desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
             desktop/src-tauri/target/release/bundle/msi/*.msi
+            desktop/src-tauri/target/release/bundle/msi/*.msi.sig
             desktop/src-tauri/target/release/bundle/nsis/*.exe
+            desktop/src-tauri/target/release/bundle/nsis/*.exe.sig
             desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+            desktop/src-tauri/target/release/bundle/appimage/*.AppImage.sig
             desktop/src-tauri/target/release/bundle/deb/*.deb
+            desktop/src-tauri/target/release/bundle/deb/*.deb.sig
           if-no-files-found: warn
 
   create-release:
@@ -114,6 +123,16 @@ jobs:
             cp "$f" "release-files/${platform}-${base}"
           done
           find release-files -type f -exec ls -lh {} \;
+
+      - name: Generate updater latest.json
+        run: |
+          if python3 assets/make-latest-json.py release-files latest.json "${{ github.ref_name }}" "${{ github.repository }}"; then
+            echo "HAS_UPDATER=true" >> $GITHUB_ENV
+            cp latest.json release-files/latest.json
+          else
+            echo "HAS_UPDATER=false" >> $GITHUB_ENV
+            echo "No signed artifacts; skipping latest.json (updater unavailable this release)"
+          fi
 
       - name: Create Release with assets
         uses: softprops/action-gh-release@v2

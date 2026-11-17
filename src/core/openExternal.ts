@@ -5,24 +5,68 @@ export function isDesktopApp(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 }
 
-/** 检测桌面端是否支持 Touch ID */
-export async function biometricAvailable(): Promise<boolean> {
-  if (!isDesktopApp()) return false
-  try {
-    const w = window as unknown as { __TAURI_INTERNALS__?: { invoke?: (cmd: string) => Promise<boolean> } }
-    if (!w.__TAURI_INTERNALS__?.invoke) return false
-    return await w.__TAURI_INTERNALS__.invoke('biometric_available')
-  } catch { return false }
+/** 是否运行在 Capacitor 原生壳（安卓 App）内 */
+export function isNativeApp(): boolean {
+  if (typeof window === 'undefined') return false
+  const w = window as unknown as { Capacitor?: { isNative?: boolean; getPlatform?: () => string } }
+  return !!(w.Capacitor?.isNative && ['android', 'ios'].includes(w.Capacitor.getPlatform?.() ?? ''))
 }
 
-/** 调用 Touch ID 验证，返回是否通过 */
-export async function biometricAuth(): Promise<boolean> {
-  if (!isDesktopApp()) return false
-  try {
-    const w = window as unknown as { __TAURI_INTERNALS__?: { invoke?: (cmd: string) => Promise<boolean> } }
-    if (!w.__TAURI_INTERNALS__?.invoke) return false
-    return await w.__TAURI_INTERNALS__.invoke('biometric_auth')
-  } catch { return false }
+/** 生物识别可用的平台：桌面（Touch ID）或原生 App（指纹/人脸） */
+export async function biometricAvailable(): Promise<boolean> {
+  if (isDesktopApp()) {
+    try {
+      const w = window as unknown as { __TAURI_INTERNALS__?: { invoke?: (cmd: string) => Promise<boolean> } }
+      if (!w.__TAURI_INTERNALS__?.invoke) return false
+      return await w.__TAURI_INTERNALS__.invoke('biometric_available')
+    } catch { return false }
+  }
+  if (isNativeApp()) {
+    try {
+      const { BiometricAuth } = await import('@aparajita/capacitor-biometric-auth')
+      const res = await BiometricAuth.checkBiometry()
+      return !!res.isAvailable
+    } catch { return false }
+  }
+  return false
+}
+
+/** 调用系统生物识别验证（桌面 Touch ID / 手机指纹或人脸），返回是否通过 */
+export async function biometricAuth(reason = '验证身份以继续'): Promise<boolean> {
+  if (isDesktopApp()) {
+    try {
+      const w = window as unknown as { __TAURI_INTERNALS__?: { invoke?: (cmd: string) => Promise<boolean> } }
+      if (!w.__TAURI_INTERNALS__?.invoke) return false
+      return await w.__TAURI_INTERNALS__.invoke('biometric_auth')
+    } catch { return false }
+  }
+  if (isNativeApp()) {
+    try {
+      const { BiometricAuth } = await import('@aparajita/capacitor-biometric-auth')
+      await BiometricAuth.authenticate({ reason, cancelTitle: '取消' })
+      return true
+    } catch { return false }
+  }
+  return false
+}
+
+/** 生物识别类型的中文名（用于设置页说明，如「指纹」「Face ID」） */
+export async function biometricLabel(): Promise<string> {
+  if (isNativeApp()) {
+    try {
+      const { BiometricAuth, BiometryType } = await import('@aparajita/capacitor-biometric-auth')
+      const res = await BiometricAuth.checkBiometry()
+      switch (res.biometryType) {
+        case BiometryType.faceId:
+        case BiometryType.faceAuthentication: return '人脸'
+        case BiometryType.touchId:
+        case BiometryType.fingerprintAuthentication: return '指纹'
+        case BiometryType.irisAuthentication: return '虹膜'
+        default: return '生物识别'
+      }
+    } catch { return '生物识别' }
+  }
+  return '触控 ID'
 }
 
 /** 检测本机是否安装了指定客户端（仅桌面端有效） */
