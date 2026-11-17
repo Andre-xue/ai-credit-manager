@@ -305,6 +305,22 @@ tbody tr:hover { background: var(--panel-2); }
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   margin-top: 14px; font-size: 12px; color: var(--text-2); flex-wrap: wrap;
 }
+@keyframes acm-spin { to { transform: rotate(360deg); } }
+
+.selection-bar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 9px 14px; margin-bottom: 12px; border-radius: var(--radius-sm);
+  background: var(--panel-2); border: 1px solid var(--border); font-size: 12px; color: var(--text-2);
+}
+.selection-all { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.selection-all input, .selectable input[type="checkbox"] { cursor: pointer; accent-color: var(--primary); }
+.selection-count b { color: var(--primary); }
+.selectable { position: relative; }
+.selectable.selected { outline: 2px solid var(--primary); outline-offset: -2px; }
+.item-check { position: absolute; top: 8px; left: 8px; z-index: 2; width: 16px; height: 16px; accent-color: var(--primary); cursor: pointer; }
+.checkin-row.selectable, .link-row.selectable { display: flex; align-items: center; gap: 10px; }
+.key-table input[type="checkbox"] { accent-color: var(--primary); cursor: pointer; }
+
 .secret-reveal {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
   background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;

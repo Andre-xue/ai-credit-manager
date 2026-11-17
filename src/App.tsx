@@ -3,7 +3,7 @@ import {
   LayoutDashboard, CalendarCheck2, KeyRound, BarChart3, Plus, ShieldCheck,
   ExternalLink, Trash2, RefreshCw, AlertTriangle, Info, Check,
   Wallet, Flame, Clock, TrendingUp, Lock, Unlock, Download, X, Copy, CircleHelp,
-  Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Gift, Eye, EyeOff, Pencil, Fingerprint,
+  Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Gift, Eye, Pencil, Fingerprint,
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { PROVIDERS, PROVIDER_MAP, CATEGORY_LABEL } from './data/providers'
@@ -298,6 +298,7 @@ function App() {
               ...s.settings, unitPrices: { ...s.settings.unitPrices, [providerId]: price },
             } }))}
             onAddUsage={() => setUsageOpen(true)}
+            onDeleteUsage={(ids) => setState(s => ({ ...s, usage: s.usage.filter(u => !ids.includes(u.id)) }))}
             onImport={(events) => {
               setState(s => ({ ...s, usage: [
                 ...s.usage,
@@ -495,6 +496,12 @@ function DashboardView({ views, onAdd, onRemove, onEditQuota, notify }: {
   views: AccountView[]; onAdd: () => void; onRemove: (id: string) => void; onEditQuota: (id: string) => void;
   notify: (m: string) => void
 }) {
+  const [page, setPage] = useState(1)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const PAGE_SIZE = 8
+  useEffect(() => { setPage(1) }, [views.length])
+  const cur = Math.min(page, Math.max(1, Math.ceil(views.length / PAGE_SIZE)))
+  const pageViews = views.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE)
   if (views.length === 0) {
     return (
       <div className="empty">
@@ -511,13 +518,35 @@ function DashboardView({ views, onAdd, onRemove, onEditQuota, notify }: {
         <h2>账户额度 <span className="hint">{views.length} 个账户</span></h2>
         <button className="btn sm" onClick={onAdd}><Plus size={14} /> 添加</button>
       </div>
+      <SelectionBar
+        selectedCount={selected.size} totalOnPage={pageViews.length}
+        allSelected={pageViews.length > 0 && pageViews.every(v => selected.has(v.account.id))}
+        onToggleAll={() => {
+          const next = new Set(selected)
+          const allOn = pageViews.every(v => next.has(v.account.id))
+          if (allOn) pageViews.forEach(v => next.delete(v.account.id)); else pageViews.forEach(v => next.add(v.account.id))
+          setSelected(next)
+        }}
+        onClear={() => setSelected(new Set())}
+        actions={<button className="btn sm danger" onClick={() => {
+          selected.forEach(id => onRemove(id))
+          notify(`已删除 ${selected.size} 个账户`)
+          setSelected(new Set())
+        }}><Trash2 size={13} /> 批量删除</button>}
+      />
       <div className="account-grid">
-        {views.map((v) => {
+        {pageViews.map((v) => {
           const percent = v.usagePercent
           const color = percent >= 90 ? 'var(--red)' : percent >= 70 ? 'var(--amber)' : 'var(--green)'
           const hasQuota = !!v.quota
           return (
-            <div className="account-card" key={v.account.id}>
+            <div className={`account-card selectable ${selected.has(v.account.id) ? 'selected' : ''}`} key={v.account.id}>
+              <input className="item-check" type="checkbox" title="选择此账户"
+                checked={selected.has(v.account.id)} onChange={e => {
+                  const next = new Set(selected)
+                  if (e.target.checked) next.add(v.account.id); else next.delete(v.account.id)
+                  setSelected(next)
+                }} />
               <div className="ac-head">
                 <ProviderLogo provider={v.provider} />
                 <div style={{ minWidth: 0 }}>
@@ -573,6 +602,7 @@ function DashboardView({ views, onAdd, onRemove, onEditQuota, notify }: {
           )
         })}
       </div>
+      <Pager total={views.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
     </>
   )
 }
@@ -585,18 +615,45 @@ function CheckinView({ accounts, checkins, notify, onToggle }: {
   const all = PROVIDERS.filter(p => usedProviderIds.has(p.id))
   const today = todayISO()
   const doneCount = all.filter(p => checkins.some(c => c.providerId === p.id && c.date === today && c.done)).length
+  const [page, setPage] = useState(1)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const PAGE_SIZE = 8
+  useEffect(() => { setPage(1) }, [all.length])
+  const cur = Math.min(page, Math.max(1, Math.ceil(all.length / PAGE_SIZE)))
+  const pageAll = all.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE)
 
   return (
     <>
       <div className="section-head"><h2>今日签到 <span className="hint">{doneCount}/{all.length} 已完成</span></h2></div>
+      <SelectionBar
+        selectedCount={selected.size} totalOnPage={pageAll.length}
+        allSelected={pageAll.length > 0 && pageAll.every(p => selected.has(p.id))}
+        onToggleAll={() => {
+          const next = new Set(selected)
+          const allOn = pageAll.every(p => next.has(p.id))
+          if (allOn) pageAll.forEach(p => next.delete(p.id)); else pageAll.forEach(p => next.add(p.id))
+          setSelected(next)
+        }}
+        onClear={() => setSelected(new Set())}
+        actions={<button className="btn sm primary" onClick={() => {
+          selected.forEach(pid => { if (!checkins.some(c => c.providerId === pid && c.date === today && c.done)) onToggle(pid) })
+          notify(`已标记 ${selected.size} 项为完成`)
+          setSelected(new Set())
+        }}><Check size={13} /> 批量标记完成</button>}
+      />
       <div className="panel">
         {all.length === 0 ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>先在「额度看板」添加账户后，即可看到签到提醒</div>
-        ) : all.map((p) => {
+        ) : pageAll.map((p) => {
           const done = checkins.some(c => c.providerId === p.id && c.date === today && c.done)
           const hasCheckinUrl = !!p.checkinUrl
           return (
-            <div className="checkin-row" key={p.id}>
+            <div className={`checkin-row selectable ${selected.has(p.id) ? 'selected' : ''}`} key={p.id}>
+              <input type="checkbox" checked={selected.has(p.id)} onChange={e => {
+                const next = new Set(selected)
+                if (e.target.checked) next.add(p.id); else next.delete(p.id)
+                setSelected(next)
+              }} />
               <ProviderLogo provider={p} size={34} />
               <div className="checkin-info">
                 <div className="checkin-name">{p.name}</div>
@@ -616,6 +673,7 @@ function CheckinView({ accounts, checkins, notify, onToggle }: {
           )
         })}
       </div>
+      <Pager total={all.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
       <div className="section-head"><h2>支持签到的平台 <span className="hint">添加账户后会出现在上方</span></h2></div>
       <div className="panel">
         {PROVIDERS.filter(p => p.checkinUrl).map(p => (
@@ -642,7 +700,6 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
   const [unlockPwd, setUnlockPwd] = useState('')
   const [vaultPwd, setVaultPwd] = useState('')
   const [revealed, setRevealed] = useState<Record<string, string>>({})
-  const [hiddenKeys, setHiddenKeys] = useState<Record<string, boolean>>({})
   const [showBalance, setShowBalance] = useState<Record<string, boolean>>({})
   const [bioAvailable, setBioAvailable] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -650,6 +707,9 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
   const [unlockOpen, setUnlockOpen] = useState(false)
   const [category, setCategory] = useState('__all__')
   const [page, setPage] = useState(1)
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
+  const [revealKeyTarget, setRevealKeyTarget] = useState<{ id: string; label: string; plain: string } | null>(null)
+  const [refreshing, setRefreshing] = useState<Set<string>>(new Set())
   const PAGE_SIZE = 8
   const keyAccounts = state.accounts.filter(a => a.encryptedKey)
 
@@ -667,7 +727,6 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
         try { decrypted[a.id] = await decryptSecret(a.encryptedKey!, pwd) } catch { /* skip */ }
       }
       setRevealed(decrypted)
-      setHiddenKeys({})
       setVaultPwd(pwd)
       onUnlocked(pwd)
       setUnlockPwd('')
@@ -731,7 +790,7 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
             <button className="btn sm" onClick={onExport} title="导出备份（不含密钥）"><Download size={14} /> 导出</button>
             {!isVaultInitialized() && <button className="btn sm" onClick={onOpenVault}><ShieldCheck size={14} /> 创建保险箱</button>}
             {vaultPwd ? (
-              <button className="btn sm" onClick={() => { setRevealed({}); setHiddenKeys({}); setVaultPwd(''); setUnlockPwd(''); notify('已锁定') }}><Lock size={14} /> 锁定</button>
+              <button className="btn sm" onClick={() => { setRevealed({}); setVaultPwd(''); setUnlockPwd(''); setRevealKeyTarget(null); notify('已锁定') }}><Lock size={14} /> 锁定</button>
             ) : (
               <button className="btn sm primary" onClick={() => setUnlockOpen(true)}><Unlock size={14} /> 解锁</button>
             )}
@@ -743,6 +802,16 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
         <table className="key-table">
           <thead>
             <tr>
+              <th style={{ width: 32 }}>
+                <input type="checkbox" title="全选本页"
+                  checked={pageItems.length > 0 && pageItems.every(a => selectedKeys.has(a.id))}
+                  onChange={e => {
+                    const next = new Set(selectedKeys)
+                    if (e.target.checked) pageItems.forEach(a => next.add(a.id))
+                    else pageItems.forEach(a => next.delete(a.id))
+                    setSelectedKeys(next)
+                  }} />
+              </th>
               <th style={{ width: 150 }}>名称</th>
               <th style={{ width: 110 }}>余额</th>
               <th style={{ width: 160 }}>链接地址 (API)</th>
@@ -753,7 +822,7 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
           </thead>
           <tbody>
             {pageItems.length === 0 ? (
-              <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 40 }}>
+              <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 40 }}>
                 {keyAccounts.length === 0 ? '暂无密钥。添加账户时选择「官方 API」模式即可保存。' : '当前分类下没有密钥'}
               </td></tr>
             ) : pageItems.map(a => {
@@ -766,6 +835,13 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
               return (
                 <tr key={a.id}>
                   <td>
+                    <input type="checkbox" checked={selectedKeys.has(a.id)} onChange={e => {
+                      const next = new Set(selectedKeys)
+                      if (e.target.checked) next.add(a.id); else next.delete(a.id)
+                      setSelectedKeys(next)
+                    }} />
+                  </td>
+                  <td>
                     <div className="row" style={{ gap: 8 }}>
                       <ProviderLogo provider={provider} size={26} />
                       <div style={{ minWidth: 0 }}>
@@ -776,11 +852,23 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
                   </td>
                   <td>
                     <div className="row" style={{ gap: 5 }}>
-                      <span className="mono" style={{ fontSize: 11.5 }}>
+                      <span className="mono" style={{ fontSize: 11.5, minWidth: 42 }}>
                         {showBalance[a.id] ? balance : '••••••'}
                       </span>
                       <button className="icon-btn" title={showBalance[a.id] ? '隐藏余额' : '显示余额'}
                         onClick={() => setShowBalance(s => ({ ...s, [a.id]: !s[a.id] }))}><Eye size={13} /></button>
+                      {adapter.supported && <button className="icon-btn" title="刷新官方余额"
+                        disabled={refreshing.has(a.id)}
+                        onClick={async () => {
+                          if (!plain) { notify('请先解锁保险箱'); return }
+                          setRefreshing(s => new Set(s).add(a.id))
+                          try {
+                            const r = await adapter.fetchUsage!(plain)
+                            onQuotaFetched(a.id, r.used, r.total, r.unit)
+                            notify(`余额已更新：剩余 ${Math.max(0, (r.total ?? r.used) - r.used).toLocaleString()} ${r.unit}`)
+                          } catch (e: any) { notify(e.message ?? '获取官方余额失败') }
+                          finally { setRefreshing(s => { const n = new Set(s); n.delete(a.id); return n }) }
+                        }}><RefreshCw size={13} style={refreshing.has(a.id) ? { animation: 'acm-spin 1s linear infinite' } : undefined} /></button>}
                     </div>
                   </td>
                   <td>
@@ -791,13 +879,14 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
                   <td>
                     <div className="row" style={{ gap: 5 }}>
                       <span className="mono" style={{ fontSize: 11.5, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                            title={plain && !hiddenKeys[a.id] ? plain : undefined}>
-                        {plain && !hiddenKeys[a.id] ? plain : (a.keyFingerprint ?? '••••')}
+                            title="点击眼睛查看完整 Key">
+                        {plain ? (plain.length > 16 ? plain.slice(0, 8) + '…' + plain.slice(-4) : plain) : (a.keyFingerprint ?? '••••')}
                       </span>
-                      {plain && <button className="icon-btn" title={hiddenKeys[a.id] ? '显示 Key' : '隐藏 Key'}
-                        onClick={() => setHiddenKeys(s => ({ ...s, [a.id]: !s[a.id] }))}>
-                        {hiddenKeys[a.id] ? <Eye size={13} /> : <EyeOff size={13} />}
-                      </button>}
+                      <button className="icon-btn" title="查看完整 Key（可复制）"
+                        onClick={() => {
+                          if (!plain) { notify('请先解锁保险箱'); return }
+                          setRevealKeyTarget({ id: a.id, label: a.label, plain })
+                        }}><Eye size={13} /></button>
                     </div>
                   </td>
                   <td><span className="key-note" title={a.note ?? ''}>{a.note ?? '—'}</span></td>
@@ -828,18 +917,23 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
         </table>
       </div>
 
-      {filtered.length > 0 && (
-        <div className="keys-pagination">
-          <span>共 {filtered.length} 条 · 第 {currentPage}/{totalPages} 页</span>
-          <div className="row" style={{ gap: 6 }}>
-            <button className="btn sm" disabled={currentPage <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>上一页</button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
-              <button key={n} className={`btn sm ${n === currentPage ? 'primary' : ''}`} onClick={() => setPage(n)}>{n}</button>
-            ))}
-            <button className="btn sm" disabled={currentPage >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>下一页</button>
-          </div>
-        </div>
-      )}
+      <SelectionBar
+        selectedCount={selectedKeys.size} totalOnPage={pageItems.length}
+        allSelected={pageItems.length > 0 && pageItems.every(a => selectedKeys.has(a.id))}
+        onToggleAll={() => {
+          const next = new Set(selectedKeys)
+          const allOn = pageItems.every(a => next.has(a.id))
+          if (allOn) pageItems.forEach(a => next.delete(a.id)); else pageItems.forEach(a => next.add(a.id))
+          setSelectedKeys(next)
+        }}
+        onClear={() => setSelectedKeys(new Set())}
+        actions={<button className="btn sm danger" onClick={() => {
+          selectedKeys.forEach(id => onRemoveKey(id))
+          notify(`已清除 ${selectedKeys.size} 个密钥`)
+          setSelectedKeys(new Set())
+        }}><Trash2 size={13} /> 批量删除密钥</button>}
+      />
+      <Pager total={filtered.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
 
       {editing && (() => {
         const acc = state.accounts.find(a => a.id === editing)
@@ -879,10 +973,42 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
         }}
         busy={busy} pwd={unlockPwd} setPwd={setUnlockPwd}
       />}
+
+      {revealKeyTarget && <KeyRevealModal
+        label={revealKeyTarget.label} plain={revealKeyTarget.plain}
+        onClose={() => setRevealKeyTarget(null)}
+        onCopied={() => notify('API Key 已复制到剪贴板')}
+      />}
     </>
   )
 }
 
+
+/** 明文 Key 查看弹窗：显示完整 Key 并可一键复制 */
+function KeyRevealModal({ label, plain, onClose, onCopied }: {
+  label: string; plain: string; onClose: () => void; onCopied: () => void
+}) {
+  return (
+    <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal" style={{ maxWidth: 480 }}>
+        <div className="modal-head"><h3>查看 API Key</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
+        <div className="modal-body">
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 10 }}>{label}</div>
+          <div className="secret-reveal" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, fontSize: 13 }}>
+            <span className="mono" style={{ wordBreak: 'break-all', lineHeight: 1.6 }}>{plain}</span>
+          </div>
+        </div>
+        <div className="modal-foot">
+          <button className="btn" onClick={onClose}>关闭</button>
+          <button className="btn primary" onClick={async () => {
+            try { await navigator.clipboard.writeText(plain); onCopied() }
+            catch { /* 复制失败由浏览器处理 */ }
+          }}><Copy size={14} /> 复制 Key</button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 /** 解锁弹窗：按设置只显示指纹或密码一种方式 */
 function UnlockModal({ method, bioAvailable, onClose, onPassword, onBiometric, busy, pwd, setPwd }: {
@@ -987,14 +1113,21 @@ function KeyEditModal({ account, provider, currentKey, onClose, onSave, notify }
   )
 }
 
-function UsageView({ state, notify, onBudget, onAddUsage, onImport, onPriceChange }: {
+function UsageView({ state, notify, onBudget, onAddUsage, onImport, onPriceChange, onDeleteUsage }: {
   state: AppState; notify: (m: string) => void; onBudget: (v: number) => void;
   onAddUsage: () => void;
+  onDeleteUsage: (ids: string[]) => void;
   onImport: (events: UsageEventInput[]) => void
   onPriceChange: (providerId: string, price: number) => void
 }) {
+  const [selectedUsage, setSelectedUsage] = useState<Set<string>>(new Set())
   const month = todayISO().slice(0, 7)
   const monthEvents = state.usage.filter(u => u.date.startsWith(month))
+  const [usagePage, setUsagePage] = useState(1)
+  const USAGE_PAGE_SIZE = 8
+  useEffect(() => { setUsagePage(1) }, [monthEvents.length])
+  const usageCur = Math.min(usagePage, Math.max(1, Math.ceil(monthEvents.length / USAGE_PAGE_SIZE)))
+  const pagedUsage = monthEvents.slice().reverse().slice((usageCur - 1) * USAGE_PAGE_SIZE, usageCur * USAGE_PAGE_SIZE)
   const totalCost = monthEvents.reduce((s, u) => s + u.estimatedCost, 0)
   const totalIn = monthEvents.reduce((s, u) => s + u.inputTokens, 0)
   const totalOut = monthEvents.reduce((s, u) => s + u.outputTokens, 0)
@@ -1084,15 +1217,43 @@ function UsageView({ state, notify, onBudget, onAddUsage, onImport, onPriceChang
       </div>
 
       <div className="section-head"><h2>用量记录 <span className="hint">{monthEvents.length} 条</span></h2></div>
+      <SelectionBar
+        selectedCount={selectedUsage.size} totalOnPage={pagedUsage.length}
+        allSelected={pagedUsage.length > 0 && pagedUsage.every(u => selectedUsage.has(u.id))}
+        onToggleAll={() => {
+          const next = new Set(selectedUsage)
+          const allOn = pagedUsage.every(u => next.has(u.id))
+          if (allOn) pagedUsage.forEach(u => next.delete(u.id)); else pagedUsage.forEach(u => next.add(u.id))
+          setSelectedUsage(next)
+        }}
+        onClear={() => setSelectedUsage(new Set())}
+        actions={<button className="btn sm danger" onClick={() => {
+          onDeleteUsage(Array.from(selectedUsage)); notify(`已删除 ${selectedUsage.size} 条记录`); setSelectedUsage(new Set())
+        }}><Trash2 size={13} /> 批量删除</button>}
+      />
       <div className="panel">
         <table>
-          <thead><tr><th>日期</th><th>账户</th><th>模型</th><th>输入 Tokens</th><th>输出 Tokens</th><th>估算费用</th></tr></thead>
+          <thead><tr>
+            <th style={{ width: 32 }}><input type="checkbox" title="全选本页"
+              checked={pagedUsage.length > 0 && pagedUsage.every(u => selectedUsage.has(u.id))}
+              onChange={e => {
+                const next = new Set(selectedUsage)
+                if (e.target.checked) pagedUsage.forEach(u => next.add(u.id)); else pagedUsage.forEach(u => next.delete(u.id))
+                setSelectedUsage(next)
+              }} /></th>
+            <th>日期</th><th>账户</th><th>模型</th><th>输入 Tokens</th><th>输出 Tokens</th><th>估算费用</th>
+          </tr></thead>
           <tbody>
-            {monthEvents.length === 0 ? <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>暂无记录</td></tr> :
-              monthEvents.slice().reverse().map(u => {
+            {monthEvents.length === 0 ? <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>暂无记录</td></tr> :
+              pagedUsage.map(u => {
                 const acc = state.accounts.find(a => a.id === u.accountId)
                 return (
                   <tr key={u.id}>
+                    <td><input type="checkbox" checked={selectedUsage.has(u.id)} onChange={e => {
+                      const next = new Set(selectedUsage)
+                      if (e.target.checked) next.add(u.id); else next.delete(u.id)
+                      setSelectedUsage(next)
+                    }} /></td>
                     <td className="mono">{u.date}</td>
                     <td>{acc?.label ?? '—'}</td>
                     <td className="mono">{u.model ?? '—'}</td>
@@ -1105,6 +1266,7 @@ function UsageView({ state, notify, onBudget, onAddUsage, onImport, onPriceChang
           </tbody>
         </table>
       </div>
+      <Pager total={monthEvents.length} page={usagePage} pageSize={USAGE_PAGE_SIZE} onChange={setUsagePage} />
       <div style={{ marginTop: 14, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button className="btn sm" onClick={onAddUsage}><Plus size={13} /> 手动添加记录</button>
         <label className="btn sm" style={{ cursor: 'pointer' }}>
@@ -1689,10 +1851,16 @@ function BenefitsView({ state, notify, onMark }: {
   state: AppState; notify: (m: string) => void; onMark: (id: string, kind: 'daily' | 'other') => void
 }) {
   const [filter, setFilter] = useState<'all' | 'owned'>('all')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 8
+  useEffect(() => { setPage(1) }, [filter])
   const today = todayISO()
   const ownedIds = new Set(state.accounts.map(a => a.providerId))
 
   const items = BENEFITS.filter(b => filter === 'all' || ownedIds.has(b.providerId))
+  const cur = Math.min(page, Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
+  const pageItems = items.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE)
   const isMarked = (b: BenefitItem) => state.benefitMarks.some(
     m => m.benefitId === b.id && (b.kind === 'daily' ? m.date === today : true),
   )
@@ -1715,12 +1883,34 @@ function BenefitsView({ state, notify, onMark }: {
         </div>
       </div>
 
+      <SelectionBar
+        selectedCount={selected.size} totalOnPage={pageItems.length}
+        allSelected={pageItems.length > 0 && pageItems.every(b => selected.has(b.id))}
+        onToggleAll={() => {
+          const next = new Set(selected)
+          const allOn = pageItems.every(b => next.has(b.id))
+          if (allOn) pageItems.forEach(b => next.delete(b.id)); else pageItems.forEach(b => next.add(b.id))
+          setSelected(next)
+        }}
+        onClear={() => setSelected(new Set())}
+        actions={<button className="btn sm primary" onClick={() => {
+          selected.forEach(id => { const b = items.find(x => x.id === id); if (b && !isMarked(b)) onMark(id, b.kind === 'daily' ? 'daily' : 'other') })
+          notify(`已标记 ${selected.size} 项`)
+          setSelected(new Set())
+        }}><Check size={13} /> 批量标记已处理</button>}
+      />
       <div className="account-grid">
-        {items.map(b => {
+        {pageItems.map(b => {
           const provider = PROVIDER_MAP[b.providerId]
           const marked = isMarked(b)
           return (
-            <div className="account-card" key={b.id}>
+            <div className={`account-card selectable ${selected.has(b.id) ? 'selected' : ''}`} key={b.id}>
+              <input className="item-check" type="checkbox" title="选择此福利"
+                checked={selected.has(b.id)} onChange={e => {
+                  const next = new Set(selected)
+                  if (e.target.checked) next.add(b.id); else next.delete(b.id)
+                  setSelected(next)
+                }} />
               <div className="ac-head">
                 {provider ? <ProviderLogo provider={provider} size={36} /> : <div className="ac-logo" style={{ background: 'var(--text-3)' }}>?</div>}
                 <div style={{ minWidth: 0, flex: 1 }}>
@@ -1745,6 +1935,7 @@ function BenefitsView({ state, notify, onMark }: {
           )
         })}
       </div>
+      <Pager total={items.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
       <p style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 16 }}>
         "标记已处理"仅用于个人记录，不会向任何平台发送数据。每日签到类福利请在「签到提醒」页记录。
       </p>
@@ -1754,6 +1945,49 @@ function BenefitsView({ state, notify, onMark }: {
 
 const BENEFIT_KIND_COLORS: Record<BenefitItem['kind'], string> = {
   'free-tier': 'green', trial: 'blue', daily: 'amber', education: 'gray', other: 'gray',
+}
+
+/** 通用分页控件（每页 8 条），各列表页复用 */
+function Pager({ total, page, pageSize, onChange }: {
+  total: number; page: number; pageSize: number; onChange: (p: number) => void
+}) {
+  if (total <= pageSize) return null
+  const pages = Math.max(1, Math.ceil(total / pageSize))
+  const cur = Math.min(page, pages)
+  return (
+    <div className="keys-pagination">
+      <span>共 {total} 条 · 第 {cur}/{pages} 页</span>
+      <div className="row" style={{ gap: 6 }}>
+        <button className="btn sm" disabled={cur <= 1} onClick={() => onChange(Math.max(1, cur - 1))}>上一页</button>
+        {Array.from({ length: pages }, (_, i) => i + 1).map(n => (
+          <button key={n} className={`btn sm ${n === cur ? 'primary' : ''}`} onClick={() => onChange(n)}>{n}</button>
+        ))}
+        <button className="btn sm" disabled={cur >= pages} onClick={() => onChange(Math.min(pages, cur + 1))}>下一页</button>
+      </div>
+    </div>
+  )
+}
+
+/** 批量选择操作条：显示选中数、全选本页、清空、自定义批量操作 */
+function SelectionBar({ selectedCount, totalOnPage, allSelected, onToggleAll, onClear, actions }: {
+  selectedCount: number; totalOnPage: number; allSelected: boolean;
+  onToggleAll: () => void; onClear: () => void; actions?: React.ReactNode
+}) {
+  if (totalOnPage === 0 && selectedCount === 0) return null
+  return (
+    <div className="selection-bar">
+      <label className="selection-all" title="全选/取消本页">
+        <input type="checkbox" checked={allSelected} onChange={onToggleAll} /> 全选本页
+      </label>
+      <span className="selection-count">已选 <b>{selectedCount}</b> 项</span>
+      {selectedCount > 0 && (
+        <>
+          {actions}
+          <button className="btn sm ghost" onClick={onClear}>清空选择</button>
+        </>
+      )}
+    </div>
+  )
 }
 
 /** 开关组件 */
