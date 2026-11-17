@@ -52,6 +52,35 @@ async fn biometric_auth(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 /// 在系统默认浏览器打开外部链接。仅允许 http(s)，防止被滥用。
+/// 弹出系统文件夹选择框，返回选中目录路径（macOS 用 osascript，零依赖）
+#[tauri::command]
+async fn choose_save_dir() -> Result<Option<String>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let script = "POSIX path of (choose folder with prompt \"选择导出文件的保存位置\")";
+        let out = std::process::Command::new("osascript")
+            .arg("-e").arg(script).output()
+            .map_err(|e| format!("打开文件夹选择失败：{}", e))?;
+        if !out.status.success() {
+            return Ok(None) // 用户取消
+        }
+        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        Ok(if path.is_empty() { None } else { Some(path) })
+    }
+    #[cfg(not(target_os = "macos"))]
+    { Err("当前平台暂不支持选择保存目录，请使用默认下载".into()) }
+}
+
+/// 将文本文件写入指定目录
+#[tauri::command]
+async fn write_file_to_dir(dir: String, filename: String, content: String) -> Result<String, String> {
+    use std::io::Write;
+    let path = std::path::Path::new(&dir).join(&filename);
+    let mut f = std::fs::File::create(&path).map_err(|e| format!("创建文件失败：{}", e))?;
+    f.write_all(content.as_bytes()).map_err(|e| format!("写入失败：{}", e))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 async fn open_url(url: String) -> Result<(), String> {
     if !url.starts_with("https://") && !url.starts_with("http://") {
@@ -129,7 +158,7 @@ async fn proxy_usage(provider: String, api_key: String) -> Result<serde_json::Va
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![proxy_usage, send_notification, open_url, biometric_available, biometric_auth])
+        .invoke_handler(tauri::generate_handler![proxy_usage, send_notification, open_url, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

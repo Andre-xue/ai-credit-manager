@@ -330,6 +330,14 @@ tbody tr:hover { background: var(--panel-2); }
 }
 @keyframes acm-spin { to { transform: rotate(360deg); } }
 
+.export-dir-box { padding: 12px 14px; margin-bottom: 14px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; }
+.notice-box { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; margin-bottom: 14px; border-radius: 8px; background: var(--primary-soft); border: 1px solid var(--border); color: var(--text-2); font-size: 12.5px; line-height: 1.65; }
+.notice-box svg { flex: none; color: var(--primary); margin-top: 2px; }
+.checkin-manage-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.checkin-manage-row:last-child { border-bottom: none; }
+.checkin-manage-row:hover { background: var(--panel-2); }
+.checkin-manage-row input { accent-color: var(--primary); cursor: pointer; }
+
 /* 平台选择弹窗：搜索 + 分类筛选 + 分组 */
 .search-wrap { display: flex; align-items: center; gap: 8; padding: 0 11px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--panel); color: var(--text-3); }
 .search-wrap:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
@@ -347,7 +355,7 @@ tbody tr:hover { background: var(--panel-2); }
 .cat-dot.cat-image { background: #ec4899; } .cat-dot.cat-video { background: #f59e0b; }
 .cat-dot.cat-voice { background: #14b8a6; } .cat-dot.cat-search { background: #20808d; }
 .cat-dot.cat-design { background: #f24e1e; } .cat-dot.cat-embedding { background: #8b5cf6; }
-.cat-dot.cat-local { background: #64748b; } .cat-dot.cat-other { background: var(--text-3); }
+.cat-dot.cat-other { background: var(--text-3); }
 
 .selection-bar {
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;

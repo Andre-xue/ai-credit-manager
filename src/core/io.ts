@@ -184,6 +184,25 @@ export function parseQuotasCsv(text: string, accounts: Account[], now = new Date
   return { quotas, unmatched }
 }
 
+/**
+ * 从备注提取分类（用于 API Key 管理页下拉筛选）：
+ * - [分类] 说明 → 分类
+ * - 分类: 说明 / 分类：说明 → 分类（冒号前的部分）
+ * - 文本/图片、图片、生成 → 按 / 、 , 空格 分隔取第一段
+ * - 纯文字备注 → 整个备注作为分类
+ */
+export function noteCategory(note?: string): string {
+  if (!note) return '未分类'
+  const s = note.trim()
+  if (!s) return '未分类'
+  const bracket = s.match(/^\[([^\]]+)\]/)
+  if (bracket) return bracket[1].trim()
+  const colon = s.split(/[:：]/)[0].trim()
+  if (colon && colon !== s) return colon
+  const first = s.split(/[\/、,，\s]/)[0].trim()
+  return first || s
+}
+
 /** 解析用量 CSV（复用既有解析器） */
 export function parseUsage(text: string, accounts: Account[]): UsageEventInput[] {
   return parseUsageCsv(text, accounts)

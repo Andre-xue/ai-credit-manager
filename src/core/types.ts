@@ -27,7 +27,6 @@ export interface ProviderDefinition {
     | 'search'     // 搜索/研究
     | 'design'     // 设计工具
     | 'embedding'  // 嵌入/向量
-    | 'local'      // 本地部署
     | 'other'
   officialUrl: string
   /** 官方用量/账单页面，用于跳转（本人登录后查看） */
@@ -38,6 +37,8 @@ export interface ProviderDefinition {
   apiBaseUrl?: string
   /** 官方创建/管理 API Key 的页面（仅跳转，由本人操作） */
   apiKeyUrl?: string
+  /** 官方确有「每日签到领积分」机制（不是免费层/试用/充值页）。未标记则不进签到页 */
+  dailyCheckin?: boolean
   color: string
   initials: string
   /** 该平台账户支持的数据获取方式 */
@@ -126,6 +127,8 @@ export interface AppSettings {
   monthlyBudget: number
   /** 签到提醒开关 */
   checkinReminder: boolean
+  /** 用户手动确认有官方每日签到的平台 id（默认空，只展示真正可签到的） */
+  checkinProviders: string[]
   /** 额度耗尽预警阈值（天）：低于此值计入"即将耗尽" */
   alertDays: number
   /** 新账户录入额度时的默认单位 */

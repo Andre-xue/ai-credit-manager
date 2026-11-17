@@ -16,7 +16,7 @@ function emptyState(): AppState {
     benefitMarks: [],
     usage: [],
     settings: {
-      vaultInitialized: false, monthlyBudget: 200, checkinReminder: true,
+      vaultInitialized: false, monthlyBudget: 200, checkinReminder: true, checkinProviders: [],
       alertDays: 7, defaultUnit: 'credit', backupReminder: true,
       systemNotify: false, quietStart: '', quietEnd: '',
       unlockMethod: 'password',

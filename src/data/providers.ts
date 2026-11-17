@@ -1,4 +1,5 @@
 // 内置平台目录：官方链接 + 数据获取方式。所有链接均为官方域名，跳转由用户本人操作。
+// apiKeyUrl 优先使用官方稳定根域名（官方会路由到最新 Key 管理页），避免深路径改版失效。
 // 按「模型功能」分类组织：文本大模型 / 编程 / 图像 / 视频 / 语音音频 / 搜索 / 设计 / 嵌入向量 / 本地部署。
 import type { ProviderDefinition } from '../core/types'
 
@@ -31,11 +32,11 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   {
     id: 'deepseek', name: 'DeepSeek', shortName: 'DeepSeek', category: 'llm',
-    officialUrl: 'https://platform.deepseek.com/', usageUrl: 'https://platform.deepseek.com/usage',
+    officialUrl: 'https://platform.deepseek.com/', usageUrl: 'https://platform.deepseek.com',
     color: '#4d6bfe', initials: 'DS', modes: ['manual'],
     checkinUrl: 'https://platform.deepseek.com/top_up',
     apiBaseUrl: 'https://api.deepseek.com/v1',
-    apiKeyUrl: 'https://platform.deepseek.com/api_keys',
+    apiKeyUrl: 'https://platform.deepseek.com',
     note: '控制台查看余额，无公开用量 API。',
   },
   {
@@ -45,16 +46,16 @@ export const PROVIDERS: ProviderDefinition[] = [
     checkinUrl: 'https://bailian.console.aliyun.com/',
     // 阿里云百炼新版业务空间专属域名；{WorkspaceId} 请在控制台「业务空间详情」查看后替换
     apiBaseUrl: 'https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
-    apiKeyUrl: 'https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key',
+    apiKeyUrl: 'https://bailian.console.aliyun.com',
     note: 'API 地址中的 {WorkspaceId} 需替换为你的业务空间 ID；旧 dashscope.aliyuncs.com 域名仍可用。',
   },
   {
     id: 'kim', name: 'Moonshot Kimi', shortName: 'Kimi', category: 'llm',
-    officialUrl: 'https://platform.moonshot.cn/', usageUrl: 'https://platform.moonshot.cn/console/info',
+    officialUrl: 'https://platform.moonshot.cn/', usageUrl: 'https://platform.moonshot.cn',
     color: '#1a1a1a', initials: 'K', modes: ['manual'],
     checkinUrl: 'https://platform.moonshot.cn/console/info',
     apiBaseUrl: 'https://api.moonshot.cn/v1',
-    apiKeyUrl: 'https://platform.moonshot.cn/console/api-keys',
+    apiKeyUrl: 'https://platform.moonshot.cn',
     note: '控制台查看余额与用量。',
   },
   {
@@ -68,27 +69,27 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   {
     id: 'glm', name: '智谱 GLM', shortName: 'GLM', category: 'llm',
-    officialUrl: 'https://open.bigmodel.cn/', usageUrl: 'https://open.bigmodel.cn/usercenter',
+    officialUrl: 'https://bigmodel.cn', usageUrl: 'https://bigmodel.cn',
     color: '#3859ff', initials: 'G', modes: ['manual'],
-    checkinUrl: 'https://open.bigmodel.cn/usercenter',
+    checkinUrl: 'https://bigmodel.cn',
     apiBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-    apiKeyUrl: 'https://bigmodel.cn/usercenter/apikeys',
+    apiKeyUrl: 'https://bigmodel.cn',
     note: '开放平台查看余额。',
   },
   {
     id: 'siliconflow', name: 'SiliconFlow 硅基流动', shortName: '硅基流动', category: 'llm',
-    officialUrl: 'https://www.siliconflow.cn/', usageUrl: 'https://cloud.siliconflow.cn/account/ak',
+    officialUrl: 'https://www.siliconflow.cn/', usageUrl: 'https://cloud.siliconflow.cn',
     color: '#7c3aed', initials: 'SF', modes: ['manual'],
     apiBaseUrl: 'https://api.siliconflow.cn/v1',
-    apiKeyUrl: 'https://cloud.siliconflow.cn/account/ak',
+    apiKeyUrl: 'https://cloud.siliconflow.cn',
     note: '聚合多模型平台，控制台查看余额，无公开用量 API。',
   },
   {
     id: 'baichuan', name: '百川智能', shortName: '百川', category: 'llm',
-    officialUrl: 'https://platform.baichuan-ai.com/', usageUrl: 'https://platform.baichuan-ai.com/console',
+    officialUrl: 'https://platform.baichuan-ai.com/', usageUrl: 'https://platform.baichuan-ai.com',
     color: '#2563eb', initials: '百', modes: ['manual'],
     apiBaseUrl: 'https://api.baichuan-ai.com/v1',
-    apiKeyUrl: 'https://platform.baichuan-ai.com/console',
+    apiKeyUrl: 'https://platform.baichuan-ai.com',
     note: '开放平台控制台查看用量。',
   },
   {
@@ -96,15 +97,15 @@ export const PROVIDERS: ProviderDefinition[] = [
     officialUrl: 'https://www.minimaxi.com/', usageUrl: 'https://platform.minimaxi.com/user-center',
     color: '#0f172a', initials: 'MM', modes: ['manual'],
     apiBaseUrl: 'https://api.minimax.chat/v1',
-    apiKeyUrl: 'https://platform.minimaxi.com/user-center/account-setting',
+    apiKeyUrl: 'https://platform.minimaxi.com',
     note: '开放平台控制台查看余额；也提供语音/视频模型。',
   },
   {
     id: 'stepfun', name: '阶跃星辰', shortName: '阶跃', category: 'llm',
-    officialUrl: 'https://www.stepfun.com/', usageUrl: 'https://platform.stepfun.com/console',
+    officialUrl: 'https://www.stepfun.com/', usageUrl: 'https://platform.stepfun.com',
     color: '#6366f1', initials: '阶', modes: ['manual'],
     apiBaseUrl: 'https://api.stepfun.com/v1',
-    apiKeyUrl: 'https://platform.stepfun.com/console',
+    apiKeyUrl: 'https://platform.stepfun.com',
     note: '阶跃星辰开放平台。',
   },
   {
@@ -120,7 +121,7 @@ export const PROVIDERS: ProviderDefinition[] = [
     officialUrl: 'https://mistral.ai/', usageUrl: 'https://console.mistral.ai/usage',
     color: '#fa500e', initials: 'MI', modes: ['api', 'manual'],
     apiBaseUrl: 'https://api.mistral.ai/v1',
-    apiKeyUrl: 'https://console.mistral.ai/api-keys',
+    apiKeyUrl: 'https://console.mistral.ai',
     note: '欧洲开源模型厂商，控制台查看用量。',
   },
   {
@@ -128,7 +129,7 @@ export const PROVIDERS: ProviderDefinition[] = [
     officialUrl: 'https://cohere.com/', usageUrl: 'https://dashboard.cohere.com/',
     color: '#d0ff5e', initials: 'CO', modes: ['api', 'manual'],
     apiBaseUrl: 'https://api.cohere.com/v2',
-    apiKeyUrl: 'https://dashboard.cohere.com/api-keys',
+    apiKeyUrl: 'https://dashboard.cohere.com',
     note: '企业文本模型与嵌入。',
   },
   {
@@ -136,7 +137,7 @@ export const PROVIDERS: ProviderDefinition[] = [
     officialUrl: 'https://groq.com/', usageUrl: 'https://console.groq.com/',
     color: '#f55036', initials: 'GR', modes: ['api', 'manual'],
     apiBaseUrl: 'https://api.groq.com/openai/v1',
-    apiKeyUrl: 'https://console.groq.com/keys',
+    apiKeyUrl: 'https://console.groq.com',
     note: '高速推理服务，控制台查看配额。',
   },
   {
@@ -144,7 +145,7 @@ export const PROVIDERS: ProviderDefinition[] = [
     officialUrl: 'https://www.together.ai/', usageUrl: 'https://api.together.ai/',
     color: '#f26522', initials: 'TA', modes: ['api', 'manual'],
     apiBaseUrl: 'https://api.together.xyz/v1',
-    apiKeyUrl: 'https://api.together.ai/settings/api-keys',
+    apiKeyUrl: 'https://api.together.ai',
     note: '多模型推理平台。',
   },
   {
@@ -152,16 +153,8 @@ export const PROVIDERS: ProviderDefinition[] = [
     officialUrl: 'https://openrouter.ai/', usageUrl: 'https://openrouter.ai/activity',
     color: '#6366f1', initials: 'OR', modes: ['api', 'manual'],
     apiBaseUrl: 'https://openrouter.ai/api/v1',
-    apiKeyUrl: 'https://openrouter.ai/keys',
+    apiKeyUrl: 'https://openrouter.ai',
     note: '聚合多厂商模型的统一 API 网关。',
-  },
-  {
-    id: 'ollama', name: 'Ollama 本地', shortName: 'Ollama', category: 'local',
-    officialUrl: 'https://ollama.com/', usageUrl: 'https://ollama.com/download',
-    color: '#f59e0b', initials: 'OL', modes: ['manual'],
-    apiBaseUrl: 'http://127.0.0.1:11434/v1',
-    apiKeyUrl: 'https://ollama.com/download',
-    note: '本地运行的大模型服务，通常无额度概念。',
   },
 
   // ==================== 编程助手 ====================
@@ -170,7 +163,7 @@ export const PROVIDERS: ProviderDefinition[] = [
     officialUrl: 'https://cursor.com/', usageUrl: 'https://www.cursor.com/account/usage',
     color: '#111827', initials: 'CU', modes: ['subscription', 'manual'],
     apiBaseUrl: 'https://api.cursor.com/v1',
-    apiKeyUrl: 'https://cursor.com/settings',
+    apiKeyUrl: 'https://cursor.com',
     note: '订阅账户在 Account 页查看用量。',
   },
   {
@@ -226,27 +219,19 @@ export const PROVIDERS: ProviderDefinition[] = [
     note: '订阅 Fast Hours 在 Account 页查看。',
   },
   {
-    id: 'comfyui', name: 'ComfyUI 本地', shortName: 'ComfyUI', category: 'local',
-    officialUrl: 'https://www.comfy.org/', usageUrl: 'https://www.comfy.org/download',
-    color: '#0ea5e9', initials: 'CF', modes: ['manual'],
-    apiBaseUrl: 'http://127.0.0.1:8188',
-    apiKeyUrl: 'https://www.comfy.org/download',
-    note: '本地部署的图像生成服务，通常无额度概念。',
-  },
-  {
     id: 'stability', name: 'Stability AI', shortName: 'Stability', category: 'image',
     officialUrl: 'https://stability.ai/', usageUrl: 'https://platform.stability.ai/account/credits',
     color: '#7c3aed', initials: 'ST', modes: ['api', 'manual'],
     apiBaseUrl: 'https://api.stability.ai/v2beta',
-    apiKeyUrl: 'https://platform.stability.ai/account/keys',
+    apiKeyUrl: 'https://platform.stability.ai',
     note: 'Stable Diffusion 系列图像模型。',
   },
   {
     id: 'ideogram', name: 'Ideogram', shortName: 'Ideogram', category: 'image',
-    officialUrl: 'https://ideogram.ai/', usageUrl: 'https://ideogram.ai/manage-api',
+    officialUrl: 'https://ideogram.ai/', usageUrl: 'https://ideogram.ai',
     color: '#ec4899', initials: 'ID', modes: ['api', 'manual'],
     apiBaseUrl: 'https://api.ideogram.ai/v1',
-    apiKeyUrl: 'https://ideogram.ai/manage-api',
+    apiKeyUrl: 'https://ideogram.ai',
     note: '擅长文字渲染的图像生成模型。',
   },
   {
@@ -265,10 +250,10 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   {
     id: 'flux', name: 'FLUX (Black Forest)', shortName: 'FLUX', category: 'image',
-    officialUrl: 'https://blackforestlabs.ai/', usageUrl: 'https://docs.bfl.ai/',
+    officialUrl: 'https://blackforestlabs.ai/', usageUrl: 'https://bfl.ai',
     color: '#1e293b', initials: 'FX', modes: ['api', 'manual'],
     apiBaseUrl: 'https://api.bfl.ai/v1',
-    apiKeyUrl: 'https://docs.bfl.ai/',
+    apiKeyUrl: 'https://bfl.ai',
     note: '高质量开源图像生成模型。',
   },
 
@@ -311,7 +296,7 @@ export const PROVIDERS: ProviderDefinition[] = [
     color: '#111827', initials: 'EL', modes: ['manual'],
     checkinUrl: 'https://elevenlabs.io/app/subscription',
     apiBaseUrl: 'https://api.elevenlabs.io/v1',
-    apiKeyUrl: 'https://elevenlabs.io/app/settings/api-keys',
+    apiKeyUrl: 'https://elevenlabs.io',
     note: '控制台查看字符额度。',
   },
   {
@@ -327,7 +312,7 @@ export const PROVIDERS: ProviderDefinition[] = [
     officialUrl: 'https://deepgram.com/', usageUrl: 'https://console.deepgram.com/',
     color: '#7c3aed', initials: 'DG', modes: ['api', 'manual'],
     apiBaseUrl: 'https://api.deepgram.com/v1',
-    apiKeyUrl: 'https://console.deepgram.com/project/-/keys',
+    apiKeyUrl: 'https://console.deepgram.com',
     note: '实时语音识别与合成。',
   },
   {
@@ -346,10 +331,10 @@ export const PROVIDERS: ProviderDefinition[] = [
   // ==================== 搜索 / 研究 ====================
   {
     id: 'perplexity', name: 'Perplexity', shortName: 'PPLX', category: 'search',
-    officialUrl: 'https://www.perplexity.ai/', usageUrl: 'https://www.perplexity.ai/settings/api',
+    officialUrl: 'https://www.perplexity.ai/', usageUrl: 'https://www.perplexity.ai',
     color: '#20808d', initials: 'PX', modes: ['api', 'manual'],
     apiBaseUrl: 'https://api.perplexity.ai',
-    apiKeyUrl: 'https://www.perplexity.ai/settings/api',
+    apiKeyUrl: 'https://www.perplexity.ai',
     note: 'API 账户可查看余额。',
   },
   {
@@ -365,7 +350,7 @@ export const PROVIDERS: ProviderDefinition[] = [
     officialUrl: 'https://serpapi.com/', usageUrl: 'https://serpapi.com/dashboard',
     color: '#f59e0b', initials: 'SP', modes: ['api', 'manual'],
     apiBaseUrl: 'https://serpapi.com',
-    apiKeyUrl: 'https://serpapi.com/manage-api-key',
+    apiKeyUrl: 'https://serpapi.com',
     note: '搜索引擎结果 API，按调用次数计费。',
   },
   {
@@ -373,17 +358,17 @@ export const PROVIDERS: ProviderDefinition[] = [
     officialUrl: 'https://exa.ai/', usageUrl: 'https://dashboard.exa.ai/',
     color: '#6366f1', initials: 'EX', modes: ['api', 'manual'],
     apiBaseUrl: 'https://api.exa.ai',
-    apiKeyUrl: 'https://dashboard.exa.ai/api-keys',
+    apiKeyUrl: 'https://dashboard.exa.ai',
     note: '神经搜索引擎 API。',
   },
 
   // ==================== 设计工具 ====================
   {
     id: 'figma', name: 'Figma AI', shortName: 'Figma', category: 'design',
-    officialUrl: 'https://www.figma.com/', usageUrl: 'https://www.figma.com/settings',
+    officialUrl: 'https://www.figma.com/', usageUrl: 'https://www.figma.com',
     color: '#f24e1e', initials: 'FG', modes: ['subscription', 'manual'],
     apiBaseUrl: 'https://api.figma.com/v1',
-    apiKeyUrl: 'https://www.figma.com/settings',
+    apiKeyUrl: 'https://www.figma.com',
     note: '订阅账户查看 AI 额度。',
   },
   {
@@ -424,11 +409,11 @@ export const PROVIDER_MAP: Record<string, ProviderDefinition> = Object.fromEntri
 
 /** 功能分类的顺序与中文标签（用于平台选择弹窗分组） */
 export const CATEGORY_ORDER: ProviderDefinition['category'][] = [
-  'llm', 'code', 'image', 'video', 'voice', 'search', 'design', 'embedding', 'local', 'other',
+  'llm', 'code', 'image', 'video', 'voice', 'search', 'design', 'embedding', 'other',
 ]
 
 export const CATEGORY_LABEL: Record<ProviderDefinition['category'], string> = {
   llm: '文本大模型', code: '编程助手', image: '图像生成', video: '视频生成',
   voice: '语音音频', search: '搜索研究', design: '设计工具', embedding: '嵌入向量',
-  local: '本地部署', other: '其他',
+  other: '其他',
 }

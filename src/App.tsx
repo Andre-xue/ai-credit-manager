@@ -4,7 +4,7 @@ import {
   ExternalLink, Trash2, RefreshCw, AlertTriangle, Info, Check,
   Wallet, Flame, Clock, TrendingUp, Lock, Unlock, Download, X, Copy, CircleHelp,
   Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Gift, Eye, Pencil, Fingerprint,
-  Film, Layers, Server,
+  Film, Layers,
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { PROVIDERS, PROVIDER_MAP, CATEGORY_LABEL, CATEGORY_ORDER } from './data/providers'
@@ -25,7 +25,7 @@ import { getAdapter } from './core/adapters'
 import { parseUsageCsv, type UsageEventInput } from './core/csv'
 import {
   type ExportFormat, type ServiceEntry, exportByFormat, detectCsvKind, isJsonImport,
-  parseAccountsCsv, parseQuotasCsv, isServiceList, parseServiceList,
+  parseAccountsCsv, parseQuotasCsv, isServiceList, parseServiceList, noteCategory,
 } from './core/io'
 import { openExternal, isDesktopApp, biometricAvailable, biometricAuth } from './core/openExternal'
 
@@ -45,9 +45,14 @@ const MODE_LABEL: Record<AccountMode, string> = {
   api: '官方 API', manual: '手动录入', subscription: '订阅制',
 }
 
+/** 是否为签到平台：内置确有每日签到，或用户手动确认加入 */
+function isCheckinProvider(p: ProviderDefinition, settings: AppState['settings']): boolean {
+  return p.dailyCheckin === true || (settings.checkinProviders ?? []).includes(p.id)
+}
+
 const CATEGORY_ICON: Record<ProviderDefinition['category'], typeof Code2> = {
   llm: Sparkles, code: Code2, image: Image, video: Film, voice: Mic,
-  search: Search, design: PenTool, embedding: Layers, local: Server, other: CircleHelp,
+  search: Search, design: PenTool, embedding: Layers, other: CircleHelp,
 }
 
 function App() {
@@ -55,6 +60,7 @@ function App() {
   const [tab, setTab] = useState<Tab>('dashboard')
   const [addOpen, setAddOpen] = useState(false)
   const [formProviderId, setFormProviderId] = useState<string | null>(null)
+  const [checkinManageOpen, setCheckinManageOpen] = useState(false)
   const [vaultOpen, setVaultOpen] = useState(false)
   const [quotaTarget, setQuotaTarget] = useState<string | null>(null)
   const [usageOpen, setUsageOpen] = useState(false)
@@ -112,19 +118,30 @@ function App() {
     reader.readAsText(file)
   }, [notify])
 
-  /** 按选择格式导出文件 */
-  const doExport = useCallback((format: ExportFormat) => {
+  /** 按选择格式导出文件；dir 非空则写入指定目录（桌面端） */
+  const doExport = useCallback(async (format: ExportFormat, dir?: string) => {
     const s = stateRef.current
-    const { content, mime, ext } = exportByFormat(format, s, latestQuota)
+    const { content, ext } = exportByFormat(format, s, latestQuota)
     const suffix = format === 'json' ? 'backup' : format
-    const blob = new Blob([content], { type: mime + ';charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url
-    a.download = `ai-credit-manager-${suffix}-${todayISO()}.${ext}`
-    a.click()
-    URL.revokeObjectURL(url)
+    const filename = `ai-credit-manager-${suffix}-${todayISO()}.${ext}`
+    if (dir && isDesktopApp()) {
+      // 桌面端：写入用户选择的目录
+      const w = window as unknown as { __TAURI_INTERNALS__?: { invoke?: (cmd: string, args: Record<string, unknown>) => Promise<string> } }
+      try {
+        const invoke = w.__TAURI_INTERNALS__?.invoke
+        if (!invoke) throw new Error('桌面端接口不可用')
+        const path = await invoke('write_file_to_dir', { dir, filename, content })
+        notify(`已导出到：${path}`)
+      } catch (e: any) { notify(e.message ?? '写入文件失败') }
+    } else {
+      // Web 端：浏览器下载
+      const blob = new Blob([content], { type: (format === 'json' ? 'application/json' : 'text/csv') + ';charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url; a.download = filename; a.click()
+      URL.revokeObjectURL(url)
+    }
     if (format === 'json') setState(prev => updateSettings(prev, { lastExportAt: new Date().toISOString() }))
-  }, [])
+  }, [notify])
 
   /** 检查并发送提醒通知（签到 + 额度告警），每天每类最多一次 */
   const checkAndNotify = useCallback(async (force = false) => {
@@ -140,7 +157,7 @@ function App() {
 
     const notices: Array<{ key: string; title: string; body: string }> = []
     if (st.checkinReminder) {
-      const pending = PROVIDERS.filter(p => p.checkinUrl &&
+      const pending = PROVIDERS.filter(p => isCheckinProvider(p, st) &&
         s.accounts.some(a => a.providerId === p.id) &&
         !s.checkins.some(c => c.providerId === p.id && c.date === today && c.done))
       if (pending.length > 0 && (force || !sent.checkin)) {
@@ -190,7 +207,7 @@ function App() {
   }), [state])
 
   const pendingCheckins = PROVIDERS.filter((p) =>
-    p.checkinUrl && state.accounts.some((a) => a.providerId === p.id) &&
+    isCheckinProvider(p, state.settings) && state.accounts.some((a) => a.providerId === p.id) &&
     !state.checkins.some((c) => c.providerId === p.id && c.date === todayISO() && c.done),
   )
 
@@ -269,9 +286,10 @@ function App() {
           </>}
 
           {tab === 'checkin' && <CheckinView
-            accounts={state.accounts} checkins={state.checkins}
+            accounts={state.accounts} checkins={state.checkins} settings={state.settings}
             notify={notify}
             onToggle={(pid, aid) => setState(s => toggleCheckin(s, pid, aid))}
+            onManageProviders={() => setCheckinManageOpen(true)}
           />}
 
           {tab === 'benefits' && <BenefitsView
@@ -359,6 +377,10 @@ function App() {
         </div>
       </main>
 
+      {checkinManageOpen && <CheckinManageModal
+        state={state} onClose={() => setCheckinManageOpen(false)}
+        onSave={(ids) => { setState(s => updateSettings(s, { checkinProviders: ids })); setCheckinManageOpen(false); notify(`已更新签到平台（${ids.length} 个）`) }}
+      />}
       {addOpen && <PlatformPickerModal
         onClose={() => setAddOpen(false)}
         onPick={(pid) => { setAddOpen(false); setFormProviderId(pid) }}
@@ -453,7 +475,7 @@ function App() {
           notify(`已安全导入 ${accounts.length} 个服务（密钥已加密）`)
         }}
       />}
-      {exportOpen && <ExportModal state={state} onClose={() => setExportOpen(false)} onExport={(fmt) => { doExport(fmt); setExportOpen(false); notify('已导出文件') }} />}
+      {exportOpen && <ExportModal state={state} onClose={() => setExportOpen(false)} onExport={(fmt, dir) => { void doExport(fmt, dir); setExportOpen(false) }} />}
       {toast && <div className="toast"><Check size={15} /> {toast}</div>}
     </div>
   )
@@ -620,12 +642,14 @@ function DashboardView({ views, onAdd, onRemove, onEditQuota, notify }: {
   )
 }
 
-function CheckinView({ accounts, checkins, notify, onToggle }: {
-  accounts: AppState['accounts']; checkins: AppState['checkins'];
-  notify: (m: string) => void; onToggle: (pid: string, aid?: string) => void
+function CheckinView({ accounts, checkins, settings, notify, onToggle, onManageProviders }: {
+  accounts: AppState['accounts']; checkins: AppState['checkins']; settings: AppState['settings'];
+  notify: (m: string) => void; onToggle: (pid: string, aid?: string) => void;
+  onManageProviders: () => void
 }) {
+  // 只展示官方确有每日签到领积分机制的平台（避免把充值/用量页误当签到）
   const usedProviderIds = new Set(accounts.map(a => a.providerId))
-  const all = PROVIDERS.filter(p => usedProviderIds.has(p.id))
+  const all = PROVIDERS.filter(p => usedProviderIds.has(p.id) && isCheckinProvider(p, settings))
   const today = todayISO()
   const doneCount = all.filter(p => checkins.some(c => c.providerId === p.id && c.date === today && c.done)).length
   const [page, setPage] = useState(1)
@@ -637,8 +661,16 @@ function CheckinView({ accounts, checkins, notify, onToggle }: {
 
   return (
     <>
-      <div className="section-head"><h2>今日签到 <span className="hint">{doneCount}/{all.length} 已完成</span></h2></div>
-      <SelectionBar
+      <div className="section-head"><h2>今日签到 <span className="hint">{all.length ? `${doneCount}/${all.length} 已完成` : '仅官方签到平台'}</span></h2>
+        <button className="btn sm" onClick={onManageProviders}><Settings size={13} /> 管理签到平台</button>
+      </div>
+      <div className="notice-box">
+        <Info size={15} />
+        <div>
+          这里<b>只展示官方确有「每日签到领积分」机制</b>的平台。免费层、新用户试用、每日免费额度等不属于签到，已收录在「福利中心」。本工具仅提醒并跳转官方页，签到由你本人完成。
+        </div>
+      </div>
+      {all.length > 0 && <SelectionBar
         selectedCount={selected.size} totalOnPage={pageAll.length}
         allSelected={pageAll.length > 0 && pageAll.every(p => selected.has(p.id))}
         onToggleAll={() => {
@@ -653,13 +685,19 @@ function CheckinView({ accounts, checkins, notify, onToggle }: {
           notify(`已标记 ${selected.size} 项为完成`)
           setSelected(new Set())
         }}><Check size={13} /> 批量标记完成</button>}
-      />
+      />}
       <div className="panel">
         {all.length === 0 ? (
-          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>先在「额度看板」添加账户后，即可看到签到提醒</div>
+          <div style={{ padding: 44, textAlign: 'center' }}>
+            <div className="stat-icon" style={{ background: 'var(--primary-soft)', color: 'var(--primary)', margin: '0 auto 14px' }}><CalendarCheck2 size={24} /></div>
+            <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>当前没有可签到的平台</div>
+            <div style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.7, maxWidth: 420, margin: '0 auto' }}>
+              主流 AI 平台普遍提供的是免费额度或新用户试用，而非每日签到。若某平台官方开放签到领积分，我们会在此提醒。免费额度请到「福利中心」查看。
+            </div>
+            <button className="btn primary sm" style={{ marginTop: 16 }} onClick={onManageProviders}>管理签到平台</button>
+          </div>
         ) : pageAll.map((p) => {
           const done = checkins.some(c => c.providerId === p.id && c.date === today && c.done)
-          const hasCheckinUrl = !!p.checkinUrl
           return (
             <div className={`checkin-row selectable ${selected.has(p.id) ? 'selected' : ''}`} key={p.id}>
               <input type="checkbox" checked={selected.has(p.id)} onChange={e => {
@@ -670,15 +708,13 @@ function CheckinView({ accounts, checkins, notify, onToggle }: {
               <ProviderLogo provider={p} size={34} />
               <div className="checkin-info">
                 <div className="checkin-name">{p.name}</div>
-                <div className="checkin-note">{p.note ?? '官方福利/积分页面'}</div>
+                <div className="checkin-note">{p.note ?? '官方每日签到领积分'}</div>
               </div>
-              <span className={`tag ${done ? 'green' : hasCheckinUrl ? 'amber' : 'gray'}`}>
-                {done ? <><Check size={11} /> 今日已完成</> : hasCheckinUrl ? '待签到' : '无签到页'}
+              <span className={`tag ${done ? 'green' : 'amber'}`}>
+                {done ? <><Check size={11} /> 今日已完成</> : '待签到'}
               </span>
-              {p.checkinUrl && (
-                <OutLink url={p.checkinUrl} label="前往签到" className="btn sm" notify={notify}
-                  title={`打开 ${p.name} 官方页面，由你本人完成签到`} />
-              )}
+              {p.checkinUrl && <OutLink url={p.checkinUrl} label="前往签到" className="btn sm" notify={notify}
+                title={`打开 ${p.name} 官方签到页，由你本人完成签到`} />}
               <button className="btn sm ghost" onClick={() => onToggle(p.id)} title={done ? '标记为未完成' : '标记今日已完成'}>
                 {done ? '撤销' : '标记完成'}
               </button>
@@ -687,17 +723,6 @@ function CheckinView({ accounts, checkins, notify, onToggle }: {
         })}
       </div>
       <Pager total={all.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
-      <div className="section-head"><h2>支持签到的平台 <span className="hint">添加账户后会出现在上方</span></h2></div>
-      <div className="panel">
-        {PROVIDERS.filter(p => p.checkinUrl).map(p => (
-          <div className="link-row" key={p.id}>
-            <ProviderLogo provider={p} size={24} />
-            <span>{p.name}</span>
-            <span className="tag gray" style={{ marginLeft: 6 }}>{CATEGORY_LABEL[p.category]}</span>
-            <OutLink url={p.checkinUrl!} label="官方页面" className="btn ghost sm" notify={notify} />
-          </div>
-        ))}
-      </div>
     </>
   )
 }
@@ -766,13 +791,7 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
   }
 
   /** 从备注提取分类：取 [ xxx ] 或冒号前的部分 */
-  const categoryOf = (note?: string): string => {
-    if (!note) return '未分类'
-    const m = note.match(/^\[([^\]]+)\]/) || note.match(/^[^:：]{1,8}[:：]\s*([^:：]+)/)
-    if (m) return m[1].trim()
-    const colon = note.split(/[:：]/)[0].trim()
-    return colon && colon !== note ? colon : '未分类'
-  }
+  const categoryOf = noteCategory
   const categories = Array.from(new Set(keyAccounts.map(a => categoryOf(a.note)))).sort()
   const filtered = keyAccounts.filter(a => category === '__all__' || categoryOf(a.note) === category)
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
@@ -1317,6 +1336,54 @@ function UsageView({ state, notify, onBudget, onAddUsage, onImport, onPriceChang
   )
 }
 
+/** 管理签到平台：从已添加账户中勾选确有官方每日签到的平台 */
+function CheckinManageModal({ state, onClose, onSave }: {
+  state: AppState; onClose: () => void; onSave: (ids: string[]) => void
+}) {
+  const owned = Array.from(new Set(state.accounts.map(a => a.providerId)))
+    .map(id => PROVIDER_MAP[id]).filter(Boolean)
+  const initial = owned.filter(p => isCheckinProvider(p, state.settings)).map(p => p.id)
+  const [selected, setSelected] = useState<Set<string>>(new Set(initial))
+  return (
+    <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal" style={{ maxWidth: 520 }}>
+        <div className="modal-head"><h3>管理签到平台</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
+        <div className="modal-body">
+          <div className="notice-box" style={{ marginBottom: 14 }}>
+            <Info size={15} />
+            <div>只勾选<b>官方确实提供「每日签到领积分」</b>的平台。免费层、试用额度、每日免费额度都不算签到，请勿勾选——避免把充值页误当签到提醒。</div>
+          </div>
+          {owned.length === 0 ? (
+            <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>请先在「额度看板」添加账户</div>
+          ) : (
+            <div className="panel" style={{ maxHeight: 320, overflow: 'auto' }}>
+              {owned.map(p => (
+                <label key={p.id} className="checkin-manage-row" title={p.note ?? ''}>
+                  <input type="checkbox" checked={selected.has(p.id)} onChange={e => {
+                    const next = new Set(selected)
+                    if (e.target.checked) next.add(p.id); else next.delete(p.id)
+                    setSelected(next)
+                  }} />
+                  <ProviderLogo provider={p} size={26} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{p.name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{p.note ?? CATEGORY_LABEL[p.category]}</div>
+                  </div>
+                  {p.dailyCheckin && <span className="tag green" style={{ fontSize: 10 }}>官方签到</span>}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button className="btn" onClick={onClose}>取消</button>
+          <button className="btn primary" onClick={() => onSave(Array.from(selected))}>保存（{selected.size} 个）</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /** 第一步：选择要添加的平台 */
 function PlatformPickerModal({ onClose, onPick }: {
   onClose: () => void; onPick: (providerId: string) => void
@@ -1729,8 +1796,10 @@ function UsageModal({ accounts, onClose, onSave }: {
 /** 数据导入确认模态框：选择覆盖或合并 */
 /** 导出格式选择弹窗 */
 function ExportModal({ state, onClose, onExport }: {
-  state: AppState; onClose: () => void; onExport: (format: ExportFormat) => void
+  state: AppState; onClose: () => void; onExport: (format: ExportFormat, dir?: string) => void
 }) {
+  const [dir, setDir] = useState<string | null>(null)
+  const [picking, setPicking] = useState(false)
   const options: { fmt: ExportFormat; icon: React.ReactNode; title: string; desc: string; tag?: string }[] = [
     { fmt: 'json', icon: <Download size={18} />, title: 'JSON 完整备份', tag: '推荐',
       desc: `全部数据（${state.accounts.length} 账户 / ${state.quotas.length} 额度 / ${state.usage.length} 用量），可完整导回，不含密钥` },
@@ -1746,9 +1815,30 @@ function ExportModal({ state, onClose, onExport }: {
       <div className="modal" style={{ maxWidth: 520 }}>
         <div className="modal-head"><h3>选择导出格式</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
         <div className="modal-body">
+          {/* 保存位置选择（桌面端可选目录，Web 端走浏览器下载） */}
+          <div className="export-dir-box">
+            <div className="row" style={{ gap: 8 }}>
+              <span style={{ fontSize: 12.5, color: 'var(--text-2)', flex: 1 }}>保存位置</span>
+              {isDesktopApp() && <button className="btn sm" disabled={picking} onClick={async () => {
+                setPicking(true)
+                try {
+                  const w = window as unknown as { __TAURI_INTERNALS__?: { invoke?: (cmd: string) => Promise<string | null> } }
+                  const invoke = w.__TAURI_INTERNALS__?.invoke
+                  if (!invoke) return
+                  const picked = await invoke('choose_save_dir')
+                  if (picked) setDir(picked)
+                } catch { /* 用户取消或不支持 */ }
+                finally { setPicking(false) }
+              }}><Download size={13} style={{ transform: 'rotate(180deg)' }} /> {picking ? '选择中…' : '选择文件夹'}</button>}
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 6, wordBreak: 'break-all' }}>
+              {dir ? `将保存到：${dir}` : (isDesktopApp() ? '未选择 → 使用系统默认下载目录' : '浏览器下载 → 由浏览器决定保存位置')}
+            </div>
+            {dir && <button className="btn sm ghost" style={{ marginTop: 6 }} onClick={() => setDir(null)}>清除，改回默认位置</button>}
+          </div>
           <div className="provider-picker" style={{ gridTemplateColumns: '1fr', maxHeight: 'none', gap: 8 }}>
             {options.map(o => (
-              <button key={o.fmt} className="provider-opt" style={{ padding: 13, alignItems: 'flex-start' }} onClick={() => onExport(o.fmt)}>
+              <button key={o.fmt} className="provider-opt" style={{ padding: 13, alignItems: 'flex-start' }} onClick={() => onExport(o.fmt, dir ?? undefined)}>
                 <span style={{ color: 'var(--primary)', marginTop: 2 }}>{o.icon}</span>
                 <div style={{ textAlign: 'left', flex: 1 }}>
                   <div className="p-name">{o.title}{o.tag && <span className="tag green" style={{ marginLeft: 8, fontSize: 10 }}>{o.tag}</span>}</div>

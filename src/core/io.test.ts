@@ -4,7 +4,7 @@ import {
   csvCell, toCsv, detectCsvKind, isJsonImport,
   exportAccountsCsv, exportQuotasCsv, exportUsageCsv, exportJson,
   parseAccountsCsv, parseQuotasCsv, exportByFormat,
-  isServiceList, parseServiceList, parseQuotaString, mapServiceProvider,
+  isServiceList, parseServiceList, parseQuotaString, mapServiceProvider, noteCategory,
 } from './io'
 
 function latestQuota(quotas: QuotaSnapshot[], id: string): QuotaSnapshot | undefined {
@@ -17,7 +17,7 @@ function sampleState(): AppState {
   const s: AppState = {
     version: 1, accounts: [], quotas: [], checkins: [], usage: [], benefitMarks: [],
     settings: {
-      vaultInitialized: false, monthlyBudget: 200, checkinReminder: true, alertDays: 7,
+      vaultInitialized: false, monthlyBudget: 200, checkinReminder: true, checkinProviders: [], alertDays: 7,
       defaultUnit: 'credit', backupReminder: true, systemNotify: false,
       quietStart: '', quietEnd: '', unlockMethod: 'password', unitPrices: {},
     },
@@ -136,6 +136,30 @@ describe('导出/导入往返', () => {
     const json = exportJson(s)
     expect(json).not.toContain('SECRET_CIPHER')
     expect(json).toContain('工作号')
+  })
+})
+
+describe('noteCategory 备注分类', () => {
+  it('识别 [分类] 格式', () => {
+    expect(noteCategory('[文本] 日常对话')).toBe('文本')
+    expect(noteCategory('[图片] 生成')).toBe('图片')
+  })
+  it('识别冒号格式', () => {
+    expect(noteCategory('文本: 日常对话')).toBe('文本')
+    expect(noteCategory('图片：生成图')).toBe('图片')
+  })
+  it('识别斜杠/顿号/逗号分隔（如 文本/图片）', () => {
+    expect(noteCategory('文本/图片')).toBe('文本')
+    expect(noteCategory('图片、视频')).toBe('图片')
+    expect(noteCategory('语音, 转写')).toBe('语音')
+  })
+  it('纯文字备注整体作为分类', () => {
+    expect(noteCategory('通用对话')).toBe('通用对话')
+    expect(noteCategory('翻译')).toBe('翻译')
+  })
+  it('空备注归为未分类', () => {
+    expect(noteCategory()).toBe('未分类')
+    expect(noteCategory('   ')).toBe('未分类')
   })
 })
 
