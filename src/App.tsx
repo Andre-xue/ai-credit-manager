@@ -5,7 +5,7 @@ import {
   Wallet, Flame, Clock, TrendingUp, Lock, Unlock, Download, X, Copy, CircleHelp,
   Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Gift, Eye, Pencil, Fingerprint,
   Film, Layers, Monitor, PanelLeftClose, PanelLeftOpen,
-  Cloud, Bell, Database, Volume2, HardDrive, Palette,
+  Cloud, Bell, Database, Volume2, HardDrive, Palette, RotateCcw,
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { PROVIDERS, PROVIDER_MAP, CATEGORY_LABEL, CATEGORY_ORDER } from './data/providers'
@@ -117,6 +117,22 @@ function App() {
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
     toastTimer.current = window.setTimeout(() => setToast(null), 2600)
   }, [])
+
+  // ===== 删除撤回：保存删除前的完整快照，5 秒内可恢复 =====
+  const [undo, setUndo] = useState<{ snapshot: AppState; label: string } | null>(null)
+  const undoTimer = useRef<number | null>(null)
+  const scheduleUndo = useCallback((snapshot: AppState, label: string) => {
+    if (undoTimer.current !== null) window.clearTimeout(undoTimer.current)
+    setUndo({ snapshot, label })
+    undoTimer.current = window.setTimeout(() => setUndo(null), 5000)
+  }, [])
+  const doUndo = useCallback(() => {
+    if (!undo) return
+    setState(undo.snapshot)
+    if (undoTimer.current !== null) window.clearTimeout(undoTimer.current)
+    setUndo(null)
+    notify('已撤回，数据已恢复')
+  }, [undo, notify])
 
   /** 设置页快捷解锁：系统指纹/人脸验证通过后，把已保存凭据带入 Key 管理页自动解锁（仅作用于该页） */
   const handleBioUnlock = useCallback(async () => {
@@ -486,7 +502,8 @@ function App() {
           </div>
 
           <DashboardView views={views} onAdd={() => setAddOpen(true)} onRemove={(id) => {
-            setState(s => removeAccount(s, id)); notify('账户已移除')
+            scheduleUndo(stateRef.current, '账户已移除')
+            setState(s => removeAccount(s, id)); notify('账户已移除（5 秒内可撤回）')
           }} onEditQuota={(accountId) => setQuotaTarget(accountId)} notify={notify} />
           </>}
 
@@ -510,8 +527,9 @@ function App() {
             }}
             onRemoveKey={(accId) => {
               const acc = state.accounts.find(a => a.id === accId)
+              scheduleUndo(stateRef.current, `已删除「${acc?.label ?? '账户'}」`)
               setState(s => removeAccount(s, accId))
-              notify(`已删除「${acc?.label ?? '账户'}」及其额度/用量/签到等全部关联数据`)
+              notify(`已删除「${acc?.label ?? '账户'}」及其关联数据（5 秒内可撤回）`)
             }}
             onUpdateAccount={(id, patch) => setState(s => updateAccount(s, id, patch))}
             onUnlocked={(pwd) => setSessionPwd(pwd)}
@@ -577,9 +595,16 @@ function App() {
               const r = await requestWebPermission()
               notify(r === 'granted' ? '通知权限已就绪' : r === 'denied' ? '通知被拒绝，请在浏览器设置中允许' : '当前环境不支持通知权限申请')
             }}
-            onClear={() => {
+            onClear={async () => {
+              // 不可逆清除：先尝试系统指纹/人脸验证；设备不支持时要求已解锁的主密码凭据
+              const bioOk = await biometricAuth('验证身份以清空全部业务数据')
+              if (!bioOk) {
+                const unlocked = !!(sessionPwd || getBiometricPassword())
+                if (!unlocked) { notify('请先解锁保险箱或在支持生物识别的设备上验证，未执行清空'); return }
+              }
+              scheduleUndo(stateRef.current, '业务数据已清空')
               setState(s => clearAllData(s))
-              notify('业务数据已清空，设置与保险箱保留')
+              notify('业务数据已清空（5 秒内可撤回）')
             }}
             cloudUser={cloudUser}
             syncing={syncing}
@@ -702,7 +727,12 @@ function App() {
       {exportOpen && <ExportModal state={state} onClose={() => setExportOpen(false)} onExport={(fmt, dir) => { void doExport(fmt, dir); setExportOpen(false) }} />}
       {loginOpen && <CloudLoginModal onClose={() => setLoginOpen(false)} onSuccess={handleCloudLogin} />}
       {updateOpen && <UpdateModal onClose={() => setUpdateOpen(false)} notify={notify} />}
-      {toast && <div className="toast"><Check size={15} /> {toast}</div>}
+      {undo && <div className="undo-bar">
+        <span><Check size={15} /> {undo.label}</span>
+        <button onClick={doUndo}><RotateCcw size={14} /> 撤回</button>
+        <i className="undo-countdown" />
+      </div>}
+      {toast && !undo && <div className="toast"><Check size={15} /> {toast}</div>}
     </div>
   )
 }

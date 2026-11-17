@@ -1150,3 +1150,26 @@ html, body { touch-action: manipulation; }
 .call-unlock-row { display: flex; gap: 8px; }
 .call-unlock-row .input { flex: 1; background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.25); color: #fff; }
 .call-unlock-row .input::placeholder { color: rgba(255,255,255,.5); }
+
+/* 删除后 5 秒撤回条 */
+.undo-bar {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 210;
+  display: flex; align-items: center; gap: 14px; min-width: 340px;
+  background: #111827; color: #fff; padding: 12px 16px; border-radius: 11px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.28); font-size: 13px; overflow: hidden;
+  animation: rise .2s ease;
+}
+.undo-bar > span { display: inline-flex; align-items: center; gap: 8px; flex: 1; }
+.undo-bar > span svg { color: #34d399; flex-shrink: 0; }
+.undo-bar button {
+  display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,.25); border-radius: 7px;
+  background: rgba(255,255,255,.1); color: #fff; padding: 6px 11px; font-size: 12px;
+}
+.undo-bar button:hover { background: rgba(255,255,255,.2); }
+.undo-countdown {
+  position: absolute; left: 0; bottom: 0; height: 3px; background: #818cf8;
+  animation: undo-shrink 5s linear forwards;
+}
+@keyframes undo-shrink { from { width: 100%; } to { width: 0; } }
+@media (max-width: 680px) { .undo-bar { min-width: 0; width: calc(100% - 32px); bottom: 96px; } }

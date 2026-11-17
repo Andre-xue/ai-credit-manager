@@ -193,7 +193,12 @@ export function AIView({ notify, accounts }: {
       setResolvingKey(true)
       let apiKey: string
       try { apiKey = await decryptSecret(acct.encryptedKey, pwd) }
-      catch { notify('主密码错误或密钥已变更，请重新输入'); throw Object.assign(new Error('__NEED_AI_PWD__'), { needPwd: true }) }
+      catch {
+        // 解密失败通常意味着：保险箱材料已变更（改过主密码/重置/云同步覆盖），或该 Key 是用另一个主密码加密的
+        const hint = '此 API Key 无法解密：保险箱主密码已变更或该密钥由另一主密码加密。请到「设置 → 安全」用当前主密码重新添加该 Key'
+        notify(hint)
+        throw Object.assign(new Error(hint), { needPwd: true })
+      }
       finally { setResolvingKey(false) }
       const msgs = [{ role: 'system', content: '你是 AI 积分管家助手，请用简洁中文回答。' }, ...history.slice(-12).map(m => ({ role: m.role, content: m.content })), { role: 'user', content }]
       const r = await callByCategory(acct, apiKey, opt.category, msgs, engineId || undefined, toReasoningEffort(reasoning))
