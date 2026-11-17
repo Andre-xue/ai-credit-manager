@@ -129,6 +129,7 @@ export async function streamChat(
   signal?: AbortSignal,
   images?: string[],
   reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high',
+  systemPrompt?: string,
 ): Promise<string> {
   // 仅把最近的对话作为上下文（系统消息始终在最前）：
   // 取最近 20 条，控制单次请求体积；conversationId 保持关联。
@@ -144,7 +145,7 @@ export async function streamChat(
       ]
     : userText
   const messages = [
-    { role: 'system' as const, content: SYSTEM_PROMPT },
+    { role: 'system' as const, content: systemPrompt ?? SYSTEM_PROMPT },
     ...context,
     { role: 'user' as const, content: userContent },
   ]

@@ -14,7 +14,8 @@ import {
 import { speakAsync, stopSpeak, getSavedVoice, listSystemVoices } from '../core/tts'
 import {
   loadBotProfile, saveBotProfile, loadUserProfile, saveUserProfile,
-  getAvatar, withReplyPrefix, AVATAR_PRESETS, type BotProfile, type UserProfile,
+  getAvatar, buildIdentitySystemPrompt, resizeAvatarImage, AVATAR_PRESETS,
+  type BotProfile, type UserProfile,
 } from '../core/aiIdentity'
 import { VoiceCall } from './VoiceCall'
 import {
@@ -77,6 +78,11 @@ export function AIView({ notify, accounts }: {
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const longPressRef = useRef<number | null>(null)
+
+  const avatarContent = (p: BotProfile | UserProfile) => p.avatarDataUrl
+    ? <img className="ai-avatar-img" src={p.avatarDataUrl} alt="头像" />
+    : getAvatar(p.avatarId).emoji
+  const avatarBg = (p: BotProfile | UserProfile) => getAvatar(p.avatarId).color
 
   const copyMessage = async (text: string) => {
     try { await navigator.clipboard.writeText(text); notify('已复制对话内容') }
@@ -204,6 +210,8 @@ export function AIView({ notify, accounts }: {
   /** 统一取回复：用户自己的账户走其 API，否则走平台免费模型 */
   const getReply = async (content: string, history: ChatMessage[], signal?: AbortSignal, images?: string[]): Promise<string> => {
     const opt = allOptions.find(o => o.key === model)
+    const isFirstReply = !history.some(m => m.role === 'assistant')
+    const systemPrompt = buildIdentitySystemPrompt(botProfile, userProfile, isFirstReply)
     // 用户自己的账户：用其 Key 真正调用
     if (opt?.account) {
       const acct = opt.account
@@ -224,7 +232,7 @@ export function AIView({ notify, accounts }: {
         throw Object.assign(new Error(hint), { needPwd: true })
       }
       finally { setResolvingKey(false) }
-      const msgs = [{ role: 'system', content: '你是 AI 积分管家助手，请用简洁中文回答。' }, ...history.slice(-12).map(m => ({ role: m.role, content: m.content })), { role: 'user', content }]
+      const msgs = [{ role: 'system', content: systemPrompt }, ...history.slice(-12).map(m => ({ role: m.role, content: m.content })), { role: 'user', content }]
       const r = await callByCategory(acct, apiKey, opt.category, msgs, engineId || undefined, toReasoningEffort(reasoning))
       if (!r.ok) throw Object.assign(new Error(r.error ?? '调用失败'), { cors: r.cors })
       if (r.images?.length) {
@@ -233,7 +241,7 @@ export function AIView({ notify, accounts }: {
       return r.text
     }
     // 平台免费模型：流式输出（图片附件随多模态消息发送）
-    return streamChat(model || 'auto', history, content, delta => setStreamingText(prev => prev + delta), signal, images, toReasoningEffort(reasoning))
+    return streamChat(model || 'auto', history, content, delta => setStreamingText(prev => prev + delta), signal, images, toReasoningEffort(reasoning), systemPrompt)
   }
 
   const send = async (text?: string) => {
@@ -265,14 +273,14 @@ export function AIView({ notify, accounts }: {
     abortRef.current = controller
     try {
       const answer = await getReply(effectiveText, messages, controller.signal, imageUrls)
-      setMessages(prev => [...prev, { id: `${Date.now()}-a`, role: 'assistant', content: withReplyPrefix(answer) || '（无回复内容）', at: Date.now() }])
+      setMessages(prev => [...prev, { id: `${Date.now()}-a`, role: 'assistant', content: answer || '（无回复内容）', at: Date.now() }])
     } catch (e) {
       const need = (e as { needPwd?: boolean })?.needPwd
       const msg = friendlyAiError(e)
       // needPwd 的情况：不重复 toast（顶部已有常驻解锁条），但仍需在对话里给出可见提示
       if (!need && msg !== '已停止生成' && !String(msg).includes('NEED_AI_PWD')) notify(msg)
       setStreamingText(prev => {
-        if (prev) setMessages(p => [...p, { id: `${Date.now()}-a`, role: 'assistant', content: withReplyPrefix(prev), at: Date.now() }])
+        if (prev) setMessages(p => [...p, { id: `${Date.now()}-a`, role: 'assistant', content: prev, at: Date.now() }])
         else {
           // 失败时插入持久提示气泡，避免 toast 一闪而过看着像"没反应"
           const hint = need ? '🔒 当前为自有模型，请先在上方的密码框验证主密码，然后重新发送。'
@@ -356,7 +364,7 @@ export function AIView({ notify, accounts }: {
         {/* 顶部栏 */}
         <div className="ai-topbar">
           <div className="ai-brand" onClick={() => setIdentityOpen('bot')} title="点击更换 AI 头像、名字与音色" style={{ cursor: 'pointer' }}>
-            <div className="ai-brand-mark" style={{ background: getAvatar(botProfile.avatarId).color }}>{getAvatar(botProfile.avatarId).emoji}</div>
+            <div className="ai-brand-mark" style={{ background: avatarBg(botProfile) }}>{avatarContent(botProfile)}</div>
             <div>
               <div className="ai-brand-title">{botProfile.name}</div>
               <div className="ai-brand-sub">积分管家智能助理</div>
@@ -476,11 +484,11 @@ export function AIView({ notify, accounts }: {
           ) : (
             <div className="ai-thread">
               {messages.map(m => {
-                const av = getAvatar(m.role === 'assistant' ? botProfile.avatarId : userProfile.avatarId)
+                const profile = m.role === 'assistant' ? botProfile : userProfile
                 return (
                 <div key={m.id} className={`ai-msg ${m.role}`}>
                   <div className="ai-avatar avatar-click" title={m.role === 'assistant' ? '点击更换 AI 头像/名字/音色' : '点击更换我的头像/昵称/前缀'}
-                    style={{ background: av.color }} onClick={() => setIdentityOpen(m.role === 'assistant' ? 'bot' : 'user')}>{av.emoji}</div>
+                    style={{ background: avatarBg(profile) }} onClick={() => setIdentityOpen(m.role === 'assistant' ? 'bot' : 'user')}>{avatarContent(profile)}</div>
                   <div className="ai-msg-body">
                     <div className="ai-bubble" onTouchStart={() => startLongPress(m.content)} onTouchEnd={endLongPress} onTouchMove={endLongPress}>{m.content}</div>
                     {m.content && (
@@ -501,13 +509,13 @@ export function AIView({ notify, accounts }: {
               })}
               {generating && streamingText && (
                 <div className="ai-msg assistant">
-                  <div className="ai-avatar" style={{ background: getAvatar(botProfile.avatarId).color }}>{getAvatar(botProfile.avatarId).emoji}</div>
+                  <div className="ai-avatar" style={{ background: avatarBg(botProfile) }}>{avatarContent(botProfile)}</div>
                   <div className="ai-bubble"><span className="ai-typing">{streamingText}</span><span className="ai-cursor" /></div>
                 </div>
               )}
               {generating && !streamingText && (
                 <div className="ai-msg assistant">
-                  <div className="ai-avatar" style={{ background: getAvatar(botProfile.avatarId).color }}>{getAvatar(botProfile.avatarId).emoji}</div>
+                  <div className="ai-avatar" style={{ background: avatarBg(botProfile) }}>{avatarContent(botProfile)}</div>
                   <div className="ai-bubble ai-thinking"><span /><span /><span /></div>
                 </div>
               )}
@@ -616,7 +624,7 @@ export function AIView({ notify, accounts }: {
       {callOpen && <VoiceCall
         voiceURI={botProfile.voiceURI}
         onSend={async (text) => {
-          const r = withReplyPrefix(await getReply(text, messages))
+          const r = await getReply(text, messages)
           setMessages(prev => [...prev,
             { id: `${Date.now()}-u`, role: 'user', content: text, at: Date.now() },
             { id: `${Date.now()}-a`, role: 'assistant', content: r, at: Date.now() },
@@ -650,6 +658,7 @@ function IdentityModal({ kind, bot, user, voices, onClose, onSaveBot, onSaveUser
 }) {
   const isBot = kind === 'bot'
   const [avatarId, setAvatarId] = useState(isBot ? bot.avatarId : user.avatarId)
+  const [avatarDataUrl, setAvatarDataUrl] = useState<string | undefined>(isBot ? bot.avatarDataUrl : user.avatarDataUrl)
   const [name, setName] = useState(isBot ? bot.name : user.nickname)
   const [voiceURI, setVoiceURI] = useState<string | null>(bot.voiceURI)
   const [phrase, setPhrase] = useState(user.phrase)
@@ -663,8 +672,16 @@ function IdentityModal({ kind, bot, user, voices, onClose, onSaveBot, onSaveUser
           <div className="identity-avatars">
             {AVATAR_PRESETS.map(a => (
               <button key={a.id} title={a.label} className={`identity-avatar ${avatarId === a.id ? 'active' : ''}`}
-                style={{ background: a.color }} onClick={() => setAvatarId(a.id)}>{a.emoji}</button>
+                style={{ background: a.color }} onClick={() => { setAvatarId(a.id); setAvatarDataUrl(undefined) }}>{a.emoji}</button>
             ))}
+            <label className={`identity-avatar identity-upload ${avatarId === 'custom' ? 'active' : ''}`} title="上传自定义图片（等比缩放）">
+              {avatarDataUrl ? <img src={avatarDataUrl} alt="自定义头像" /> : <ImageIcon size={17} />}
+              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
+                const file = e.target.files?.[0]
+                if (file) void resizeAvatarImage(file).then(url => { setAvatarDataUrl(url); setAvatarId('custom') }).catch(() => {})
+                e.target.value = ''
+              }} />
+            </label>
           </div>
           <label className="form-label" style={{ marginTop: 16 }}>
             {isBot ? 'AI 名字' : '我的昵称'}
@@ -689,8 +706,8 @@ function IdentityModal({ kind, bot, user, voices, onClose, onSaveBot, onSaveUser
         <div className="modal-foot">
           <button className="btn" onClick={onClose}>取消</button>
           <button className="btn primary" disabled={!name.trim()} onClick={() => {
-            if (isBot) onSaveBot({ avatarId, name: name.trim(), voiceURI })
-            else onSaveUser({ avatarId, nickname: name.trim(), phrase: phrase.trim() })
+            if (isBot) onSaveBot({ avatarId, avatarDataUrl, name: name.trim(), voiceURI })
+            else onSaveUser({ avatarId, avatarDataUrl, nickname: name.trim(), phrase: phrase.trim() })
           }}>完成</button>
         </div>
       </div>
