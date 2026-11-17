@@ -11,7 +11,7 @@ import {
   loadVoiceSample, saveVoiceSample, deleteVoiceSample, recordVoiceSample,
   cloneVoiceFromSample, getClonedVoiceId, type VoiceSample,
 } from '../core/voiceClone'
-import { isDesktopApp, openExternal } from '../core/openExternal'
+import { isDesktopApp, isNativeApp, openExternal } from '../core/openExternal'
 import { VOICE_PROVIDERS } from '../core/voiceProviders'
 import {
   hasTtsConfig, getTtsConfig, saveTtsConfig, clearTtsConfig,
@@ -46,6 +46,8 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
   const [sample, setSample] = useState<VoiceSample | null>(null)
   const [clonedId, setClonedId] = useState<string | null>(() => getClonedVoiceId())
   const [cloning, setCloning] = useState(false)
+  const [nativeTtsStatus, setNativeTtsStatus] = useState('')
+  const native = isNativeApp()
   const fileRef = useState(() => ({ current: null as HTMLInputElement | null }))[0]
 
   useEffect(() => {
@@ -79,6 +81,29 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
   }
 
   const changeRate = (r: number) => { setRate(r); saveRate(r) }
+
+  /** 手机原生 TTS：检测系统是否支持中文语音，必要时引导安装语音包 */
+  const checkNativeTts = async () => {
+    try {
+      const { TextToSpeech } = await import('@capacitor-community/text-to-speech')
+      const { languages } = await TextToSpeech.getSupportedLanguages()
+      const hasZh = languages.some(l => /^zh/i.test(l))
+      setNativeTtsStatus(hasZh
+        ? `系统已支持中文语音（${languages.filter(l => /^zh/i.test(l)).join('、')}），可直接朗读。`
+        : '系统当前没有中文语音包，朗读会失败或读成英文。请点下方按钮安装中文语音数据。')
+    } catch (e) {
+      setNativeTtsStatus(`检测失败：${(e as Error)?.message ?? '未知错误'}。可尝试下方的语音包安装入口。`)
+    }
+  }
+
+  const openTtsInstall = async () => {
+    try {
+      const { TextToSpeech } = await import('@capacitor-community/text-to-speech')
+      await TextToSpeech.openInstall()
+    } catch {
+      notify('无法直接打开系统语音设置，请在系统「设置 → 语言与输入法 → 文字转语音」中安装中文语音包')
+    }
+  }
 
   const downloadDialect = async (d: typeof DIALECT_VOICES[number]) => {
     if (!ttsConfigured) { notify('请先在下方配置第三方语音服务'); return }
@@ -169,8 +194,18 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
     <div className="voice-settings">
       {/* 音色选择 */}
       <div className="voice-section-label"><Volume2 size={14} /> 朗读音色（系统内置 · 无需下载）</div>
+      {native && <>
+        <div className="voice-hint" style={{ marginBottom: 8 }}>手机端使用系统文字转语音引擎朗读（不是浏览器朗读）。若无法出声，通常是系统缺少中文语音包，请检测并安装。</div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <button className="btn sm" onClick={() => void checkNativeTts()}>检测中文语音</button>
+          <button className="btn sm ghost" onClick={() => void openTtsInstall()}>安装系统语音包</button>
+        </div>
+        {nativeTtsStatus && <div className="voice-hint" style={{ marginBottom: 10 }}>{nativeTtsStatus}</div>}
+      </>}
       {voices.length === 0 ? (
-        <div className="voice-empty">正在加载系统音色…若长时间为空，说明当前系统未安装中文语音包。</div>
+        <div className="voice-empty">{native
+          ? '手机原生朗读不依赖下方浏览器音色列表；直接点「试听当前音色」即可。'
+          : '正在加载系统音色…若长时间为空，说明当前系统未安装中文语音包。'}</div>
       ) : groups.map(g => {
         const list = voices.filter(v => v.group === g)
         if (list.length === 0) return null

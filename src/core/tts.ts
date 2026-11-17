@@ -1,6 +1,9 @@
-// 语音朗读核心：基于系统内置 Web Speech API（speechSynthesis）。
-// 零下载、离线可用、不占存储。音色来自操作系统已安装的语音包；
-// 真正的方言音色（粤语/四川话等）需要第三方 TTS，由 voice-download.ts 管理。
+// 语音朗读核心：
+// - 手机原生 App（Capacitor）：用 @capacitor-community/text-to-speech 调系统 TTS 引擎（可靠、支持中文）
+// - Web / 桌面 WebView：用 Web Speech API（speechSynthesis）
+// 方言音色（粤语/四川话等）需第三方 TTS，由 voice-download.ts 管理。
+
+import { isNativeApp } from './openExternal'
 
 export interface VoiceOption {
   uri: string
@@ -91,13 +94,36 @@ export function saveRate(r: number): void {
 }
 
 let ttsUnlocked = false
+let nativeSpeaking = false
+
+/** 手机原生平台：调用系统 TTS 引擎。返回是否成功发起（是否真正出声取决于系统语音包）。 */
+async function nativeSpeak(text: string, onState?: (s: 'start' | 'end' | 'error') => void): Promise<boolean> {
+  try {
+    const { TextToSpeech } = await import('@capacitor-community/text-to-speech')
+    await TextToSpeech.stop()
+    nativeSpeaking = true
+    onState?.('start')
+    // lang 用中文；rate 取自用户设置。原生插件在朗读完成后 resolve。
+    await TextToSpeech.speak({ text, lang: 'zh-CN', rate: getRate(), volume: 1 })
+    nativeSpeaking = false
+    onState?.('end')
+    return true
+  } catch {
+    nativeSpeaking = false
+    onState?.('error')
+    return false
+  }
+}
 
 /**
  * 在用户手势（点麦克风/发送）中预热系统 TTS。
  * Android WebView 常要求先有用户手势才允许后续 speechSynthesis 发声。
  */
 export function unlockTts(): void {
-  if (ttsUnlocked || typeof window === 'undefined' || !('speechSynthesis' in window)) return
+  if (ttsUnlocked || typeof window === 'undefined') return
+  // 原生平台走系统 TTS，无需 WebView 的手势解锁
+  if (isNativeApp()) { ttsUnlocked = true; return }
+  if (!('speechSynthesis' in window)) return
   try {
     const u = new SpeechSynthesisUtterance(' ')
     u.volume = 0
@@ -113,11 +139,17 @@ import { getClonedVoiceId } from './voiceClone'
 let activeCallback: ((state: 'start' | 'end' | 'error') => void) | null = null
 
 export function isSpeaking(): boolean {
+  if (isNativeApp()) return nativeSpeaking
   return typeof window !== 'undefined' && 'speechSynthesis' in window && window.speechSynthesis.speaking
 }
 
 /** 朗读文本。onState 回调播放开始/结束/错误。 */
 export function speak(text: string, voiceURI: string | null, onState?: (s: 'start' | 'end' | 'error') => void): boolean {
+  if (isNativeApp()) {
+    // 原生系统 TTS：异步发起，立即返回 true；状态通过回调传递
+    void nativeSpeak(text, onState)
+    return true
+  }
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) return false
   const synth = window.speechSynthesis
   synth.cancel()
@@ -166,15 +198,23 @@ export async function speakAsync(text: string, voiceURI: string | null, onState?
 }
 
 export function stopSpeak(): void {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
   activeCallback = null
+  if (isNativeApp()) {
+    nativeSpeaking = false
+    void import('@capacitor-community/text-to-speech').then(({ TextToSpeech }) => TextToSpeech.stop()).catch(() => {})
+    return
+  }
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
   window.speechSynthesis.cancel()
 }
 
 export function pauseSpeak(): void {
+  if (isNativeApp()) { void import('@capacitor-community/text-to-speech').then(({ TextToSpeech }) => TextToSpeech.stop()).catch(() => {}); return }
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.pause()
 }
 export function resumeSpeak(): void {
+  // 原生 TTS 无暂停/续播，忽略（继续保持当前行为）
+  if (isNativeApp()) return
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.resume()
 }
 
