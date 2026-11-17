@@ -85,6 +85,43 @@ export async function fetchProviderModels(account: Account, apiKey: string): Pro
   return ids
 }
 
+/**
+ * Kimi 系列（含 K3 / K3.1）的采样参数在服务端固定：temperature 只能为 1，
+ * 传 0.7 等自定义值会直接 400。这里统一"不传 temperature"，让服务端用默认值。
+ * 同时兼容第三方中转平台返回的带前缀模型 id（如 moonshotai/kimi-k3.1-pro）。
+ */
+export function usesFixedSampling(account: Account, modelId: string): boolean {
+  const id = modelId.toLowerCase()
+  return account.providerId === 'kim'
+    || /(^|[-_/])(kimi|moonshot)([-_/]|$)/.test(id)
+    || /(^|[-_/])k3(\.1)?([-_/]|$)/.test(id)
+}
+
+/** K3 / K3.1 的 reasoning_effort 仅支持 low / high / max（Kimi 官方文档 2026-11）。 */
+export function normalizeReasoningEffort(
+  account: Account, modelId: string,
+  effort?: 'minimal' | 'low' | 'medium' | 'high',
+): 'minimal' | 'low' | 'medium' | 'high' | 'max' | undefined {
+  if (!effort) return undefined
+  const id = modelId.toLowerCase()
+  const isK3 = /(^|[-_/])k3(\.1)?([-_/]|$)/.test(id) || /3\.1/.test(id)
+  if (!isK3 || !usesFixedSampling(account, modelId)) return effort
+  // 界面四档 → Kimi 官方三档
+  switch (effort) {
+    case 'minimal': return 'low'
+    case 'medium': return 'high'
+    case 'high': return 'max'
+    default: return effort
+  }
+}
+
+/** 识别服务端返回的"固定采样参数"类错误，用于自动重试一次 */
+function isTemperatureError(e: unknown): boolean {
+  const msg = ((e as Error)?.message ?? String(e ?? '')).toLowerCase()
+  return msg.includes('invalid temperature') || msg.includes('invalid_temperature')
+    || (/temperature/.test(msg) && /only\s+[\d.]+\s+is\s+allowed/.test(msg))
+}
+
 /** 对话：OpenAI 兼容 chat completions（非流式，简化处理） */
 export async function callChat(
   account: Account, apiKey: string, messages: { role: string; content: string }[],
@@ -92,13 +129,27 @@ export async function callChat(
 ): Promise<ProviderCallResult> {
   try {
     const url = chatUrl(account)
-    const body: Record<string, unknown> = {
-      model: engineId || account.label, messages, stream: false, temperature: 0.7,
+    const model = engineId || account.label
+    const body: Record<string, unknown> = { model, messages, stream: false }
+    // Kimi K3 系列固定采样参数：不传 temperature，避免 400 invalid temperature
+    if (!usesFixedSampling(account, model)) body.temperature = 0.7
+    const effort = normalizeReasoningEffort(account, model, reasoningEffort)
+    if (effort) body.reasoning_effort = effort
+
+    const request = (payload: Record<string, unknown>) =>
+      isDesktopApp() ? invokeApi(url, apiKey, payload) : directFetch(url, apiKey, payload)
+
+    let raw: string
+    try {
+      raw = await request(body)
+    } catch (e) {
+      // 动态拉取到的未知模型也可能有固定采样限制：去掉 temperature 自动重试一次
+      if ('temperature' in body && isTemperatureError(e)) {
+        const retry = { ...body }
+        delete retry.temperature
+        raw = await request(retry)
+      } else throw e
     }
-    if (reasoningEffort) body.reasoning_effort = reasoningEffort
-    const raw = isDesktopApp()
-      ? await invokeApi(url, apiKey, body)
-      : await directFetch(url, apiKey, body)
     const json = JSON.parse(raw)
     const text = json.choices?.[0]?.message?.content ?? json.choices?.[0]?.text ?? ''
     if (!text) return { ok: false, text: '', error: '接口未返回文本内容，请检查模型名与账户配置' }
