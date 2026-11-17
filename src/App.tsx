@@ -13,6 +13,7 @@ import {
   importState, mergeState, addUsageEvent, updateSettings, clearAllData, markBenefit,
 } from './core/store'
 import { BENEFITS, BENEFIT_KIND_LABEL, type BenefitItem } from './data/benefits'
+import { AGENT_TOOLS, CHECKIN_TOOLS, type AgentTool, type AgentRegion } from './data/agentTools'
 import { requestWebPermission, sendNotification, inQuietHours } from './core/notify'
 import { totalPortfolioValue, monthlySpendByPlatform, DEFAULT_UNIT_PRICES } from './core/value'
 import { predictExhaustion, forecastText } from './core/forecast'
@@ -45,11 +46,6 @@ const MODE_LABEL: Record<AccountMode, string> = {
   api: '官方 API', manual: '手动录入', subscription: '订阅制',
 }
 
-/** 是否为签到平台：内置确有每日签到，或用户手动确认加入 */
-function isCheckinProvider(p: ProviderDefinition, settings: AppState['settings']): boolean {
-  return p.dailyCheckin === true || (settings.checkinProviders ?? []).includes(p.id)
-}
-
 const CATEGORY_ICON: Record<ProviderDefinition['category'], typeof Code2> = {
   llm: Sparkles, code: Code2, image: Image, video: Film, voice: Mic,
   search: Search, design: PenTool, embedding: Layers, other: CircleHelp,
@@ -60,7 +56,6 @@ function App() {
   const [tab, setTab] = useState<Tab>('dashboard')
   const [addOpen, setAddOpen] = useState(false)
   const [formProviderId, setFormProviderId] = useState<string | null>(null)
-  const [checkinManageOpen, setCheckinManageOpen] = useState(false)
   const [vaultOpen, setVaultOpen] = useState(false)
   const [quotaTarget, setQuotaTarget] = useState<string | null>(null)
   const [usageOpen, setUsageOpen] = useState(false)
@@ -157,10 +152,10 @@ function App() {
 
     const notices: Array<{ key: string; title: string; body: string }> = []
     if (st.checkinReminder) {
-      const pending = PROVIDERS.filter(p => isCheckinProvider(p, st) &&
-        !s.checkins.some(c => c.providerId === p.id && c.date === today && c.done))
+      const pending = CHECKIN_TOOLS.filter(t =>
+        !s.checkins.some(c => c.providerId === t.id && c.date === today && c.done))
       if (pending.length > 0 && (force || !sent.checkin)) {
-        notices.push({ key: 'checkin', title: '今日待签到', body: `${pending.length} 个平台待签到：${pending.slice(0, 3).map(p => p.shortName).join('、')}${pending.length > 3 ? ' 等' : ''}` })
+        notices.push({ key: 'checkin', title: '今日待签到', body: `${pending.length} 个工具待签到：${pending.slice(0, 3).map(t => t.name).join('、')}${pending.length > 3 ? ' 等' : ''}` })
       }
     }
     const urgent: string[] = []
@@ -205,9 +200,8 @@ function App() {
     return { account, provider, quota, usagePercent: percent, daysUntilReset: days, checkinDoneToday: todayDone, forecast }
   }), [state])
 
-  const pendingCheckins = PROVIDERS.filter((p) =>
-    isCheckinProvider(p, state.settings) &&
-    !state.checkins.some((c) => c.providerId === p.id && c.date === todayISO() && c.done),
+  const pendingCheckins = CHECKIN_TOOLS.filter((t) =>
+    !state.checkins.some((c) => c.providerId === t.id && c.date === todayISO() && c.done),
   )
 
   const lowQuota = views.filter((v) => v.usagePercent >= 80)
@@ -222,7 +216,7 @@ function App() {
 
   const tabs: Array<{ id: Tab; label: string; icon: typeof LayoutDashboard; badge?: number }> = [
     { id: 'dashboard', label: '额度看板', icon: LayoutDashboard },
-    { id: 'checkin', label: '签到提醒', icon: CalendarCheck2, badge: pendingCheckins.length },
+    { id: 'checkin', label: 'AI Agent工具（签到）', icon: CalendarCheck2, badge: pendingCheckins.length },
     { id: 'benefits', label: '福利中心', icon: Gift },
     { id: 'keys', label: 'API Key 管理', icon: KeyRound },
     { id: 'usage', label: '用量与费用', icon: BarChart3 },
@@ -284,11 +278,9 @@ function App() {
           }} onEditQuota={(accountId) => setQuotaTarget(accountId)} notify={notify} />
           </>}
 
-          {tab === 'checkin' && <CheckinView
-            checkins={state.checkins} settings={state.settings}
-            notify={notify}
+          {tab === 'checkin' && <AgentToolsView
+            checkins={state.checkins} notify={notify}
             onToggle={(pid, aid) => setState(s => toggleCheckin(s, pid, aid))}
-            onManageProviders={() => setCheckinManageOpen(true)}
           />}
 
           {tab === 'benefits' && <BenefitsView
@@ -376,10 +368,6 @@ function App() {
         </div>
       </main>
 
-      {checkinManageOpen && <CheckinManageModal
-        state={state} onClose={() => setCheckinManageOpen(false)}
-        onSave={(ids) => { setState(s => updateSettings(s, { checkinProviders: ids })); setCheckinManageOpen(false); notify(`已更新签到平台（${ids.length} 个）`) }}
-      />}
       {addOpen && <PlatformPickerModal
         onClose={() => setAddOpen(false)}
         onPick={(pid) => { setAddOpen(false); setFormProviderId(pid) }}
@@ -641,88 +629,137 @@ function DashboardView({ views, onAdd, onRemove, onEditQuota, notify }: {
   )
 }
 
-function CheckinView({ checkins, settings, notify, onToggle, onManageProviders }: {
-  checkins: AppState['checkins']; settings: AppState['settings'];
-  notify: (m: string) => void; onToggle: (pid: string, aid?: string) => void;
-  onManageProviders: () => void
+/** AI Agent 工具（签到）：国内外分类 + 可签到分组 + 官方 logo 卡片墙 */
+function AgentToolsView({ checkins, notify, onToggle }: {
+  checkins: AppState['checkins']; notify: (m: string) => void;
+  onToggle: (pid: string, aid?: string) => void
 }) {
-  // 只展示官方确有每日签到领积分机制的平台（避免把充值/用量页误当签到）
-  // 官方签到平台无需先添加账户即可显示与提醒
-  const all = PROVIDERS.filter(p => isCheckinProvider(p, settings))
   const today = todayISO()
-  const doneCount = all.filter(p => checkins.some(c => c.providerId === p.id && c.date === today && c.done)).length
-  const [page, setPage] = useState(1)
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const PAGE_SIZE = 3
-  useEffect(() => { setPage(1) }, [all.length])
-  const cur = Math.min(page, Math.max(1, Math.ceil(all.length / PAGE_SIZE)))
-  const pageAll = all.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE)
+  const [region, setRegion] = useState<'all' | AgentRegion>('all')
+  const [keyword, setKeyword] = useState('')
+
+  const isDone = (id: string) => checkins.some(c => c.providerId === id && c.date === today && c.done)
+  const doneCount = CHECKIN_TOOLS.filter(t => isDone(t.id)).length
+  const q = keyword.trim().toLowerCase()
+  const matched = AGENT_TOOLS.filter(t =>
+    (region === 'all' || t.region === region) &&
+    (!q || t.name.toLowerCase().includes(q) || t.nameEn.toLowerCase().includes(q) || t.desc.toLowerCase().includes(q)),
+  )
+  const cnTools = matched.filter(t => t.region === 'cn')
+  const globalTools = matched.filter(t => t.region === 'global')
+
+  const ToolCard = ({ t }: { t: AgentTool }) => {
+    const done = t.canCheckin && isDone(t.id)
+    return (
+      <article className="agent-card">
+        <div className="agent-card-top">
+          <div className="agent-logo" style={{ background: `${t.color}14` }}>
+            <img src={t.icon} alt={`${t.name} 官方图标`} width={36} height={36} loading="lazy"
+              onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+          </div>
+          <div className="agent-card-title">
+            <div className="agent-name">{t.name}</div>
+            <div className="agent-name-en">{t.nameEn}</div>
+          </div>
+          {t.canCheckin && <span className={`tag ${done ? 'green' : 'amber'}`} style={{ flex: 'none' }}>
+            {done ? <><Check size={11} /> 已签到</> : '可签到'}
+          </span>}
+        </div>
+        <div className="agent-card-badges">
+          <span className="agent-chip" style={{ color: t.color, background: `${t.color}12` }}>{t.category}</span>
+          <span className="agent-chip muted">{t.region === 'cn' ? '国内' : '海外'}</span>
+        </div>
+        <p className="agent-desc">{t.desc}</p>
+        <div className={`agent-tip ${t.canCheckin ? 'checkin' : 'benefit'}`}>
+          <span className="agent-tip-label">{t.canCheckin ? '签到规则' : '福利说明'}</span>
+          {t.canCheckin ? t.checkinTip : t.benefitTip}
+        </div>
+        <div className="agent-card-actions">
+          {t.canCheckin && <>
+            <OutLink url={t.checkinUrl ?? t.downloadUrl} label="前往签到" className="btn sm primary" notify={notify}
+              title={`打开 ${t.name} 官方页，由你本人完成签到`} />
+            <button className="btn sm" onClick={() => onToggle(t.id)} title={done ? '标记为未签到' : '标记今日已签到'}>
+              {done ? '撤销标记' : '标记完成'}
+            </button>
+          </>}
+          <OutLink url={t.downloadUrl} label={t.canCheckin ? '官方下载' : '前往官网'} className="btn sm ghost" notify={notify}
+            title={`打开 ${t.name} 官方站点`} />
+        </div>
+      </article>
+    )
+  }
+
+  const Section = ({ title, hint, tools, tone }: { title: string; hint: string; tools: AgentTool[]; tone: 'checkin' | 'plain' }) => (
+    <section className="agent-section">
+      <div className="agent-section-head">
+        <div className={`agent-section-dot ${tone}`} />
+        <h3>{title}</h3>
+        <span className="agent-section-count">{hint}</span>
+      </div>
+      {tools.length === 0 ? (
+        <div className="agent-empty">当前筛选下暂无工具</div>
+      ) : (
+        <div className="agent-grid">{tools.map(t => <ToolCard key={t.id} t={t} />)}</div>
+      )}
+    </section>
+  )
 
   return (
-    <>
-      <div className="section-head"><h2>今日签到 <span className="hint">{all.length ? `${doneCount}/${all.length} 已完成` : '仅官方签到平台'}</span></h2>
-        <button className="btn sm" onClick={onManageProviders}><Settings size={13} /> 管理签到平台</button>
+    <div className="agent-tools">
+      <div className="agent-hero">
+        <div>
+          <h1>AI Agent 工具（签到）</h1>
+          <p>国内外主流 AI Agent 一览 · 官方签到一目了然</p>
+        </div>
+        <div className="agent-hero-stats">
+          <div><b>{AGENT_TOOLS.length}</b><span>收录工具</span></div>
+          <div><b>{CHECKIN_TOOLS.length}</b><span>可签到</span></div>
+          <div><b>{doneCount}</b><span>今日已签</span></div>
+        </div>
       </div>
+
       <div className="notice-box">
         <Info size={15} />
         <div>
-          这里<b>只展示官方确有「每日签到领积分」机制</b>的平台（如 WorkBuddy「Buddy 加油站」、豆包电脑版签到），无需添加账户即可提醒。免费层、新用户试用、每日免费额度等不属于签到，已收录在「福利中心」。本工具仅提醒并跳转官方页，签到由你本人完成。
+          <b>可签到</b>仅指官方确有「每日签到 / 登录领积分」机制；免费额度、试用、新用户赠金归为<b>无签到</b>。图标为各平台官方 logo（本地存储，离线可用），下载与签到均跳转官方站点，由你本人登录完成。本工具不模拟登录、不自动领取。活动规则以各平台实时页面为准。
         </div>
       </div>
-      {all.length > 0 && <SelectionBar
-        selectedCount={selected.size} totalOnPage={pageAll.length}
-        allSelected={pageAll.length > 0 && pageAll.every(p => selected.has(p.id))}
-        onToggleAll={() => {
-          const next = new Set(selected)
-          const allOn = pageAll.every(p => next.has(p.id))
-          if (allOn) pageAll.forEach(p => next.delete(p.id)); else pageAll.forEach(p => next.add(p.id))
-          setSelected(next)
-        }}
-        onClear={() => setSelected(new Set())}
-        actions={<button className="btn sm primary" onClick={() => {
-          selected.forEach(pid => { if (!checkins.some(c => c.providerId === pid && c.date === today && c.done)) onToggle(pid) })
-          notify(`已标记 ${selected.size} 项为完成`)
-          setSelected(new Set())
-        }}><Check size={13} /> 批量标记完成</button>}
-      />}
-      <div className="panel">
-        {all.length === 0 ? (
-          <div style={{ padding: 44, textAlign: 'center' }}>
-            <div className="stat-icon" style={{ background: 'var(--primary-soft)', color: 'var(--primary)', margin: '0 auto 14px' }}><CalendarCheck2 size={24} /></div>
-            <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 8 }}>当前没有可签到的平台</div>
-            <div style={{ fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.7, maxWidth: 420, margin: '0 auto' }}>
-              当前没有启用的签到平台。点击「管理签到平台」勾选官方确有每日签到的平台（如 WorkBuddy、豆包）即可在此提醒。免费额度请到「福利中心」查看。
-            </div>
-            <button className="btn primary sm" style={{ marginTop: 16 }} onClick={onManageProviders}>管理签到平台</button>
-          </div>
-        ) : pageAll.map((p) => {
-          const done = checkins.some(c => c.providerId === p.id && c.date === today && c.done)
-          return (
-            <div className={`checkin-row selectable ${selected.has(p.id) ? 'selected' : ''}`} key={p.id}>
-              <input type="checkbox" checked={selected.has(p.id)} onChange={e => {
-                const next = new Set(selected)
-                if (e.target.checked) next.add(p.id); else next.delete(p.id)
-                setSelected(next)
-              }} />
-              <ProviderLogo provider={p} size={34} />
-              <div className="checkin-info">
-                <div className="checkin-name">{p.name}</div>
-                <div className="checkin-note">{p.note ?? '官方每日签到领积分'}</div>
-              </div>
-              <span className={`tag ${done ? 'green' : 'amber'}`}>
-                {done ? <><Check size={11} /> 今日已完成</> : '待签到'}
-              </span>
-              {p.checkinUrl && <OutLink url={p.checkinUrl} label="前往签到" className="btn sm" notify={notify}
-                title={`打开 ${p.name} 官方签到页，由你本人完成签到`} />}
-              <button className="btn sm ghost" onClick={() => onToggle(p.id)} title={done ? '标记为未完成' : '标记今日已完成'}>
-                {done ? '撤销' : '标记完成'}
-              </button>
-            </div>
-          )
-        })}
+
+      <div className="agent-toolbar">
+        <div className="agent-filter">
+          {(['all', 'cn', 'global'] as const).map(r => (
+            <button key={r} className={`agent-filter-btn ${region === r ? 'active' : ''}`} onClick={() => setRegion(r)}>
+              {r === 'all' ? '全部' : r === 'cn' ? '🇨🇳 国内' : '🌍 海外'}
+            </button>
+          ))}
+        </div>
+        <div className="agent-search">
+          <Search size={15} />
+          <input value={keyword} onChange={e => setKeyword(e.target.value)} placeholder="搜索工具名称 / 英文名" />
+          {keyword && <button className="icon-btn" onClick={() => setKeyword('')} title="清除"><X size={13} /></button>}
+        </div>
       </div>
-      <Pager total={all.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
-    </>
+
+      {(region === 'all' || region === 'cn') && cnTools.length > 0 && <>
+        <div className="agent-region-title"><span>🇨🇳</span> 国内 AI Agent 工具 <em>{cnTools.length}</em></div>
+        <Section title="可签到领积分" hint={`${cnTools.filter(t => t.canCheckin).length} 款`} tone="checkin"
+          tools={cnTools.filter(t => t.canCheckin)} />
+        <Section title="暂无签到机制" hint={`${cnTools.filter(t => !t.canCheckin).length} 款 · 仅免费额度`} tone="plain"
+          tools={cnTools.filter(t => !t.canCheckin)} />
+      </>}
+
+      {(region === 'all' || region === 'global') && globalTools.length > 0 && <>
+        <div className="agent-region-title"><span>🌍</span> 海外 AI Agent 工具 <em>{globalTools.length}</em></div>
+        <Section title="可签到领积分" hint={`${globalTools.filter(t => t.canCheckin).length} 款`} tone="checkin"
+          tools={globalTools.filter(t => t.canCheckin)} />
+        <Section title="暂无签到机制" hint={`${globalTools.filter(t => !t.canCheckin).length} 款 · 仅免费额度`} tone="plain"
+          tools={globalTools.filter(t => !t.canCheckin)} />
+      </>}
+
+      {matched.length === 0 && (
+        <div className="agent-empty" style={{ padding: 56 }}>没有匹配的工具，换个关键词试试</div>
+      )}
+    </div>
   )
 }
 
@@ -1332,58 +1369,6 @@ function UsageView({ state, notify, onBudget, onAddUsage, onImport, onPriceChang
         <span style={{ fontSize: 11.5, color: 'var(--text-3)', alignSelf: 'center' }}>列：date, account, inputTokens, outputTokens, cost, model</span>
       </div>
     </>
-  )
-}
-
-/** 管理签到平台：从已添加账户中勾选确有官方每日签到的平台 */
-function CheckinManageModal({ state, onClose, onSave }: {
-  state: AppState; onClose: () => void; onSave: (ids: string[]) => void
-}) {
-  // 官方签到平台常驻候选（无需先添加账户），其余只列已添加账户的平台
-  const owned = Array.from(new Set([
-    ...PROVIDERS.filter(p => p.dailyCheckin).map(p => p.id),
-    ...state.accounts.map(a => a.providerId),
-  ])).map(id => PROVIDER_MAP[id]).filter(Boolean)
-  const initial = owned.filter(p => isCheckinProvider(p, state.settings)).map(p => p.id)
-  const [selected, setSelected] = useState<Set<string>>(new Set(initial))
-  return (
-    <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="modal" style={{ maxWidth: 520 }}>
-        <div className="modal-head"><h3>管理签到平台</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
-        <div className="modal-body">
-          <div className="notice-box" style={{ marginBottom: 14 }}>
-            <Info size={15} />
-            <div>只勾选<b>官方确实提供「每日签到领积分」</b>的平台。WorkBuddy、豆包等官方签到平台常驻显示（无需添加账户）；免费层、试用额度、每日免费额度都不算签到，请勿勾选。</div>
-          </div>
-          {owned.length === 0 ? (
-            <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>请先在「额度看板」添加账户</div>
-          ) : (
-            <div className="panel" style={{ maxHeight: 320, overflow: 'auto' }}>
-              {owned.map(p => (
-                <label key={p.id} className="checkin-manage-row" title={p.note ?? ''}>
-                  <input type="checkbox" checked={isCheckinProvider(p, state.settings) || selected.has(p.id)} disabled={p.dailyCheckin} onChange={e => {
-                    const next = new Set(selected)
-                    if (e.target.checked) next.add(p.id); else next.delete(p.id)
-                    setSelected(next)
-                  }} />
-                  <ProviderLogo provider={p} size={26} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>
-                      {p.name}{p.dailyCheckin && <span className="tag green" style={{ fontSize: 10, marginLeft: 6 }}>官方签到</span>}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{p.note ?? CATEGORY_LABEL[p.category]}</div>
-                  </div>
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="modal-foot">
-          <button className="btn" onClick={onClose}>取消</button>
-          <button className="btn primary" onClick={() => onSave(Array.from(selected))}>保存（{selected.size} 个）</button>
-        </div>
-      </div>
-    </div>
   )
 }
 
@@ -2133,7 +2118,7 @@ function BenefitsView({ state, notify, onMark }: {
       </div>
       <Pager total={items.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
       <p style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 16 }}>
-        "标记已处理"仅用于个人记录，不会向任何平台发送数据。每日签到类福利请在「签到提醒」页记录。
+        "标记已处理"仅用于个人记录，不会向任何平台发送数据。每日签到类工具请在「AI Agent工具（签到）」页记录。
       </p>
     </>
   )
@@ -2277,7 +2262,7 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
       <div className="split">
         <div>
           <SettingsSection title="通用" desc="提醒与预警行为">
-            <SettingsRow title="签到提醒" desc="在看板与侧栏显示今日待签到数量">
+            <SettingsRow title="签到提醒" desc="在看板与侧栏显示 AI Agent 工具今日待签到数量">
               <Toggle checked={s.checkinReminder} onChange={v => onChange({ checkinReminder: v })} />
             </SettingsRow>
             <SettingsRow title="耗尽预警阈值" desc={`额度预计剩余不超过 ${s.alertDays} 天时计入"即将耗尽"`}>
