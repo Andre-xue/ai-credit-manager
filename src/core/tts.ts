@@ -53,21 +53,35 @@ export interface PresetVoice {
   /** 实际映射到的系统音色 voiceURI；未找到时回退第一个中文音色 */
   uri?: string
   fallbackName: string
+  /** 实际会使用的系统音色名（让界面如实显示，未匹配时标注回退） */
+  matchedName?: string
+  /** 是否命中了系统里真实存在的匹配音色 */
+  matched: boolean
 }
 
 /** 豆包风格拟真音色预设：映射到系统已安装的中文语音包（不是云端克隆音色） */
 export function listPresetVoices(): PresetVoice[] {
   const voices = listSystemVoices()
-  const pick = (test: (v: VoiceOption) => boolean) => voices.find(test)?.uri
+  const pick = (test: (v: VoiceOption) => boolean) => voices.find(test)
+  const build = (id: string, name: string, desc: string, test: (v: VoiceOption) => boolean, fallbackName: string): PresetVoice => {
+    const hit = pick(test)
+    return {
+      id, name, desc,
+      uri: hit?.uri ?? voices[0]?.uri,
+      fallbackName,
+      matchedName: hit?.name ?? voices[0]?.name ?? '',
+      matched: !!hit,
+    }
+  }
   return [
-    { id: 'warm', name: '暖阳', desc: '温柔自然 · 女声', uri: pick(v => /female|女|xiaoxiao|huihui|tingting/i.test(v.name) && v.group === 'mandarin'), fallbackName: '普通话女声' },
-    { id: 'clear', name: '清朗', desc: '清晰干练 · 男声', uri: pick(v => /male|男|yunxi|kangkang|liang/i.test(v.name) && v.group === 'mandarin'), fallbackName: '普通话男声' },
-    { id: 'smart', name: '知性', desc: '播音腔 · 女声', uri: pick(v => /female|女|news|播报/i.test(v.name) && v.group === 'mandarin'), fallbackName: '普通话女声' },
-    { id: 'lively', name: '活力', desc: '年轻明快 · 女声', uri: pick(v => /female|女|xiaoyi|xiaoxiao/i.test(v.name)), fallbackName: '普通话女声' },
-    { id: 'steady', name: '沉稳', desc: '成熟稳重 · 男声', uri: pick(v => /male|男|yunyang|kangkang/i.test(v.name)), fallbackName: '普通话男声' },
-    { id: 'bright', name: '元气', desc: '明亮活泼 · 女声', uri: pick(v => /female|女|xiaoyi|xiaoxiao|bright/i.test(v.name)), fallbackName: '普通话女声' },
-    { id: 'gentle', name: '温柔', desc: '轻声细语 · 女声', uri: pick(v => /female|女|soft|gentle|柔/i.test(v.name)), fallbackName: '普通话女声' },
-    { id: 'magnetic', name: '磁性', desc: '低频质感 · 男声', uri: pick(v => /male|男|deep|磁/i.test(v.name)), fallbackName: '普通话男声' },
+    build('warm', '暖阳', '温柔自然 · 女声', v => /female|女|xiaoxiao|huihui|tingting|meijia|tingting/i.test(v.name) && v.group === 'mandarin', '普通话女声'),
+    build('clear', '清朗', '清晰干练 · 男声', v => /male|男|yunxi|kangkang|liang|yunjian/i.test(v.name) && v.group === 'mandarin', '普通话男声'),
+    build('smart', '知性', '播音腔 · 女声', v => /female|女|news|播报|meijia/i.test(v.name) && v.group === 'mandarin', '普通话女声'),
+    build('lively', '活力', '年轻明快 · 女声', v => /female|女|xiaoyi|xiaoxiao|tingting/i.test(v.name), '普通话女声'),
+    build('steady', '沉稳', '成熟稳重 · 男声', v => /male|男|yunyang|kangkang|yunxi/i.test(v.name), '普通话男声'),
+    build('bright', '元气', '明亮活泼 · 女声', v => /female|女|xiaoyi|xiaoxiao|bright|tingting/i.test(v.name), '普通话女声'),
+    build('gentle', '温柔', '轻声细语 · 女声', v => /female|女|soft|gentle|柔|tingting/i.test(v.name), '普通话女声'),
+    build('magnetic', '磁性', '低频质感 · 男声', v => /male|男|deep|磁|yunyang/i.test(v.name), '普通话男声'),
   ]
 }
 
@@ -138,6 +152,11 @@ import { getClonedVoiceId } from './voiceClone'
 
 let activeCallback: ((state: 'start' | 'end' | 'error') => void) | null = null
 
+/** 当前 AI 朗读会走哪种音色：clone=克隆音色，system=系统音色。界面标识与 speakAsync 行为共用此判断。 */
+export function getSpeakSource(): 'clone' | 'system' {
+  return getClonedVoiceId() && getTtsConfig().endpoint ? 'clone' : 'system'
+}
+
 export function isSpeaking(): boolean {
   if (isNativeApp()) return nativeSpeaking
   return typeof window !== 'undefined' && 'speechSynthesis' in window && window.speechSynthesis.speaking
@@ -175,9 +194,9 @@ export function speak(text: string, voiceURI: string | null, onState?: (s: 'star
  * 克隆声音只有代理端实现 /synthesize 后才会真正生效，系统音色不应伪装成克隆效果。
  */
 export async function speakAsync(text: string, voiceURI: string | null, onState?: (s: 'start' | 'end' | 'error') => void): Promise<boolean> {
-  const cloned = getClonedVoiceId()
-  const cfg = getTtsConfig()
-  if (cloned && cfg.endpoint) {
+  if (getSpeakSource() === 'clone') {
+    const cloned = getClonedVoiceId()!
+    const cfg = getTtsConfig()
     try {
       stopSpeak()
       const url = `${cfg.endpoint.replace(/\/$/, '')}/synthesize?provider=${encodeURIComponent(cfg.provider)}&voice=${encodeURIComponent(cloned)}&text=${encodeURIComponent(text)}`

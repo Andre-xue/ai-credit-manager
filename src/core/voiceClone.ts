@@ -1,12 +1,14 @@
-// 声音克隆样本管理：录音或音频文件 → 本地 IndexedDB 单槽位保存 → 通过第三方 TTS 代理 /clone 克隆。
+// 声音克隆样本管理：录音或音频文件 → 本地 IndexedDB 保存 → 通过第三方 TTS 代理 /clone 克隆。
 // 当前内置免费云模型不提供声音克隆能力，因此克隆必须依赖用户在「第三方语音服务配置」里提供的代理端点。
+// 支持保存多个克隆音色，可命名、切换、删除；每个音色在本机独立记录其云端 voiceId。
 
 import { getTtsConfig } from './voice-download'
 
 const DB_NAME = 'acm-voice-sample-db'
 const STORE = 'samples'
 const SLOT_KEY = 'active-sample'
-const CLONED_VOICE_KEY = 'acm.tts.clonedVoice'
+const CLONED_VOICE_KEY = 'acm.tts.clonedVoice'       // 当前激活的 voiceId（兼容旧版）
+const CLONED_VOICES_KEY = 'acm.tts.clonedVoices.v2'  // 多音色列表
 
 export interface VoiceSample {
   name: string
@@ -16,10 +18,81 @@ export interface VoiceSample {
   createdAt: number
 }
 
+/** 一个已保存的克隆音色 */
+export interface ClonedVoice {
+  id: string
+  /** 用户可见的名字 */
+  name: string
+  /** 云端真实的音色 ID（用于 /synthesize） */
+  voiceId: string
+  /** 克隆来源样本名 */
+  sampleName?: string
+  createdAt: number
+}
+
 export interface CloneResult {
   ok: boolean
   voiceId?: string
   error?: string
+}
+
+/** 读取已保存的克隆音色列表（含旧版单音色迁移） */
+export function listClonedVoices(): ClonedVoice[] {
+  try {
+    const raw = localStorage.getItem(CLONED_VOICES_KEY)
+    if (raw) {
+      const arr = JSON.parse(raw)
+      if (Array.isArray(arr)) return arr.filter(v => v && v.voiceId)
+    }
+  } catch { /* 忽略 */ }
+  // 兼容旧版：只有一个 voiceId 时迁移进来
+  const legacy = getClonedVoiceId()
+  if (legacy) {
+    const item: ClonedVoice = { id: 'cv-legacy', name: '克隆音色', voiceId: legacy, createdAt: Date.now() }
+    try { localStorage.setItem(CLONED_VOICES_KEY, JSON.stringify([item])) } catch { /* 忽略 */ }
+    return [item]
+  }
+  return []
+}
+
+function saveClonedVoices(list: ClonedVoice[]): void {
+  try { localStorage.setItem(CLONED_VOICES_KEY, JSON.stringify(list)) } catch { /* 忽略 */ }
+}
+
+/** 新增一个克隆音色并设为当前使用 */
+export function addClonedVoice(name: string, voiceId: string, sampleName?: string): ClonedVoice {
+  const list = listClonedVoices()
+  const item: ClonedVoice = {
+    id: `cv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    name: name.trim() || '克隆音色', voiceId, sampleName, createdAt: Date.now(),
+  }
+  saveClonedVoices([item, ...list])
+  setActiveClonedVoice(item.voiceId)
+  return item
+}
+
+/** 删除一个克隆音色（不删除云端音色，仅移除本机记录） */
+export function removeClonedVoice(id: string): void {
+  const list = listClonedVoices().filter(v => v.id !== id)
+  saveClonedVoices(list)
+  const active = getClonedVoiceId()
+  const activeItem = list.find(v => v.voiceId === active)
+  if (!activeItem) {
+    // 当前激活的被删了，切到第一个或清空
+    if (list.length) setActiveClonedVoice(list[0].voiceId)
+    else clearClonedVoice()
+  }
+}
+
+/** 切换当前使用的克隆音色 */
+export function setActiveClonedVoice(voiceId: string): void {
+  try { localStorage.setItem(CLONED_VOICE_KEY, voiceId) } catch { /* 忽略 */ }
+}
+
+/** 重命名一个克隆音色 */
+export function renameClonedVoice(id: string, name: string): void {
+  const list = listClonedVoices().map(v => v.id === id ? { ...v, name: name.trim() || v.name } : v)
+  saveClonedVoices(list)
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -80,7 +153,7 @@ export async function deleteVoiceSample(): Promise<void> {
       tx.onerror = () => reject(tx.error)
     })
   } catch { /* 忽略 */ }
-  try { localStorage.removeItem(CLONED_VOICE_KEY) } catch { /* 忽略 */ }
+  // 只删除临时样本，不动已保存的克隆音色列表
 }
 
 /** 录音：需要浏览器/原生 WebView 提供 getUserMedia；桌面 Tauri 可用音频文件导入兜底 */
@@ -126,7 +199,7 @@ export async function cloneVoiceFromSample(sample: VoiceSample, name?: string): 
     let voiceId = ''
     try { voiceId = JSON.parse(text)?.voiceId ?? '' } catch { voiceId = text.trim() }
     if (!voiceId) return { ok: false, error: '服务未返回 voiceId' }
-    localStorage.setItem(CLONED_VOICE_KEY, voiceId)
+    addClonedVoice(name || sample.name.replace(/\.[^.]+$/, ''), voiceId, sample.name)
     return { ok: true, voiceId }
   } catch (e) {
     const msg = (e as Error)?.message ?? String(e)

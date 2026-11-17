@@ -1254,3 +1254,25 @@ html, body { touch-action: manipulation; }
 .voice-provider-head em { font-style: normal; font-size: 10px; color: var(--green); border: 1px solid var(--green); border-radius: 20px; padding: 1px 6px; }
 .voice-provider-free { font-size: 11.5px; color: var(--text-2); }
 .voice-provider small { font-size: 10.5px; color: var(--text-3); }
+
+/* 语音配置：当前朗读源标识 + 克隆音色列表 */
+.voice-source-badge {
+  display: flex; align-items: center; gap: 6px; margin: 6px 0 14px; padding: 10px 12px;
+  border-radius: 10px; font-size: 12px; line-height: 1.6;
+}
+.voice-source-badge.clone { background: var(--primary-soft); border: 1px solid var(--primary); color: var(--primary); }
+.voice-source-badge.system { background: var(--panel-2); border: 1px solid var(--border); color: var(--text-2); }
+.cloned-voice-list { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+.cloned-voice-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel);
+}
+.cloned-voice-item.active { border-color: var(--primary); background: var(--primary-soft); }
+.cloned-voice-main {
+  display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0;
+  border: none; background: transparent; color: var(--text); cursor: pointer; text-align: left;
+}
+.cloned-voice-main span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cloned-voice-main b { font-size: 13px; font-weight: 600; }
+.cloned-voice-main small { font-size: 11px; color: var(--text-3); }
+.cloned-voice-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }

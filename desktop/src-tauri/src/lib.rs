@@ -183,8 +183,13 @@ async fn open_url(url: String) -> Result<(), String> {
 #[tauri::command]
 async fn open_mic_settings() -> Result<(), String> {
     #[cfg(target_os = "macos")]
-    let result = std::process::Command::new("open")
-        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone").status();
+    {
+        // 新系统 scheme 先跳麦克风页；再显式唤起系统设置 App 保证窗口到前台
+        let _ = std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone").status();
+        let _ = std::process::Command::new("open").args(["-a", "System Settings"]).status();
+        return Ok(())
+    }
     #[cfg(target_os = "windows")]
     let result = std::process::Command::new("rundll32")
         .args(["url.dll,FileProtocolHandler", "ms-settings:privacy-microphone"]).status();
@@ -192,6 +197,7 @@ async fn open_mic_settings() -> Result<(), String> {
     let result = std::process::Command::new("xdg-open").arg("gnome-control-center privacy").status();
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     let result = Ok(std::process::ExitStatus::default());
+    #[cfg(not(target_os = "macos"))]
     result.map(|_| ()).map_err(|e| format!("打开系统设置失败：{}", e))
 }
 

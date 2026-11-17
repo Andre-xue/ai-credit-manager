@@ -2,14 +2,15 @@
 // 第三方 TTS 配置、音色文件下载管理（单槽位互斥）、声音样本录音/克隆。
 
 import { useEffect, useState } from 'react'
-import { Volume2, Play, Square, Download, Trash2, Loader2, Info, MapPin, Globe2, Mic } from 'lucide-react'
+import { Volume2, Play, Square, Download, Trash2, Loader2, Info, MapPin, Globe2, Mic, Check, Pencil } from 'lucide-react'
 import {
   listSystemVoices, onVoicesReady, getSavedVoice, saveVoice, listPresetVoices,
-  getRate, saveRate, previewVoice, stopSpeak, type VoiceOption,
+  getRate, saveRate, previewVoice, stopSpeak, getSpeakSource, speakAsync, type VoiceOption,
 } from '../core/tts'
 import {
   loadVoiceSample, saveVoiceSample, deleteVoiceSample, recordVoiceSample,
-  cloneVoiceFromSample, getClonedVoiceId, type VoiceSample,
+  cloneVoiceFromSample, getClonedVoiceId, listClonedVoices, removeClonedVoice,
+  setActiveClonedVoice, renameClonedVoice, type VoiceSample, type ClonedVoice,
 } from '../core/voiceClone'
 import { isDesktopApp, isNativeApp, openExternal } from '../core/openExternal'
 import { VOICE_PROVIDERS } from '../core/voiceProviders'
@@ -45,6 +46,9 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
   const [previewing, setPreviewing] = useState(false)
   const [sample, setSample] = useState<VoiceSample | null>(null)
   const [clonedId, setClonedId] = useState<string | null>(() => getClonedVoiceId())
+  const [clonedVoices, setClonedVoices] = useState<ClonedVoice[]>(() => listClonedVoices())
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [renameText, setRenameText] = useState('')
   const [cloning, setCloning] = useState(false)
   const [nativeTtsStatus, setNativeTtsStatus] = useState('')
   const native = isNativeApp()
@@ -74,10 +78,17 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
 
   const tryPreview = () => {
     if (previewing) { stopSpeak(); setPreviewing(false); return }
-    const ok = previewVoice(selected)
-    if (!ok) { notify('当前环境不支持语音朗读'); return }
     setPreviewing(true)
-    window.setTimeout(() => setPreviewing(false), 4000)
+    const done = () => setPreviewing(false)
+    if (getSpeakSource() === 'clone') {
+      const text = '你好，这是当前克隆音色的试听。'
+      void speakAsync(text, selected, (s) => { if (s === 'end' || s === 'error') done() })
+        .then(ok => { if (!ok) { notify('克隆音色试听失败'); done() } })
+    } else {
+      const ok = previewVoice(selected)
+      if (!ok) { notify('当前环境不支持语音朗读'); done(); return }
+      window.setTimeout(done, 4000)
+    }
   }
 
   const changeRate = (r: number) => { setRate(r); saveRate(r) }
@@ -178,14 +189,36 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
       const r = await cloneVoiceFromSample(sample)
       if (!r.ok) { notify(r.error ?? '克隆失败'); return }
       setClonedId(r.voiceId ?? null)
+      setClonedVoices(listClonedVoices())
       notify('克隆成功，AI 回复将优先使用该音色')
     } finally { setCloning(false) }
   }
 
   const removeSample = async () => {
     await deleteVoiceSample()
-    setSample(null); setClonedId(null)
-    notify('已删除声音样本与克隆音色')
+    setSample(null)
+    notify('已删除临时声音样本（已保存的克隆音色不受影响）')
+  }
+
+  const pickCloned = (v: ClonedVoice) => {
+    setActiveClonedVoice(v.voiceId)
+    setClonedId(v.voiceId)
+    notify(`已切换克隆音色：${v.name}`)
+  }
+
+  const dropCloned = (v: ClonedVoice) => {
+    removeClonedVoice(v.id)
+    setClonedVoices(listClonedVoices())
+    setClonedId(getClonedVoiceId())
+    notify(`已删除「${v.name}」；云端音色需到百炼控制台单独清理`)
+  }
+
+  const commitRename = (v: ClonedVoice) => {
+    if (!renameText.trim()) { setRenaming(null); return }
+    renameClonedVoice(v.id, renameText)
+    setClonedVoices(listClonedVoices())
+    setRenaming(null)
+    notify('已重命名')
   }
 
   const groups: VoiceOption['group'][] = ['mandarin', 'tw', 'cantonese', 'other']
@@ -232,14 +265,23 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
             <button key={p.id} className={`voice-dialect ${active ? 'busy' : ''}`} onClick={() => {
               const uri = p.uri ?? listSystemVoices()[0]?.uri ?? null
               if (!uri) { notify('系统暂无可用中文音色'); return }
-              saveVoice(uri); setSelected(uri); notify(`已选择「${p.name}」${p.fallbackName}`)
+              saveVoice(uri); setSelected(uri)
+              notify(p.matched ? `已选择「${p.name}」→ 系统音色 ${p.matchedName}`
+                : `「${p.name}」未找到匹配音色，已用系统音色 ${p.matchedName} 代替（可安装更多语音包获得差异）`)
             }}>
               <span className="voice-dialect-flag">{p.name.slice(0, 1)}</span>
-              <span className="voice-dialect-info"><b>{p.name}</b><small>{p.desc}</small></span>
+              <span className="voice-dialect-info"><b>{p.name}</b><small>{p.matched ? p.desc : `≈ ${p.matchedName || p.fallbackName}（未精确匹配）`}</small></span>
               {active ? <span className="voice-ready">使用中</span> : null}
             </button>
           )
         })}
+      </div>
+
+      {/* 当前朗读源标识：让用户一眼看出 AI 回复用哪种声音 */}
+      <div className={`voice-source-badge ${getSpeakSource() === 'clone' ? 'clone' : 'system'}`}>
+        {getSpeakSource() === 'clone'
+          ? <>🎙 当前 AI 回复使用「克隆音色」——下方试听也是克隆音；聊天/通话的朗读均走此音色</>
+          : <>🔊 当前 AI 回复使用「系统音色」——试听的是上面选中的系统音色；配置云端代理并克隆后可切换为克隆音色</>}
       </div>
 
       <div className="voice-row">
@@ -247,7 +289,7 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
         <input type="range" min="0.5" max="2" step="0.1" value={rate} onChange={e => changeRate(Number(e.target.value))} className="voice-range" />
       </div>
       <button className="voice-preview" onClick={tryPreview}>
-        {previewing ? <Square size={14} /> : <Play size={14} />} {previewing ? '停止试听' : '试听当前音色'}
+        {previewing ? <Square size={14} /> : <Play size={14} />} {previewing ? '停止试听' : getSpeakSource() === 'clone' ? '试听克隆音色' : '试听当前音色'}
       </button>
 
       {/* 方言音色 */}
@@ -294,9 +336,43 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
         {sample && <button className="btn sm ghost" onClick={() => void removeSample()}><Trash2 size={14} /> 删除样本</button>}
       </div>
       {sample && <div className="voice-hint">样本：{sample.name}（{(sample.size / 1024).toFixed(0)} KB）</div>}
-      {clonedId && <div className="voice-hint">已克隆音色：{clonedId} · AI 回复优先走第三方代理合成</div>}
       {!ttsConfigured && <div className="voice-hint"><Info size={13} /> 声音克隆需要第三方语音服务代理（下方配置）；内置免费模型不提供克隆能力。</div>}
       {desktop && <div className="voice-hint"><Info size={13} /> 桌面 WebView 不提供浏览器录音接口，系统授权开关也无法补上；请用「选择音频文件」导入样本（可先用 QuickTime 等工具录音）。</div>}
+
+      {/* 已保存的克隆音色列表：可命名、切换、删除 */}
+      {clonedVoices.length > 0 && <>
+        <div className="voice-section-label dialect" style={{ marginTop: 14 }}>已保存的克隆音色（{clonedVoices.length}）· 点击切换</div>
+        <div className="cloned-voice-list">
+          {clonedVoices.map(v => {
+            const active = v.voiceId === clonedId
+            return (
+              <div key={v.id} className={`cloned-voice-item ${active ? 'active' : ''}`}>
+                <button className="cloned-voice-main" onClick={() => pickCloned(v)} title="点击切换为当前音色">
+                  {active ? <Check size={14} /> : <Volume2 size={14} />}
+                  <span>
+                    <b>{v.name}</b>
+                    <small>{active ? '使用中' : `voiceId: ${v.voiceId.slice(-10)}`}</small>
+                  </span>
+                </button>
+                <div className="cloned-voice-actions">
+                  {renaming === v.id ? (
+                    <>
+                      <input className="input" style={{ width: 110 }} value={renameText} autoFocus
+                        onChange={e => setRenameText(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') commitRename(v); if (e.key === 'Escape') setRenaming(null) }} />
+                      <button className="icon-btn" onClick={() => commitRename(v)}><Check size={14} /></button>
+                    </>
+                  ) : (
+                    <button className="icon-btn" title="重命名" onClick={() => { setRenaming(v.id); setRenameText(v.name) }}><Pencil size={14} /></button>
+                  )}
+                  <button className="icon-btn" title="删除此记录" onClick={() => dropCloned(v)}><Trash2 size={14} /></button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div className="voice-hint">克隆音色保存在本机；删除记录只移除本机引用，云端音色请到百炼控制台清理以释放配额。</div>
+      </>}
 
       {/* 免费优先语音服务目录 */}
       <div className="voice-section-label"><Globe2 size={14} /> 声音服务（免费优先 · 点卡片查看官方文档）</div>
