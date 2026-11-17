@@ -10,7 +10,7 @@ import { speak, stopSpeak, getSavedVoice, unlockTts } from '../core/tts'
 import { isNativeApp, isDesktopApp } from '../core/openExternal'
 
 type Engine = 'capacitor' | 'web' | 'none'
-type MicPerm = 'unknown' | 'granted' | 'denied' | 'unsupported'
+type MicPerm = 'unknown' | 'granted' | 'denied' | 'unsupported' | 'system'
 
 interface RecognitionLike {
   lang: string
@@ -96,6 +96,12 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock }
       }
     }
     const md = navigator.mediaDevices as MediaDevices | undefined
+    if (!md?.getUserMedia) {
+      // Tauri WKWebView 不暴露 getUserMedia，但 Web Speech API 仍在。
+      // 此时不能阻断：由 SpeechRecognition.start() 触发系统自己的麦克风授权弹窗。
+      setMicPerm('system')
+      return true
+    }
     if (md?.getUserMedia) {
       try {
         const stream = await md.getUserMedia({ audio: true })
@@ -358,9 +364,10 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock }
             <div className="call-perm-text">
               {micPerm === 'denied' ? '麦克风权限被拒绝，点击授权后再说话'
                 : micPerm === 'unsupported' ? '当前环境无法申请麦克风权限，可用文字通话'
-                  : '首次使用需要授权麦克风'}
+                  : micPerm === 'system' ? '点击麦克风后由系统语音服务请求授权'
+                    : '首次使用需要授权麦克风'}
             </div>
-            {micPerm !== 'unsupported' && (
+            {micPerm !== 'system' && micPerm !== 'unsupported' && (
               <button className="btn sm primary" onClick={() => void ensurePermission()}>
                 <ShieldCheck size={14} /> 授权麦克风
               </button>

@@ -3,7 +3,7 @@
 
 import type { AppState, Account, CheckinRecord, QuotaSnapshot, UsageEvent } from './types'
 import { decryptSecret, getVaultSyncMaterial, type VaultSyncMaterial } from './crypto'
-import { isNativeApp } from './openExternal'
+import { isNativeApp, isDesktopApp } from './openExternal'
 import { pushPayload } from './sync'
 import { todayISO, uid } from './store'
 
@@ -55,15 +55,15 @@ export async function buildKeyBackup(
   format: KeyBackupFormat,
   pwd?: string,
 ): Promise<KeyBackupFile> {
-  const targets = state.accounts.filter(a => accountIds.includes(a.id) && a.encryptedKey)
-  if (targets.length === 0) throw new Error('没有可备份的密钥账户')
+  const targets = state.accounts.filter(a => accountIds.includes(a.id))
+  if (targets.length === 0) throw new Error('没有可备份的账户')
   if (format === 'plain' && !pwd) throw new Error('明文备份需要验证主密码')
 
   const accounts: KeyBackupItem[] = []
   for (const a of targets) {
     let apiKey: string | undefined
-    if (format === 'plain') {
-      try { apiKey = await decryptSecret(a.encryptedKey!, pwd!) }
+    if (format === 'plain' && a.encryptedKey) {
+      try { apiKey = await decryptSecret(a.encryptedKey, pwd!) }
       catch { throw new Error(`「${a.label}」解密失败，请确认主密码正确`) }
     }
     accounts.push({
@@ -107,11 +107,28 @@ function browserDownload(text: string, filename: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-/** 备份到本机文件夹：桌面/Web 走浏览器下载；原生 App 写入 Documents 目录。 */
-export async function backupToLocalFile(backup: KeyBackupFile): Promise<BackupResult> {
+/** 桌面端弹出系统文件夹选择器，返回用户选定路径（取消返回 null） */
+export async function chooseBackupFolder(): Promise<string | null> {
+  if (!isDesktopApp()) return null
+  const w = window as unknown as { __TAURI_INTERNALS__?: { invoke?: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> } }
+  try {
+    const dir = await w.__TAURI_INTERNALS__?.invoke?.('choose_save_dir', {})
+    return typeof dir === 'string' && dir ? dir : null
+  } catch { return null }
+}
+
+/** 备份到本机文件夹：桌面可指定目录，原生 App 写入 Documents，Web 走浏览器下载。 */
+export async function backupToLocalFile(backup: KeyBackupFile, dir?: string | null): Promise<BackupResult> {
   const text = serializeKeyBackup(backup)
   const filename = defaultFileName(backup)
   try {
+    if (isDesktopApp() && dir) {
+      const w = window as unknown as { __TAURI_INTERNALS__?: { invoke?: (cmd: string, args: Record<string, unknown>) => Promise<string> } }
+      const invoke = w.__TAURI_INTERNALS__?.invoke
+      if (!invoke) throw new Error('桌面接口不可用')
+      const path = await invoke('write_file_to_dir', { dir, filename, content: text })
+      return { ok: true, location: path }
+    }
     if (isNativeApp()) {
       const { Filesystem, Directory } = await import('@capacitor/filesystem')
       await Filesystem.writeFile({
