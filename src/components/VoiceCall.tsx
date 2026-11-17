@@ -7,7 +7,7 @@ import {
   Phone, PhoneOff, Mic, MicOff, Volume2, Loader2, Keyboard, Send, ShieldCheck,
 } from 'lucide-react'
 import { speakAsync, stopSpeak, getSavedVoice, unlockTts } from '../core/tts'
-import { isNativeApp, isDesktopApp } from '../core/openExternal'
+import { isNativeApp, isDesktopApp, openMicSettings } from '../core/openExternal'
 
 type Engine = 'capacitor' | 'web' | 'none'
 type MicPerm = 'unknown' | 'granted' | 'denied' | 'unsupported' | 'system'
@@ -58,8 +58,8 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock, 
   const [engine, setEngine] = useState<Engine>('none')
   const [micPerm, setMicPerm] = useState<MicPerm>('unknown')
   const [fallbackText, setFallbackText] = useState('')
-  // 桌面端 WebView 若无语音识别，默认直接进入文字输入（可用系统听写键说话）
-  const [fallbackOpen, setFallbackOpen] = useState(() => isDesktopApp())
+  // 默认尝试语音；只有识别引擎确实不可用时才在 init 里展开文字输入
+  const [fallbackOpen, setFallbackOpen] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const recRef = useRef<RecognitionLike | null>(null)
@@ -272,7 +272,9 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock, 
           if (e?.error === 'no-speech' || e?.error === 'aborted') { setStatus('idle'); return }
           const code = e?.error ?? 'unknown'
           const hint = code === 'not-allowed' || code === 'service-not-allowed'
-            ? '麦克风/语音识别权限被拒绝，请点击盾牌按钮授权，或改用文字输入'
+            ? (isDesktopApp()
+              ? '麦克风权限被拒绝：请在「系统设置 → 隐私与安全性 → 麦克风」中允许本应用，或点下方按钮打开设置'
+              : '语音识别权限被拒绝，请在系统设置中允许，或改用文字输入')
             : code === 'network'
               ? '语音识别需要联网，当前网络不可用，请改用文字输入'
               : '语音识别在当前环境不可用，请改用文字输入'
@@ -364,16 +366,25 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock, 
         {micPerm !== 'granted' && (
           <div className="call-perm">
             <div className="call-perm-text">
-              {micPerm === 'denied' ? '麦克风权限被拒绝，点击授权后再说话'
+              {micPerm === 'denied' ? (isDesktopApp()
+                ? '麦克风权限被拒绝：请到「系统设置 → 隐私与安全性 → 麦克风」勾选本应用'
+                : '麦克风权限被拒绝，点击授权后再说话')
                 : micPerm === 'unsupported' ? '当前环境无法申请麦克风权限，可用文字通话'
                   : micPerm === 'system' ? '点击麦克风后由系统语音服务请求授权'
                     : '首次使用需要授权麦克风'}
             </div>
-            {micPerm !== 'system' && micPerm !== 'unsupported' && (
-              <button className="btn sm primary" onClick={() => void ensurePermission()}>
-                <ShieldCheck size={14} /> 授权麦克风
-              </button>
-            )}
+            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              {micPerm === 'denied' && isDesktopApp() && (
+                <button className="btn sm" onClick={() => void openMicSettings().then(ok => { if (!ok) notify('无法打开系统设置，请手动前往隐私设置') })}>
+                  <ShieldCheck size={14} /> 打开设置
+                </button>
+              )}
+              {micPerm !== 'system' && micPerm !== 'unsupported' && micPerm !== 'denied' && (
+                <button className="btn sm primary" onClick={() => void ensurePermission()}>
+                  <ShieldCheck size={14} /> 授权麦克风
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -418,7 +429,7 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock, 
           </div>
         )}
         <div className="call-hint">{isDesktopApp()
-          ? '桌面端也可按系统听写键（双击 Fn）说话；说完会自动朗读回复并继续聆听'
+          ? '点麦克风直接说话；若系统麦克风未授权，请先到隐私设置开启。也可随时用下方键盘图标切换文字输入'
           : voiceAvailable ? '说完停顿一下即自动回复，并继续聆听 · 也可切换文字输入' : '输入文字后 AI 会语音朗读回复'}</div>
       </div>
     </div>
