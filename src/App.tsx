@@ -30,7 +30,7 @@ import {
 } from './core/io'
 import { openExternal, openTool, isDesktopApp, isAppInstalled, biometricAvailable, biometricAuth } from './core/openExternal'
 import { cloud, type CloudUser } from './core/cloud'
-import { pullPayload, pushPayload, applyPayload, getLastSyncAt } from './core/sync'
+import { pullPayload, pushPayload, applyPayload, getLastSyncAt, getClientId, checkRemoteVersion, setBaseline, getRemoteVersion, type PullResult } from './core/sync'
 import { CloudLoginModal } from './components/CloudLogin'
 
 /** CSV 导入预览：解析后的数据按类型区分 */
@@ -100,22 +100,33 @@ function App() {
   const cloudUserRef = useRef<CloudUser | null>(null)
   const pushTimer = useRef<number | null>(null)
   const syncReady = useRef(false)
+  const syncingRef = useRef(false)      // 同步互斥：拉取/推送不可同时进行
+  const skipPushOnce = useRef(false)
+  const lastPullAt = useRef(0)          // 最近一次拉取时间，避免拉取触发的 state 变化又被推回去
+  const myClientId = useRef(getClientId())
+
+  /** 把云端数据应用到本地（仅在确认是其他端更新时调用） */
+  const applyRemote = useCallback((payload: NonNullable<PullResult['payload']>, version: string | null) => {
+    lastPullAt.current = Date.now()
+    skipPushOnce.current = true
+    setBaseline(version)
+    setState(s => applyPayload(payload, s))
+    setLastSyncAt(getLastSyncAt())
+  }, [])
 
   // 统一的登录后初始化：拉取云端；云端为空则把本地作为初始快照上传；完成后才允许自动推送。
-  // 三种入口共用：验证码登录、OAuth 回调、会话恢复。
   const bootstrapCloud = useCallback(async (user: CloudUser, announce = true) => {
     cloudUserRef.current = user
     setCloudUser(user)
     syncReady.current = false
+    syncingRef.current = true
     setSyncing(true)
     try {
       const result = await pullPayload()
       if (!result.ok) {
         if (announce) notify(`云端连接失败：${result.error}`)
       } else if (result.payload) {
-        skipPushOnce.current = true
-        setState(s => applyPayload(result.payload!, s))
-        setLastSyncAt(getLastSyncAt())
+        applyRemote(result.payload, result.remoteVersion)
         if (announce) notify('已从云端同步最新数据')
       } else {
         const pushed = await pushPayload(stateRef.current)
@@ -126,11 +137,10 @@ function App() {
       }
     } finally {
       syncReady.current = true
+      syncingRef.current = false
       setSyncing(false)
     }
-  }, [notify])
-
-  const skipPushOnce = useRef(false)
+  }, [notify, applyRemote])
 
   // OAuth 回调必须在守卫之前处理；普通访问恢复会话后同样走 bootstrap。
   useEffect(() => {
@@ -155,33 +165,72 @@ function App() {
     })()
   }, [notify, bootstrapCloud])
 
-  // 数据变更时防抖推送（仅初始化完成后）
+  // 数据变更时防抖推送（仅初始化完成后，且没有其他同步在进行）
   useEffect(() => {
     if (!cloudUser || !syncReady.current) return
     if (skipPushOnce.current) { skipPushOnce.current = false; return }
     if (pushTimer.current !== null) window.clearTimeout(pushTimer.current)
     pushTimer.current = window.setTimeout(async () => {
-      const r = await pushPayload(stateRef.current)
-      if (r.ok) setLastSyncAt(getLastSyncAt())
-    }, 1500)
+      if (syncingRef.current) return
+      if (Date.now() - lastPullAt.current < 1500) return  // 刚拉取过，丢弃这次由拉取引发的回环推送
+      syncingRef.current = true
+      try {
+        const r = await pushPayload(stateRef.current)
+        if (r.ok) setLastSyncAt(getLastSyncAt())
+      } finally { syncingRef.current = false }
+    }, 1200)
     return () => { if (pushTimer.current !== null) window.clearTimeout(pushTimer.current) }
   }, [state, cloudUser])
+
+  /** 检查云端是否有其他端的更新：版本变化且不是自己推的，则拉取并刷新 */
+  const checkRemote = useCallback(async (silent = true) => {
+    if (!cloudUserRef.current || !syncReady.current || syncingRef.current) return
+    const known = getRemoteVersion()
+    const check = await checkRemoteVersion()
+    if (!check.ok || !check.version) return
+    if (known && check.version === known) return   // 无变化
+    syncingRef.current = true
+    try {
+      const result = await pullPayload()
+      if (!result.ok) return
+      // 是自己刚推的（比如推送延迟导致基线未更新），只更新基线不覆盖本地
+      if (result.payload?.clientId === myClientId.current) {
+        setBaseline(result.remoteVersion)
+        return
+      }
+      if (result.payload) {
+        applyRemote(result.payload, result.remoteVersion)
+        if (!silent) notify('已从云端同步其他端的最新数据')
+      } else setBaseline(result.remoteVersion)
+    } finally { syncingRef.current = false }
+  }, [applyRemote, notify])
+
+  // 定时轮询（5s）+ 切回前台立即检查：实现无需手动点击、无需重开 App 的自动刷新
+  useEffect(() => {
+    if (!cloudUser) return
+    const timer = window.setInterval(() => { void checkRemote() }, 5000)
+    const onVisible = () => { if (document.visibilityState === 'visible') void checkRemote() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [cloudUser, checkRemote])
 
   // 手动「立即同步」：重新拉取云端覆盖本地
   const pullCloud = useCallback(async () => {
     if (!cloudUserRef.current) return
     setSyncing(true)
+    syncingRef.current = true
     try {
       const result = await pullPayload()
       if (!result.ok) notify(`拉取失败：${result.error}`)
       else if (result.payload) {
-        skipPushOnce.current = true
-        setState(s => applyPayload(result.payload!, s))
-        setLastSyncAt(getLastSyncAt())
+        applyRemote(result.payload, result.remoteVersion)
         notify('已同步云端最新数据')
       } else notify('云端暂无数据')
-    } finally { setSyncing(false) }
-  }, [notify])
+    } finally { syncingRef.current = false; setSyncing(false) }
+  }, [notify, applyRemote])
 
   const handleCloudLogin = useCallback(async (user: CloudUser) => {
     setLoginOpen(false)
@@ -2468,7 +2517,7 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
               </div> : <button className="btn sm primary" onClick={onLogin}>登录 / 注册</button>}
             </SettingsRow>
             <div style={{ padding: '2px 16px 12px', fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.7 }}>
-              支持微信扫码、手机号验证码、邮箱验证码、WorkBuddy 账号登录。同步内容包含账户、额度、签到、用量与加密密钥（密文），各端需用同一主密码解锁。
+              支持微信扫码、手机号验证码、邮箱验证码、WorkBuddy 账号登录。登录后任意端的增删改会在约 5 秒内自动同步到其他端，无需手动操作；切回应用时也会立即检查更新。同步内容包含账户、额度、签到、用量与加密密钥（密文），各端需用同一主密码解锁。
             </div>
           </SettingsSection>
 
