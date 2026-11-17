@@ -29,6 +29,9 @@ import {
   parseAccountsCsv, parseQuotasCsv, isServiceList, parseServiceList, noteCategory,
 } from './core/io'
 import { openExternal, openTool, isDesktopApp, isAppInstalled, biometricAvailable, biometricAuth } from './core/openExternal'
+import { cloud, type CloudUser } from './core/cloud'
+import { pullPayload, pushPayload, applyPayload, getLastSyncAt } from './core/sync'
+import { CloudLoginModal } from './components/CloudLogin'
 
 /** CSV 导入预览：解析后的数据按类型区分 */
 type CsvImportPreview =
@@ -88,6 +91,111 @@ function App() {
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
     toastTimer.current = window.setTimeout(() => setToast(null), 2600)
   }, [])
+
+  // ============ 云同步 ============
+  const [cloudUser, setCloudUser] = useState<CloudUser | null>(null)
+  const [loginOpen, setLoginOpen] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(() => getLastSyncAt())
+  const cloudUserRef = useRef<CloudUser | null>(null)
+  const pushTimer = useRef<number | null>(null)
+  const syncReady = useRef(false)
+
+  // 统一的登录后初始化：拉取云端；云端为空则把本地作为初始快照上传；完成后才允许自动推送。
+  // 三种入口共用：验证码登录、OAuth 回调、会话恢复。
+  const bootstrapCloud = useCallback(async (user: CloudUser, announce = true) => {
+    cloudUserRef.current = user
+    setCloudUser(user)
+    syncReady.current = false
+    setSyncing(true)
+    try {
+      const result = await pullPayload()
+      if (!result.ok) {
+        if (announce) notify(`云端连接失败：${result.error}`)
+      } else if (result.payload) {
+        skipPushOnce.current = true
+        setState(s => applyPayload(result.payload!, s))
+        setLastSyncAt(getLastSyncAt())
+        if (announce) notify('已从云端同步最新数据')
+      } else {
+        const pushed = await pushPayload(stateRef.current)
+        if (pushed.ok) {
+          setLastSyncAt(getLastSyncAt())
+          if (announce) notify('本地数据已上传云端，其他端登录即可同步')
+        }
+      }
+    } finally {
+      syncReady.current = true
+      setSyncing(false)
+    }
+  }, [notify])
+
+  const skipPushOnce = useRef(false)
+
+  // OAuth 回调必须在守卫之前处理；普通访问恢复会话后同样走 bootstrap。
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const url = new URL(location.href)
+        const provider = url.searchParams.get('provider')
+        if (url.searchParams.has('code') && (provider === 'wechat' || provider === 'workbuddy')) {
+          const handle = provider === 'wechat' ? cloud.auth.handleWechatWebCallback : cloud.auth.handleWorkBuddyCallback
+          const { data: session, error } = await handle.call(cloud.auth)
+          if (error) { notify(`登录失败：${error.message}`); return }
+          if (session) {
+            for (const k of ['code', 'state', 'provider']) url.searchParams.delete(k)
+            history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+            await bootstrapCloud(session.user)
+            return
+          }
+        }
+        const { data: session } = await cloud.auth.getSession()
+        if (session) await bootstrapCloud(session.user, false)
+      } catch { /* 未登录或网络异常时保持本地模式 */ }
+    })()
+  }, [notify, bootstrapCloud])
+
+  // 数据变更时防抖推送（仅初始化完成后）
+  useEffect(() => {
+    if (!cloudUser || !syncReady.current) return
+    if (skipPushOnce.current) { skipPushOnce.current = false; return }
+    if (pushTimer.current !== null) window.clearTimeout(pushTimer.current)
+    pushTimer.current = window.setTimeout(async () => {
+      const r = await pushPayload(stateRef.current)
+      if (r.ok) setLastSyncAt(getLastSyncAt())
+    }, 1500)
+    return () => { if (pushTimer.current !== null) window.clearTimeout(pushTimer.current) }
+  }, [state, cloudUser])
+
+  // 手动「立即同步」：重新拉取云端覆盖本地
+  const pullCloud = useCallback(async () => {
+    if (!cloudUserRef.current) return
+    setSyncing(true)
+    try {
+      const result = await pullPayload()
+      if (!result.ok) notify(`拉取失败：${result.error}`)
+      else if (result.payload) {
+        skipPushOnce.current = true
+        setState(s => applyPayload(result.payload!, s))
+        setLastSyncAt(getLastSyncAt())
+        notify('已同步云端最新数据')
+      } else notify('云端暂无数据')
+    } finally { setSyncing(false) }
+  }, [notify])
+
+  const handleCloudLogin = useCallback(async (user: CloudUser) => {
+    setLoginOpen(false)
+    notify(`已登录：${user.name ?? '用户'}`)
+    await bootstrapCloud(user)
+  }, [notify, bootstrapCloud])
+
+  const handleCloudLogout = useCallback(async () => {
+    await cloud.auth.signOut()
+    setCloudUser(null)
+    cloudUserRef.current = null
+    syncReady.current = false
+    notify('已退出云同步，数据仍保存在本机')
+  }, [notify])
 
   /** 读取文件：自动识别 JSON 备份 / 账户 CSV / 额度 CSV / 用量 CSV */
   const handleImportFile = useCallback((file?: File) => {
@@ -371,9 +479,29 @@ function App() {
               setState(s => clearAllData(s))
               notify('业务数据已清空，设置与保险箱保留')
             }}
+            cloudUser={cloudUser}
+            syncing={syncing}
+            lastSyncAt={lastSyncAt}
+            onLogin={() => setLoginOpen(true)}
+            onLogout={handleCloudLogout}
+            onSync={() => void pullCloud()}
           />}
         </div>
       </main>
+
+      {/* 移动端底部导航：侧边栏在小屏隐藏，用此栏切换模块 */}
+      <nav className="bottom-nav">
+        {tabs.map(t => {
+          const Icon = t.id === 'checkin' ? CalendarCheck2 : t.icon
+          const short = t.id === 'checkin' ? '签到' : t.id === 'keys' ? '密钥' : t.id === 'usage' ? '用量' : t.id === 'settings' ? '设置' : t.id === 'benefits' ? '福利' : '看板'
+          return (
+            <button key={t.id} className={`bottom-nav-item ${tab === t.id ? 'active' : ''}`} onClick={() => { setTab(t.id); window.scrollTo(0, 0) }}>
+              <Icon size={20} />
+              <span>{short}</span>
+            </button>
+          )
+        })}
+      </nav>
 
       {addOpen && <PlatformPickerModal
         onClose={() => setAddOpen(false)}
@@ -470,6 +598,7 @@ function App() {
         }}
       />}
       {exportOpen && <ExportModal state={state} onClose={() => setExportOpen(false)} onExport={(fmt, dir) => { void doExport(fmt, dir); setExportOpen(false) }} />}
+      {loginOpen && <CloudLoginModal onClose={() => setLoginOpen(false)} onSuccess={handleCloudLogin} />}
       {toast && <div className="toast"><Check size={15} /> {toast}</div>}
     </div>
   )
@@ -2277,7 +2406,7 @@ function SettingsRow({ title, desc, children }: { title: string; desc?: string; 
 }
 
 /** 设置中心 */
-function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEnableNotify, onClear, onChangePassword, onResetVault, onBioAvailable, sessionPwd }: {
+function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEnableNotify, onClear, onChangePassword, onResetVault, onBioAvailable, sessionPwd, cloudUser, syncing, lastSyncAt, onLogin, onLogout, onSync }: {
   state: AppState
   onChange: (patch: Partial<AppState['settings']>) => void
   notify: (m: string) => void
@@ -2289,6 +2418,12 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
   onResetVault: () => void
   onBioAvailable: boolean
   sessionPwd: string
+  cloudUser: CloudUser | null
+  syncing: boolean
+  lastSyncAt: string | null
+  onLogin: () => void
+  onLogout: () => void
+  onSync: () => void
 }) {
   const s = state.settings
   const [confirmClear, setConfirmClear] = useState(false)
@@ -2320,6 +2455,23 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
     <>
       <div className="split">
         <div>
+          <SettingsSection title="云同步" desc="同一账号跨 Web / 桌面 / 安卓 / 小程序自动同步">
+            <SettingsRow
+              title={cloudUser ? `已登录${cloudUser.name ? `：${cloudUser.name}` : ''}` : '未登录（仅本机存储）'}
+              desc={cloudUser
+                ? `数据自动同步 · 最近同步 ${lastSyncAt ? new Date(lastSyncAt).toLocaleString('zh-CN') : '待同步'}`
+                : '登录后在任意客户端的数据都会自动同步；不登录也可正常本地使用'}
+            >
+              {cloudUser ? <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn sm" onClick={onSync} disabled={syncing}>{syncing ? '同步中…' : '立即同步'}</button>
+                <button className="btn sm ghost" onClick={onLogout}>退出</button>
+              </div> : <button className="btn sm primary" onClick={onLogin}>登录 / 注册</button>}
+            </SettingsRow>
+            <div style={{ padding: '2px 16px 12px', fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.7 }}>
+              支持微信扫码、手机号验证码、邮箱验证码、WorkBuddy 账号登录。同步内容包含账户、额度、签到、用量与加密密钥（密文），各端需用同一主密码解锁。
+            </div>
+          </SettingsSection>
+
           <SettingsSection title="通用" desc="提醒与预警行为">
             <SettingsRow title="签到提醒" desc="在看板与侧栏显示 AI Agent 工具今日待签到数量">
               <Toggle checked={s.checkinReminder} onChange={v => onChange({ checkinReminder: v })} />

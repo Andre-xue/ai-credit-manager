@@ -163,3 +163,25 @@ export function resetVault(): void {
   localStorage.removeItem(VERIFY_KEY)
   clearBiometricPassword()
 }
+
+/** 保险箱原始材料，用于跨设备同步（盐+校验位+指纹模式混淆密码）。主密码永不入库，仅用户持有。 */
+export interface VaultSyncMaterial {
+  salt: string | null
+  verify: string | null
+  biometricPwd: string | null
+}
+
+export function getVaultSyncMaterial(): VaultSyncMaterial {
+  return {
+    salt: localStorage.getItem(SALT_KEY),
+    verify: localStorage.getItem(VERIFY_KEY),
+    biometricPwd: localStorage.getItem(BIOMETRIC_PWD_KEY),
+  }
+}
+
+/** 应用来自云端的保险箱材料。仅当本地无保险箱时应用，避免覆盖本机正在使用的密钥体系。 */
+export function applyVaultSyncMaterial(m: VaultSyncMaterial): void {
+  if (m.salt) localStorage.setItem(SALT_KEY, m.salt)
+  if (m.verify) localStorage.setItem(VERIFY_KEY, m.verify)
+  if (m.biometricPwd) localStorage.setItem(BIOMETRIC_PWD_KEY, m.biometricPwd)
+}
