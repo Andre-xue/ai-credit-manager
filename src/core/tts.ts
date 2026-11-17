@@ -62,6 +62,9 @@ export function listPresetVoices(): PresetVoice[] {
     { id: 'smart', name: '知性', desc: '播音腔 · 女声', uri: pick(v => /female|女|news|播报/i.test(v.name) && v.group === 'mandarin'), fallbackName: '普通话女声' },
     { id: 'lively', name: '活力', desc: '年轻明快 · 女声', uri: pick(v => /female|女|xiaoyi|xiaoxiao/i.test(v.name)), fallbackName: '普通话女声' },
     { id: 'steady', name: '沉稳', desc: '成熟稳重 · 男声', uri: pick(v => /male|男|yunyang|kangkang/i.test(v.name)), fallbackName: '普通话男声' },
+    { id: 'bright', name: '元气', desc: '明亮活泼 · 女声', uri: pick(v => /female|女|xiaoyi|xiaoxiao|bright/i.test(v.name)), fallbackName: '普通话女声' },
+    { id: 'gentle', name: '温柔', desc: '轻声细语 · 女声', uri: pick(v => /female|女|soft|gentle|柔/i.test(v.name)), fallbackName: '普通话女声' },
+    { id: 'magnetic', name: '磁性', desc: '低频质感 · 男声', uri: pick(v => /male|男|deep|磁/i.test(v.name)), fallbackName: '普通话男声' },
   ]
 }
 

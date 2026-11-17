@@ -12,7 +12,8 @@ import {
   cloneVoiceFromSample, getClonedVoiceId, type VoiceSample,
 } from '../core/voiceClone'
 import { requirePermission } from '../core/permissions'
-import { isDesktopApp } from '../core/openExternal'
+import { isDesktopApp, openExternal } from '../core/openExternal'
+import { VOICE_PROVIDERS } from '../core/voiceProviders'
 import {
   hasTtsConfig, getTtsConfig, saveTtsConfig, clearTtsConfig,
   getActiveVoiceFile, hasDownloadedVoice, deleteActiveVoiceFile, switchVoice,
@@ -264,6 +265,21 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
       {!ttsConfigured && <div className="voice-hint"><Info size={13} /> 声音克隆需要第三方语音服务代理（下方配置）；内置免费模型不提供克隆能力。</div>}
       {desktop && <div className="voice-hint"><Info size={13} /> 桌面 WebView 不提供浏览器录音接口，系统授权开关也无法补上；请用「选择音频文件」导入样本（可先用 QuickTime 等工具录音）。</div>}
 
+      {/* 免费优先语音服务目录 */}
+      <div className="voice-section-label"><Globe2 size={14} /> 声音服务（免费优先 · 点卡片查看官方文档）</div>
+      <div className="voice-provider-grid">
+        {VOICE_PROVIDERS.map(p => (
+          <button key={p.id} className={`voice-provider ${p.recommended ? 'recommended' : ''}`} onClick={() => {
+            if (p.id === 'system') { setConfig({ provider: '', endpoint: '' }); saveTtsConfig({ provider: '', endpoint: '' }); setTtsConfigured(false); notify('已切换为系统音色（完全免费）'); return }
+            setConfig({ ...config, provider: p.id as TtsProviderConfig['provider'] }); setConfigOpen(true); void openExternal(p.docs)
+          }}>
+            <span className="voice-provider-head"><b>{p.name}</b>{p.recommended && <em>免费优先</em>}</span>
+            <span className="voice-provider-free">{p.free}</span>
+            <small>{p.paid}</small>
+          </button>
+        ))}
+      </div>
+
       {/* 第三方 TTS 配置 */}
       <button className="voice-config-toggle" onClick={() => setConfigOpen(v => !v)}>
         <Globe2 size={14} /> 第三方语音服务配置 {ttsConfigured ? '（已配置）' : '（未配置）'} <span>{configOpen ? '收起' : '展开'}</span>
@@ -271,9 +287,10 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
       {configOpen && <div className="voice-config">
         <label className="form-label">服务商
           <select className="select" value={config.provider} onChange={e => setConfig({ ...config, provider: e.target.value as TtsProviderConfig['provider'] })}>
-            <option value="">未选择</option>
-            <option value="tencent">腾讯云 TTS</option>
-            <option value="aliyun">阿里云 TTS</option>
+            <option value="">未选择（使用系统音色）</option>
+            {VOICE_PROVIDERS.filter(p => p.id !== 'system').map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
           </select>
         </label>
         <label className="form-label">服务端点（代理地址，密钥在服务端持有）

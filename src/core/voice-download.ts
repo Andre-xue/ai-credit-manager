@@ -18,7 +18,7 @@ export interface VoiceFile {
 
 export interface TtsProviderConfig {
   /** 第三方 TTS 服务类型；未配置为空 */
-  provider: '' | 'tencent' | 'aliyun'
+  provider: '' | 'local' | 'aliyun' | 'volcengine' | 'tencent' | 'minimax' | 'elevenlabs'
   /** 服务端点（由部署方配置，避免前端持有长期密钥） */
   endpoint: string
   secretId?: string
