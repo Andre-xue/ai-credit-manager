@@ -1343,7 +1343,6 @@ function AccountFormModal({ provider, sessionPwd, onClose, onSave }: {
 }) {
   const [note, setNote] = useState('')
   const [secret, setSecret] = useState('')
-  const [pwd, setPwd] = useState(sessionPwd || getBiometricPassword() || '')
   const [balance, setBalance] = useState<string | null>(null)
   const [fetching, setFetching] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -1369,14 +1368,16 @@ function AccountFormModal({ provider, sessionPwd, onClose, onSave }: {
     finally { setFetching(false) }
   }
 
-  const reset = () => { setNote(''); setSecret(''); setPwd(sessionPwd || getBiometricPassword() || ''); setBalance(null); setErr('') }
+  const reset = () => { setNote(''); setSecret(''); setBalance(null); setErr('') }
 
   const submit = async () => {
     setErr('')
     if (!note.trim()) { setErr('请填写备注'); return }
     if (!secret.trim()) { setErr('请填写 API Key'); return }
     if (!isVaultInitialized()) { setErr('请先在「设置 → 安全」创建保险箱'); return }
-    if (!pwd) { setErr('请输入主密码用于加密密钥'); return }
+    // 加密密码自动取自已解锁会话或指纹存储
+    const pwd = sessionPwd || getBiometricPassword() || ''
+    if (!pwd) { setErr('请先在「API Key 管理」页解锁保险箱后再添加'); return }
     setBusy(true)
     try {
       const ok = await verifyVault(pwd)
@@ -1446,11 +1447,6 @@ function AccountFormModal({ provider, sessionPwd, onClose, onSave }: {
             <div className={`balance-box ${balance ? 'has' : ''}`}>
               <Wallet size={13} /> {balance ?? '余额未获取（可选，可稍后手动录入）'}
             </div>
-          </div>
-          {/* 主密码（加密必需） */}
-          <div className="form-row">
-            <label className="form-label">主密码 <span className="req">*</span> <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>· 用于加密密钥</span></label>
-            <input className="input" type="text" placeholder="输入主密码" value={pwd} onChange={e => setPwd(e.target.value)} />
           </div>
           {err && <div className="form-error">{err}</div>}
         </div>
