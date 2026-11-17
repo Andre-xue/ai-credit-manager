@@ -1173,3 +1173,36 @@ html, body { touch-action: manipulation; }
 }
 @keyframes undo-shrink { from { width: 100%; } to { width: 0; } }
 @media (max-width: 680px) { .undo-bar { min-width: 0; width: calc(100% - 32px); bottom: 96px; } }
+
+/* 删除前强制备份弹窗 */
+.backup-warn {
+  display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; padding: 10px 12px;
+  background: var(--amber-soft); color: #92400e; border: 1px solid #fde68a;
+  border-radius: var(--radius-sm); font-size: 12px; line-height: 1.6;
+}
+.backup-warn svg { flex-shrink: 0; margin-top: 1px; }
+.backup-options { display: flex; flex-direction: column; gap: 9px; margin-top: 16px; }
+.backup-option {
+  display: flex; align-items: flex-start; gap: 11px; width: 100%; text-align: left;
+  padding: 12px 13px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--panel); color: var(--text); cursor: pointer; transition: border-color .15s, background .15s;
+}
+.backup-option:hover:not(:disabled) { border-color: var(--primary); }
+.backup-option.active { border-color: var(--primary); background: var(--primary-soft); }
+.backup-option > svg { flex-shrink: 0; margin-top: 2px; color: var(--primary); }
+.backup-option span { display: flex; flex-direction: column; gap: 3px; }
+.backup-option b { font-size: 13px; font-weight: 600; }
+.backup-option small { font-size: 11.5px; line-height: 1.5; color: var(--text-2); }
+.backup-format { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.backup-pwd { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.backup-success {
+  margin-top: 14px; padding: 12px; border: 1px solid var(--green); border-radius: 10px;
+  background: var(--green-soft); font-size: 12px;
+}
+.backup-code {
+  display: inline-block; margin-top: 10px; padding: 5px 10px; border-radius: 7px;
+  background: var(--panel); border: 1px dashed var(--primary); color: var(--primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; font-weight: 700;
+}
+.backup-confirm { display: flex; align-items: center; gap: 7px; margin-top: 11px; color: var(--text); cursor: pointer; }
+.backup-confirm input { accent-color: var(--primary); }

@@ -7,7 +7,7 @@
 import { isDesktopApp, isNativeApp } from './openExternal'
 
 /** 与 tauri.conf.json / package.json 保持一致 */
-export const APP_VERSION = '0.1.51'
+export const APP_VERSION = '0.1.52'
 
 const REPO = 'Andre-xue/ai-credit-manager'
 const RELEASES_API = `https://api.github.com/repos/${REPO}/releases/latest`
@@ -43,6 +43,8 @@ export interface UpdateInfo {
   releaseUrl: string
   notes: string
   publishedAt?: string
+  /** 网络/接口错误说明；有值时界面展示具体原因而不是"检查网络" */
+  error?: string
 }
 
 interface GitHubRelease {
@@ -54,21 +56,30 @@ interface GitHubRelease {
 
 /** 从 GitHub Releases 查询最新版本（Web/Docker/安卓用） */
 export async function checkReleaseUpdate(): Promise<UpdateInfo | null> {
+  const base: UpdateInfo = {
+    current: APP_VERSION, latest: '', hasUpdate: false, releaseUrl: RELEASES_PAGE, notes: '',
+  }
   try {
     const res = await fetch(RELEASES_API, { headers: { Accept: 'application/vnd.github+json' } })
-    if (!res.ok) return null
+    if (!res.ok) return {
+      ...base,
+      error: res.status === 403
+        ? 'GitHub 接口触发访问频率限制，请稍后再试（网络正常也会出现）'
+        : `GitHub 接口返回 ${res.status}`,
+    }
     const rel = await res.json() as GitHubRelease
     const latest = rel.tag_name?.replace(/^v/i, '') ?? ''
-    if (!latest) return null
+    if (!latest) return { ...base, error: 'GitHub 未返回版本号' }
     return {
-      current: APP_VERSION,
+      ...base,
       latest,
       hasUpdate: versionGreater(latest, APP_VERSION),
-      releaseUrl: RELEASES_PAGE,
       notes: rel.body ?? '',
       publishedAt: rel.published_at,
     }
-  } catch { return null }
+  } catch (e) {
+    return { ...base, error: `无法连接 GitHub：${(e as Error)?.message ?? String(e)}` }
+  }
 }
 
 /** 桌面端：用 Tauri updater 检查（返回 null 表示已是最新或不可用） */

@@ -5,15 +5,19 @@
 
 import { cloud } from './cloud'
 import type { AppState } from './types'
+import type { KeyBackupFile } from './keyBackup'
 import { getVaultSyncMaterial, applyVaultSyncMaterial, type VaultSyncMaterial } from './crypto'
 
 const TABLE = 'user_data'
 const LAST_SYNC_KEY = 'acm.sync.lastAt'
 const REMOTE_VERSION_KEY = 'acm.sync.remoteVersion'
+const MAX_CLOUD_BACKUPS = 20
 
 export interface SyncPayload {
   appState: AppState
   vault: VaultSyncMaterial
+  /** 删除 API Key 前的密文备份（自包含，可恢复） */
+  keyBackups?: KeyBackupFile[]
   /** 客户端写入时间戳 */
   clientAt: string
   /** 写入端标识，用于识别是不是自己刚推的，避免回环拉取 */
@@ -85,20 +89,24 @@ export async function pullPayload(): Promise<PullResult> {
 }
 
 /** 把本地数据与保险箱材料推送到云端（每用户一行，存在则更新、不存在则插入） */
-export async function pushPayload(appState: AppState): Promise<PushResult> {
+export async function pushPayload(appState: AppState, newBackups?: KeyBackupFile[]): Promise<PushResult> {
   try {
+    // 先查是否已有行：既决定 insert/update，也保留云端已有的删除前备份
+    const db = dbAny()
+    const { data: existing, error: qerr } = await db.from(TABLE).select('id, payload').maybeSingle()
+    if (qerr) return { ok: false, remoteVersion: null, error: errMsg(qerr) }
+
+    const remotePrev = existing?.payload as SyncPayload | undefined
+    const backups = [...(remotePrev?.keyBackups ?? []), ...(newBackups ?? [])].slice(-MAX_CLOUD_BACKUPS)
     const payload: SyncPayload = {
       appState,
       vault: getVaultSyncMaterial(),
+      keyBackups: backups,
       clientAt: new Date().toISOString(),
       clientId: getClientId(),
     }
-    const db = dbAny()
-    const now = new Date().toISOString()
-    // 先查是否已有行，决定 insert 还是 update（owner_id 由服务端 auth.uid() 填充，不可手写）
-    const { data: existing, error: qerr } = await db.from(TABLE).select('id').maybeSingle()
-    if (qerr) return { ok: false, remoteVersion: null, error: errMsg(qerr) }
-
+    const now = payload.clientAt
+    // owner_id 由服务端 auth.uid() 填充，不可手写
     if (existing?.id) {
       const { data, error } = await db
         .from(TABLE)

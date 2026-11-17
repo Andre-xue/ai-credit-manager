@@ -38,6 +38,10 @@ import { APP_VERSION, currentPlatform } from './core/updater'
 import { NOTE_CATEGORIES, buildNote, categoryFromNote, type NoteCategory } from './core/modelCategories'
 import { pullPayload, pushPayload, applyPayload, getLastSyncAt, getClientId, checkRemoteVersion, setBaseline, getRemoteVersion, type PullResult } from './core/sync'
 import { CloudLoginModal } from './components/CloudLogin'
+import {
+  buildKeyBackup, backupToCloud, backupToLocalFile, backupToNotes,
+  type KeyBackupMode, type KeyBackupFormat, type KeyBackupFile,
+} from './core/keyBackup'
 
 /** CSV 导入预览：解析后的数据按类型区分 */
 type CsvImportPreview =
@@ -525,11 +529,12 @@ function App() {
             onQuotaFetched={(accountId, used, total, unit) => {
               setState(s => upsertQuota(s, { accountId, used, total: total ?? used, unit, source: 'api' }))
             }}
-            onRemoveKey={(accId) => {
-              const acc = state.accounts.find(a => a.id === accId)
-              scheduleUndo(stateRef.current, `已删除「${acc?.label ?? '账户'}」`)
-              setState(s => removeAccount(s, accId))
-              notify(`已删除「${acc?.label ?? '账户'}」及其关联数据（5 秒内可撤回）`)
+            onRemoveKeys={(ids) => {
+              scheduleUndo(stateRef.current, ids.length === 1
+                ? `已删除「${state.accounts.find(a => a.id === ids[0])?.label ?? '账户'}」`
+                : `已删除 ${ids.length} 个账户`)
+              setState(s => ids.reduce((acc, id) => removeAccount(acc, id), s))
+              notify(`已完成备份并删除 ${ids.length} 个账户及关联数据（5 秒内可撤回）`)
             }}
             onUpdateAccount={(id, patch) => setState(s => updateAccount(s, id, patch))}
             onUnlocked={(pwd) => setSessionPwd(pwd)}
@@ -1084,10 +1089,10 @@ function AgentToolsView({ checkins, notify, onToggle }: {
   )
 }
 
-function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onUpdateAccount, onImportFile, onExport, onUnlocked, initialPwd, bioLabel }: {
+function KeysView({ state, notify, onOpenVault, onRemoveKeys, onQuotaFetched, onUpdateAccount, onImportFile, onExport, onUnlocked, initialPwd, bioLabel }: {
   state: AppState; notify: (m: string) => void; onOpenVault: () => void;
   onImportFile: (file?: File) => void; onExport: () => void;
-  onRemoveKey: (id: string) => void;
+  onRemoveKeys: (ids: string[]) => void;
   onQuotaFetched: (accountId: string, used: number, total: number | undefined, unit: CreditUnit) => void;
   onUpdateAccount: (id: string, patch: Partial<AppState['accounts'][number]>) => void;
   onUnlocked: (pwd: string) => void;
@@ -1107,6 +1112,7 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
   const [revealKeyTarget, setRevealKeyTarget] = useState<{ id: string; label: string; plain: string } | null>(null)
   const [refreshing, setRefreshing] = useState<Set<string>>(new Set())
+  const [deleteTargets, setDeleteTargets] = useState<string[] | null>(null)
   const PAGE_SIZE = 3
   const keyAccounts = state.accounts.filter(a => a.encryptedKey)
 
@@ -1307,11 +1313,7 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
                           notify(`查询成功：已用 ${r.used.toLocaleString()} ${r.unit}`)
                         } catch (e: any) { notify(e.message ?? '查询失败') }
                       }}><RefreshCw size={13} /> 查询</button>}
-                      <button className="key-action danger" title="删除账户及全部关联数据" onClick={() => {
-                        onRemoveKey(a.id)
-                        setSelectedKeys(prev => { const n = new Set(prev); n.delete(a.id); return n })
-                        setRevealed(prev => { const n = { ...prev }; delete n[a.id]; return n })
-                      }}><Trash2 size={13} /> 删除</button>
+                      <button className="key-action danger" title="删除前必须先备份" onClick={() => setDeleteTargets([a.id])}><Trash2 size={13} /> 删除</button>
                     </div>
                   </td>
                 </tr>
@@ -1331,11 +1333,7 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
           setSelectedKeys(next)
         }}
         onClear={() => setSelectedKeys(new Set())}
-        actions={<button className="btn sm danger" onClick={() => {
-          selectedKeys.forEach(id => onRemoveKey(id))
-          setRevealed(prev => { const n = { ...prev }; selectedKeys.forEach(id => delete n[id]); return n })
-          setSelectedKeys(new Set())
-        }}><Trash2 size={13} /> 批量删除账户</button>}
+        actions={<button className="btn sm danger" disabled={selectedKeys.size === 0} onClick={() => setDeleteTargets(Array.from(selectedKeys))}><Trash2 size={13} /> 批量删除账户</button>}
       />
       <Pager total={filtered.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
 
@@ -1383,10 +1381,145 @@ function KeysView({ state, notify, onOpenVault, onRemoveKey, onQuotaFetched, onU
         onClose={() => setRevealKeyTarget(null)}
         onCopied={() => notify('API Key 已复制到剪贴板')}
       />}
+
+      {deleteTargets && <DeleteBackupModal
+        state={state}
+        accountIds={deleteTargets}
+        unlockedPwd={vaultPwd}
+        notify={notify}
+        onClose={() => setDeleteTargets(null)}
+        onDone={(ids) => {
+          onRemoveKeys(ids)
+          setSelectedKeys(prev => { const n = new Set(prev); ids.forEach(id => n.delete(id)); return n })
+          setRevealed(prev => { const n = { ...prev }; ids.forEach(id => delete n[id]); return n })
+          setDeleteTargets(null)
+        }}
+      />}
     </>
   )
 }
 
+
+/** 删除前强制备份弹窗：三种备份方式，只有备份成功且确认后才允许删除 */
+function DeleteBackupModal({ state, accountIds, unlockedPwd, notify, onClose, onDone }: {
+  state: AppState
+  accountIds: string[]
+  unlockedPwd?: string
+  notify: (m: string) => void
+  onClose: () => void
+  onDone: (ids: string[]) => void
+}) {
+  const [mode, setMode] = useState<KeyBackupMode>('cloud')
+  const [format, setFormat] = useState<KeyBackupFormat>('cipher')
+  const [pwd, setPwd] = useState(unlockedPwd ?? '')
+  const [busy, setBusy] = useState(false)
+  const [backup, setBackup] = useState<KeyBackupFile | null>(null)
+  const [location, setLocation] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
+  const [codeInput, setCodeInput] = useState('')
+
+  const targets = state.accounts.filter(a => accountIds.includes(a.id))
+  const names = targets.slice(0, 3).map(a => a.label).join('、') + (targets.length > 3 ? ` 等 ${targets.length} 个` : '')
+  const effectiveFormat: KeyBackupFormat = mode === 'notes' ? 'plain' : format
+  const needPwd = effectiveFormat === 'plain' && !unlockedPwd
+
+  const resetBackup = (m: KeyBackupMode, f: KeyBackupFormat) => {
+    setMode(m); setFormat(f); setBackup(null); setLocation(''); setConfirmed(false); setCodeInput('')
+  }
+
+  const doBackup = async () => {
+    setBusy(true)
+    try {
+      if (effectiveFormat === 'plain') {
+        const p = unlockedPwd || pwd
+        if (!p) { notify('请先输入主密码'); return }
+        if (!(await verifyVault(p))) { notify('主密码错误'); return }
+      }
+      const b = await buildKeyBackup(state, accountIds, effectiveFormat, unlockedPwd || pwd)
+      const r = mode === 'cloud'
+        ? await backupToCloud(b, state)
+        : mode === 'local'
+          ? await backupToLocalFile(b)
+          : await backupToNotes(b)
+      if (!r.ok) { notify(r.error ?? '备份失败'); return }
+      setBackup(b)
+      setLocation(r.location ?? '')
+      notify(mode === 'cloud' ? '密文备份已存入云端' : mode === 'local' ? '备份文件已保存' : '备份内容已就绪，请在备忘录中保存')
+    } catch (e) {
+      notify((e as Error)?.message ?? '备份失败')
+    } finally { setBusy(false) }
+  }
+
+  const canDelete = !!backup && confirmed && (mode !== 'notes' || codeInput.trim() === backup.confirmationCode)
+
+  return (
+    <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal" style={{ maxWidth: 560 }}>
+        <div className="modal-head"><h3>删除前必须备份</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
+        <div className="modal-body">
+          <div className="upd-current">即将删除 <b>{names}</b> 及其额度、用量与签到记录</div>
+          <div className="backup-warn"><AlertTriangle size={15} /> 删除后只有 5 秒可撤回。请先完成一份长期备份，否则密钥将无法恢复。</div>
+
+          <div className="backup-options">
+            <button className={`backup-option ${mode === 'cloud' ? 'active' : ''}`} onClick={() => resetBackup('cloud', 'cipher')} disabled={busy}>
+              <Cloud size={17} />
+              <span><b>密文备份到云</b><small>密钥仍为密文，含保险箱材料，可跨设备恢复</small></span>
+            </button>
+            <button className={`backup-option ${mode === 'local' ? 'active' : ''}`} onClick={() => resetBackup('local', 'cipher')} disabled={busy}>
+              <HardDrive size={17} />
+              <span><b>备份到本机文件夹</b><small>桌面下载到「下载」，手机写入 Documents 目录</small></span>
+            </button>
+            <button className={`backup-option ${mode === 'notes' ? 'active' : ''}`} onClick={() => resetBackup('notes', 'plain')} disabled={busy}>
+              <Download size={17} />
+              <span><b>备份到本机备忘录</b><small>仅明文；调起系统分享或复制到剪贴板，由你粘贴保存</small></span>
+            </button>
+          </div>
+
+          {mode === 'local' && (
+            <div className="backup-format">
+              <span className="field-label" style={{ margin: '0 8px 0 0' }}>文件格式</span>
+              <button className={`btn sm ${format === 'cipher' ? 'primary' : ''}`} onClick={() => resetBackup('local', 'cipher')}><Lock size={13} /> 密文</button>
+              <button className={`btn sm ${format === 'plain' ? 'primary' : ''}`} onClick={() => resetBackup('local', 'plain')}><Unlock size={13} /> 明文</button>
+            </div>
+          )}
+
+          {needPwd && (
+            <div className="backup-pwd">
+              <span className="field-label" style={{ margin: 0 }}>主密码（仅用于本次明文备份，不保存）</span>
+              <input className="input" type="password" value={pwd} onChange={e => { setPwd(e.target.value); setBackup(null) }} placeholder="输入保险箱主密码" disabled={busy} />
+            </div>
+          )}
+
+          <button className="btn primary" style={{ width: '100%', marginTop: 16 }} onClick={() => void doBackup()} disabled={busy}>
+            {busy ? <RefreshCw size={15} className="spin" /> : <ShieldCheck size={15} />}
+            {busy ? '正在备份…' : mode === 'cloud' ? '备份到云' : mode === 'local' ? '生成备份文件' : '生成备忘录备份内容'}
+          </button>
+
+          {backup && (
+            <div className="backup-success">
+              <div className="upd-new ok"><Check size={16} /> 备份已完成</div>
+              <div className="hint" style={{ marginTop: 6 }}>{location}</div>
+              {mode === 'notes' && (
+                <>
+                  <div className="backup-code">确认码 {backup.confirmationCode}</div>
+                  <input className="input" style={{ marginTop: 8 }} value={codeInput} onChange={e => setCodeInput(e.target.value)} placeholder="请在备忘录保存后输入确认码" />
+                </>
+              )}
+              <label className="backup-confirm">
+                <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />
+                {mode === 'notes' ? '我已将明文备份粘贴到备忘录并保存' : mode === 'local' ? '我已保存备份文件' : '我确认密文备份已存入云端'}
+              </label>
+            </div>
+          )}
+        </div>
+        <div className="modal-foot">
+          <button className="btn" onClick={onClose}>取消</button>
+          <button className="btn danger" disabled={!canDelete} onClick={() => onDone(accountIds)}><Trash2 size={15} /> 确认删除</button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 /** 明文 Key 查看弹窗：显示完整 Key 并可一键复制 */
 function KeyRevealModal({ label, plain, onClose, onCopied }: {

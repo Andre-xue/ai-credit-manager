@@ -15,6 +15,7 @@ export function UpdateModal({ onClose, notify }: { onClose: () => void; notify: 
   const [latest, setLatest] = useState('')
   const [notes, setNotes] = useState('')
   const [releaseUrl, setReleaseUrl] = useState('')
+  const [errMsg, setErrMsg] = useState('')
   const [downloadedMb, setDownloadedMb] = useState(0)
   const [copied, setCopied] = useState(false)
   const [apkUrl, setApkUrl] = useState<string | null>(null)
@@ -29,7 +30,7 @@ export function UpdateModal({ onClose, notify }: { onClose: () => void; notify: 
         // 没有签名更新清单时退回 GitHub Releases 检查：提示手动下载安装包
         const info = await checkReleaseUpdate()
         if (!alive) return
-        if (!info) { setPhase('error'); return }
+        if (!info || info.error) { setErrMsg(info?.error ?? '检查更新失败'); setPhase('error'); return }
         setLatest(info.latest)
         setNotes(info.notes)
         setReleaseUrl(info.releaseUrl)
@@ -43,7 +44,7 @@ export function UpdateModal({ onClose, notify }: { onClose: () => void; notify: 
       }
       const info = await checkReleaseUpdate()
       if (!alive) return
-      if (!info) { setPhase('error'); return }
+      if (!info || info.error) { setErrMsg(info?.error ?? '检查更新失败'); setPhase('error'); return }
       setLatest(info.latest)
       setNotes(info.notes)
       setReleaseUrl(info.releaseUrl)
@@ -83,7 +84,7 @@ export function UpdateModal({ onClose, notify }: { onClose: () => void; notify: 
 
           {phase === 'latest' && <div className="upd-state ok"><Check size={18} /> 当前已是最新版本</div>}
 
-          {phase === 'error' && <div className="upd-state"><Info size={18} /> 检查更新失败，请检查网络后重试</div>}
+          {phase === 'error' && <div className="upd-state"><Info size={18} /> {errMsg || '检查更新失败，请稍后重试'}</div>}
 
           {(phase === 'available' || phase === 'downloading') && (
             <div className="upd-box">
