@@ -10,7 +10,7 @@ vi.mock('./sync', () => ({
   pushPayload: vi.fn(async () => ({ ok: true, remoteVersion: 'rv' })),
 }))
 
-import { backupToCloud, buildKeyBackup } from './keyBackup'
+import { backupToCloud, buildKeyBackup, parseKeyBackup, serializeKeyBackup } from './keyBackup'
 import { pushPayload } from './sync'
 
 function makeState(): AppState {
@@ -68,5 +68,16 @@ describe('删除前密钥备份', () => {
     const r = await backupToCloud(backup, makeState())
     expect(r.ok).toBe(true)
     expect(pushPayload).toHaveBeenCalledOnce()
+  })
+
+  it('JSON / CSV / TXT 三种容器都能被重新识别并解析', async () => {
+    const backup = await buildKeyBackup(makeState(), ['a1'], 'cipher')
+    for (const f of ['json', 'csv', 'txt'] as const) {
+      const text = serializeKeyBackup(backup, f)
+      const parsed = parseKeyBackup(text)
+      expect(parsed, f).not.toBeNull()
+      expect(parsed!.accounts[0].account.id, f).toBe('a1')
+      expect(parsed!.accounts[0].account.encryptedKey, f).toBe('enc1')
+    }
   })
 })

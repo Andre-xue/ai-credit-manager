@@ -40,8 +40,8 @@ import { pullPayload, pushPayload, applyPayload, getLastSyncAt, getClientId, che
 import { CloudLoginModal } from './components/CloudLogin'
 import { loadDevices, touchCurrentDevice, type DeviceRecord } from './core/accountDevices'
 import {
-  buildKeyBackup, backupToCloud, backupToLocalFile, backupToNotes, chooseBackupFolder,
-  type KeyBackupMode, type KeyBackupFormat, type KeyBackupFile,
+  buildKeyBackup, backupToCloud, backupToLocalFile, backupToNotes, chooseBackupFolder, importKeyBackup, parseKeyBackup,
+  type KeyBackupMode, type KeyBackupFormat, type KeyBackupFile, type BackupFileFormat,
 } from './core/keyBackup'
 import {
   DESKTOP_PERMISSIONS, MOBILE_PERMISSIONS, loadPermissions, setPermissionGranted, requirePermission,
@@ -93,6 +93,7 @@ function App() {
     ids: string[]
     title: string
     confirmLabel: string
+    backupOnly: boolean
     after: () => void
   } | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -135,9 +136,9 @@ function App() {
   }, [])
 
   /** 统一备份门禁：任何删除/备份操作都先走同一个弹窗，备份完成后才执行后续动作 */
-  const requestBackup = useCallback((ids: string[], title: string, confirmLabel: string, after: () => void) => {
+  const requestBackup = useCallback((ids: string[], title: string, confirmLabel: string, after: () => void, backupOnly = false) => {
     if (!ids.length) { notify('没有选中的数据'); return }
-    setBackupGate({ ids, title, confirmLabel, after })
+    setBackupGate({ ids, title, confirmLabel, backupOnly, after })
   }, [notify])
 
   // ===== 删除撤回：保存删除前的完整快照，5 秒内可恢复 =====
@@ -330,6 +331,18 @@ function App() {
     reader.onload = () => {
       const text = String(reader.result ?? '')
       try {
+        // API Key 备份文件（JSON / CSV / TXT，按内容识别）
+        if (parseKeyBackup(text)) {
+          void (async () => {
+            try {
+              const pwd = sessionPwd || getBiometricPassword() || undefined
+              const next = await importKeyBackup(text, stateRef.current, pwd)
+              setState(next)
+              notify('密钥备份已导入并合并（重复 ID 已覆盖）')
+            } catch (e) { notify((e as Error)?.message ?? '备份导入失败') }
+          })()
+          return
+        }
         // 第三方 API 服务清单（数组格式，含明文 Key）
         if (isServiceList(text)) {
           setServicePreview(parseServiceList(text))
@@ -340,7 +353,7 @@ function App() {
           return
         }
         const kind = detectCsvKind(text)
-        if (!kind) { notify('无法识别文件格式：支持 JSON 备份、账户/额度/用量 CSV'); return }
+        if (!kind) { notify('无法识别文件格式：支持密钥备份 JSON/CSV/TXT、账户/额度/用量 CSV'); return }
         const s = stateRef.current
         if (kind === 'accounts') {
           setCsvPreview({ kind, accounts: parseAccountsCsv(text) })
@@ -352,7 +365,7 @@ function App() {
       } catch (err: any) { notify(err.message ?? '文件解析失败') }
     }
     reader.readAsText(file)
-  }, [notify])
+  }, [notify, sessionPwd])
 
   /** 按选择格式导出文件；dir 非空则写入指定目录（桌面端） */
   const doExport = useCallback(async (format: ExportFormat, dir?: string) => {
@@ -771,6 +784,7 @@ function App() {
         unlockedPwd={sessionPwd || getBiometricPassword() || undefined}
         title={backupGate.title}
         confirmLabel={backupGate.confirmLabel}
+        backupOnly={backupGate.backupOnly}
         notify={notify}
         onClose={() => setBackupGate(null)}
         onDone={() => { const after = backupGate.after; setBackupGate(null); after() }}
@@ -1137,7 +1151,7 @@ function KeysView({ state, notify, onOpenVault, onRemoveKeys, onRequestBackup, o
   state: AppState; notify: (m: string) => void; onOpenVault: () => void;
   onImportFile: (file?: File) => void; onExport: () => void;
   onRemoveKeys: (ids: string[]) => void;
-  onRequestBackup: (ids: string[], title: string, confirmLabel: string, after: () => void) => void;
+  onRequestBackup: (ids: string[], title: string, confirmLabel: string, after: () => void, backupOnly?: boolean) => void;
   onQuotaFetched: (accountId: string, used: number, total: number | undefined, unit: CreditUnit) => void;
   onUpdateAccount: (id: string, patch: Partial<AppState['accounts'][number]>) => void;
   onUnlocked: (pwd: string) => void;
@@ -1331,7 +1345,7 @@ function KeysView({ state, notify, onOpenVault, onRemoveKeys, onRequestBackup, o
                         try { await navigator.clipboard.writeText(plain); notify('API Key 已复制（注意保管）') }
                         catch { notify('复制失败，请检查浏览器权限') }
                       }}><Copy size={13} /> 复制</button>
-                      <button className="key-action" title="备份密钥" onClick={() => onRequestBackup([a.id], '备份密钥', '完成备份', () => notify('备份已完成'))}><Download size={13} /> 备份</button>
+                      <button className="key-action" title="备份密钥" onClick={() => onRequestBackup([a.id], '备份密钥', '完成备份', () => notify('备份已完成'), true)}><Download size={13} /> 备份</button>
                       {adapter.supported && <button className="key-action" title="查询官方用量" onClick={async () => {
                         if (!plain) { notify('请先解锁保险箱'); return }
                         try {
@@ -1426,18 +1440,20 @@ function KeysView({ state, notify, onOpenVault, onRemoveKeys, onRequestBackup, o
 
 
 /** 删除前强制备份弹窗：三种备份方式，只有备份成功且确认后才允许删除 */
-function DeleteBackupModal({ state, accountIds, unlockedPwd, title, confirmLabel, notify, onClose, onDone }: {
+function DeleteBackupModal({ state, accountIds, unlockedPwd, title, confirmLabel, backupOnly = false, notify, onClose, onDone }: {
   state: AppState
   accountIds: string[]
   unlockedPwd?: string
   title: string
   confirmLabel: string
+  backupOnly?: boolean
   notify: (m: string) => void
   onClose: () => void
   onDone: () => void
 }) {
   const [mode, setMode] = useState<KeyBackupMode>('cloud')
   const [format, setFormat] = useState<KeyBackupFormat>('cipher')
+  const [fileFormat, setFileFormat] = useState<BackupFileFormat>('json')
   const [pwd, setPwd] = useState(unlockedPwd ?? '')
   const [busy, setBusy] = useState(false)
   const [backup, setBackup] = useState<KeyBackupFile | null>(null)
@@ -1467,8 +1483,8 @@ function DeleteBackupModal({ state, accountIds, unlockedPwd, title, confirmLabel
       const r = mode === 'cloud'
         ? await backupToCloud(b, state)
         : mode === 'local'
-          ? await backupToLocalFile(b, backupDir)
-          : await backupToNotes(b)
+          ? await backupToLocalFile(b, backupDir, fileFormat)
+          : await backupToNotes(b, fileFormat)
       if (!r.ok) { notify(r.error ?? '备份失败'); return }
       setBackup(b)
       setLocation(r.location ?? '')
@@ -1486,7 +1502,7 @@ function DeleteBackupModal({ state, accountIds, unlockedPwd, title, confirmLabel
         <div className="modal-head"><h3>{title}</h3><button className="icon-btn" onClick={onClose}><X size={18} /></button></div>
         <div className="modal-body">
           <div className="upd-current">即将处理 <b>{names}</b></div>
-          <div className="backup-warn"><AlertTriangle size={15} /> 删除后只有 5 秒可撤回。请先完成一份长期备份，否则密钥将无法恢复。</div>
+          {!backupOnly && <div className="backup-warn"><AlertTriangle size={15} /> 删除后只有 5 秒可撤回。请先完成一份长期备份，否则密钥将无法恢复。</div>}
 
           <div className="backup-options">
             <button className={`backup-option ${mode === 'cloud' ? 'active' : ''}`} onClick={() => resetBackup('cloud', 'cipher')} disabled={busy}>
@@ -1509,6 +1525,12 @@ function DeleteBackupModal({ state, accountIds, unlockedPwd, title, confirmLabel
                 <span className="field-label" style={{ margin: '0 8px 0 0' }}>文件格式</span>
                 <button className={`btn sm ${format === 'cipher' ? 'primary' : ''}`} onClick={() => resetBackup('local', 'cipher')}><Lock size={13} /> 密文</button>
                 <button className={`btn sm ${format === 'plain' ? 'primary' : ''}`} onClick={() => resetBackup('local', 'plain')}><Unlock size={13} /> 明文</button>
+              </div>
+              <div className="backup-format" style={{ marginTop: 10 }}>
+                <span className="field-label" style={{ margin: '0 8px 0 0' }}>文件容器</span>
+                {(['json', 'csv', 'txt'] as BackupFileFormat[]).map(f => (
+                  <button key={f} className={`btn sm ${fileFormat === f ? 'primary' : ''}`} onClick={() => { setFileFormat(f); setBackup(null); setConfirmed(false) }}>{f.toUpperCase()}</button>
+                ))}
               </div>
               {isDesktopApp() && (
                 <button className="btn sm" style={{ marginTop: 10 }} onClick={async () => {
@@ -1552,7 +1574,9 @@ function DeleteBackupModal({ state, accountIds, unlockedPwd, title, confirmLabel
         </div>
         <div className="modal-foot">
           <button className="btn" onClick={onClose}>取消</button>
-          <button className="btn danger" disabled={!canDelete} onClick={() => onDone()}><Trash2 size={15} /> {confirmLabel}</button>
+          <button className={`btn ${backupOnly ? 'primary' : 'danger'}`} disabled={!canDelete} onClick={() => onDone()}>
+            {backupOnly ? <Check size={15} /> : <Trash2 size={15} />} {confirmLabel}
+          </button>
         </div>
       </div>
     </div>
