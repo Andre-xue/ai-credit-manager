@@ -1143,3 +1143,10 @@ html, body { touch-action: manipulation; }
 @media (max-width: 680px) {
   html, body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 }
+
+/* 通话内自有模型解锁 */
+.call-unlock { margin: 14px auto 4px; max-width: 320px; padding: 12px; background: rgba(255,255,255,.1); border-radius: 11px; }
+.call-unlock-label { font-size: 11.5px; line-height: 1.6; margin-bottom: 9px; color: rgba(255,255,255,.9); }
+.call-unlock-row { display: flex; gap: 8px; }
+.call-unlock-row .input { flex: 1; background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.25); color: #fff; }
+.call-unlock-row .input::placeholder { color: rgba(255,255,255,.5); }

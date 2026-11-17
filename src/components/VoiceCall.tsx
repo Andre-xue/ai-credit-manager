@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Phone, PhoneOff, Mic, MicOff, Volume2, Loader2, Keyboard, Send } from 'lucide-react'
 import { speak, stopSpeak, getSavedVoice } from '../core/tts'
-import { isNativeApp } from '../core/openExternal'
+import { isNativeApp, isDesktopApp } from '../core/openExternal'
 
 type Engine = 'capacitor' | 'web' | 'none'
 
@@ -31,19 +31,25 @@ function createWebRecognition(): RecognitionLike | null {
   return r
 }
 
-export function VoiceCall({ onSend, onClose, notify }: {
+export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock }: {
   /** 发送一句话，返回 AI 的回复文本 */
   onSend: (text: string) => Promise<string>
   onClose: () => void
   notify: (m: string) => void
+  /** 自有模型尚未解锁时，弹窗内直接提供解锁入口 */
+  needPwd?: boolean
+  onUnlock?: (pwd: string) => Promise<boolean>
 }) {
+  const [callPwd, setCallPwd] = useState('')
+  const [callPwdBusy, setCallPwdBusy] = useState(false)
   const [status, setStatus] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle')
   const [liveText, setLiveText] = useState('')
   const [lastReply, setLastReply] = useState('')
   const [seconds, setSeconds] = useState(0)
   const [engine, setEngine] = useState<Engine>('none')
   const [fallbackText, setFallbackText] = useState('')
-  const [fallbackOpen, setFallbackOpen] = useState(false)
+  // 桌面端 WebView 不支持浏览器语音识别，默认直接使用文字输入（可用系统听写键说话）
+  const [fallbackOpen, setFallbackOpen] = useState(() => isDesktopApp())
   const [busy, setBusy] = useState(false)
   const recRef = useRef<RecognitionLike | null>(null)
   const capRecRef = useRef<any>(null)
@@ -87,8 +93,18 @@ export function VoiceCall({ onSend, onClose, notify }: {
           if (text) { setLiveText(text); void handleText(text) }
         }
         r.onerror = (e: any) => {
-          if (e?.error === 'no-speech') { setStatus('idle'); return }
+          if (e?.error === 'no-speech' || e?.error === 'aborted') { setStatus('idle'); return }
+          const code = e?.error ?? 'unknown'
+          const hint = code === 'not-allowed' || code === 'service-not-allowed'
+            ? '麦克风/语音识别权限被拒绝，请在系统设置中允许；也可改用文字输入'
+            : code === 'network'
+              ? '语音识别需要联网，当前网络不可用，请改用文字输入'
+              : '语音识别在当前环境不可用，请改用文字输入'
+          notify(hint)
           setStatus('idle')
+          setEngine('none')       // 隐藏无效的麦克风按钮
+          setFallbackOpen(true)   // 自动打开文字输入
+          wantListen.current = false
         }
         r.onend = () => { if (wantListen.current) { try { r.start() } catch { /* ignore */ } } }
         setEngine('web')
@@ -205,6 +221,21 @@ export function VoiceCall({ onSend, onClose, notify }: {
           {status === 'listening' ? '正在聆听…' : status === 'thinking' ? '思考中…' : status === 'speaking' ? '正在说话'
             : voiceAvailable ? '点击麦克风开始说话' : '当前设备不支持语音识别，请用文字通话'}
         </div>
+        {/* 自有模型解锁：通话内直接验证，避免"打字没反应" */}
+        {needPwd && (
+          <div className="call-unlock">
+            <div className="call-unlock-label">当前为自有模型，请先输入主密码（本次会话只需一次）</div>
+            <div className="call-unlock-row">
+              <input className="input" type="password" placeholder="主密码" value={callPwd}
+                onChange={e => setCallPwd(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && callPwd && onUnlock) { setCallPwdBusy(true); void onUnlock(callPwd).finally(() => setCallPwdBusy(false)) } }} />
+              <button className="btn sm primary" disabled={callPwdBusy || !callPwd || !onUnlock}
+                onClick={() => { setCallPwdBusy(true); void onUnlock?.(callPwd).finally(() => setCallPwdBusy(false)) }}>
+                {callPwdBusy ? '验证中' : '验证'}
+              </button>
+            </div>
+          </div>
+        )}
         {liveText && <div className="call-live">“{liveText}”</div>}
         {lastReply && status !== 'listening' && <div className="call-reply">{lastReply}</div>}
 
@@ -228,7 +259,9 @@ export function VoiceCall({ onSend, onClose, notify }: {
             <button className="btn sm primary" disabled={!fallbackText.trim() || busy} onClick={submitFallback}><Send size={14} /></button>
           </div>
         )}
-        <div className="call-hint">{voiceAvailable ? '说话后自动识别并朗读 AI 回复 · 也可切换文字输入' : '输入文字后 AI 会语音朗读回复'}</div>
+        <div className="call-hint">{isDesktopApp()
+          ? '桌面端可用系统听写（双击 Fn 键）说话输入，AI 会语音朗读回复'
+          : voiceAvailable ? '说话后自动识别并朗读 AI 回复 · 也可切换文字输入' : '输入文字后 AI 会语音朗读回复'}</div>
       </div>
     </div>
   )

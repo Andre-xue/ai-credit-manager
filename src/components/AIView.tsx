@@ -214,8 +214,15 @@ export function AIView({ notify, accounts }: {
     const effectiveText = content || '请分析这些附件'
     if (!model) { notify('模型尚未就绪，请稍候'); return }
     if (selectedOption && !canChat) { notify(`${selectedOption.category}模型不支持文字对话，请切换到对话型/通用型`); return }
-    // 自有模型需要先有解密凭据；就地提示在输入区上方输入（不跳转 Key 管理页）
-    if (needPwd) { notify('请先输入主密码以调用自有模型（本次会话只需一次）'); return }
+    // 自有模型需要先有解密凭据：给出持久可见的对话提示，避免"打字没反应"
+    if (needPwd) {
+      notify('请先在上方的密码框验证主密码，再发送消息')
+      setMessages(prev => [...prev,
+        { id: `u-${Date.now()}`, role: 'user', content, at: Date.now() },
+        { id: `err-${Date.now()}`, role: 'assistant', content: `🔒 当前使用自有模型「${currentAccount?.label ?? ''}」，需先在上方密码框验证主密码（本次会话只需一次），验证后请重新发送。`, at: Date.now() },
+      ])
+      return
+    }
     setInput('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     const imageUrls = attachments.filter(a => a.mime.startsWith('image/')).map(a => a.dataUrl)
@@ -233,9 +240,16 @@ export function AIView({ notify, accounts }: {
     } catch (e) {
       const need = (e as { needPwd?: boolean })?.needPwd
       const msg = friendlyAiError(e)
+      // needPwd 的情况：不重复 toast（顶部已有常驻解锁条），但仍需在对话里给出可见提示
       if (!need && msg !== '已停止生成' && !String(msg).includes('NEED_AI_PWD')) notify(msg)
       setStreamingText(prev => {
         if (prev) setMessages(p => [...p, { id: `${Date.now()}-a`, role: 'assistant', content: prev, at: Date.now() }])
+        else {
+          // 失败时插入持久提示气泡，避免 toast 一闪而过看着像"没反应"
+          const hint = need ? '🔒 当前为自有模型，请先在上方的密码框验证主密码，然后重新发送。'
+            : msg !== '已停止生成' && !String(msg).includes('NEED_AI_PWD') ? `⚠️ ${msg}` : null
+          if (hint) setMessages(p => [...p, { id: `err-${Date.now()}`, role: 'assistant', content: hint, at: Date.now() }])
+        }
         return ''
       })
     } finally {
@@ -392,6 +406,19 @@ export function AIView({ notify, accounts }: {
           </div>
         )}
 
+        {/* 自有模型解锁：固定在对话区顶部，不随滚动消失（与 Key 管理页解锁独立） */}
+        {needPwd && <div className="ai-pwd-gate">
+          <span className="ai-pwd-gate-label"><Info size={13} /> 正在使用自有模型「{currentAccount?.label}」，需验证主密码后才能调用（本次会话只需一次，与 Key 管理页解锁互不影响）</span>
+          <div className="ai-pwd-gate-row">
+            <input className="input" type="password" placeholder="输入主密码" value={aiPwdInput}
+              onChange={e => setAiPwdInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') void verifyAiPwd() }} />
+            <button className="btn sm primary" disabled={aiPwdBusy || !aiPwdInput} onClick={() => void verifyAiPwd()}>
+              {aiPwdBusy ? <><Loader2 size={13} className="spin" /> 验证</> : '验证'}
+            </button>
+          </div>
+        </div>}
+
         {/* 对话区 */}
         <div className="ai-messages">
           {!hasChat ? (
@@ -454,18 +481,6 @@ export function AIView({ notify, accounts }: {
                 <button onClick={() => setAttachments(prev => prev.filter((_, j) => j !== i))} title="移除"><X size={13} /></button>
               </div>
             ))}
-          </div>}
-          {/* 自有模型解密密码：与 Key 管理页解锁独立，仅本次会话使用 */}
-          {needPwd && <div className="ai-pwd-gate">
-            <span className="ai-pwd-gate-label"><Info size={13} /> 调用自有模型需验证主密码（本次会话只需一次，与 Key 管理页解锁互不影响）</span>
-            <div className="ai-pwd-gate-row">
-              <input className="input" type="password" placeholder="主密码" value={aiPwdInput}
-                onChange={e => setAiPwdInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') void verifyAiPwd() }} />
-              <button className="btn sm primary" disabled={aiPwdBusy || !aiPwdInput} onClick={() => void verifyAiPwd()}>
-                {aiPwdBusy ? <><Loader2 size={13} className="spin" /> 验证</> : '验证'} 
-              </button>
-            </div>
           </div>}
           <div className="ai-compose-box">
             <textarea ref={textareaRef} className="ai-textarea" rows={1}
@@ -553,6 +568,14 @@ export function AIView({ notify, accounts }: {
         }}
         onClose={() => setCallOpen(false)}
         notify={notify}
+        needPwd={needPwd}
+        onUnlock={async (pwd) => {
+          const ok = await verifyVault(pwd)
+          if (!ok) { notify('主密码错误'); return false }
+          setAiPwd(pwd)
+          notify('已验证，本次会话可正常通话')
+          return true
+        }}
       />}
     </div>
   )
