@@ -58,6 +58,16 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      # 关键：Cargo.toml 的 version 决定安装包实际版本号（MSI/macOS CFBundle）。
+      # 必须随 tag 同步，否则安装包版本永远 0.1.0，Windows/macOS 无法覆盖安装旧版。
+      - name: Sync version from tag
+        shell: bash
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          echo "构建版本: $V"
+          node -e "const fs=require('fs');const p='desktop/src-tauri/Cargo.toml';let s=fs.readFileSync(p,'utf8');s=s.replace(/^version\s*=\s*\"[^\"]+\"/m,'version = \"$V\"');fs.writeFileSync(p,s)"
+          node -e "const fs=require('fs');const p='desktop/src-tauri/tauri.conf.json';const d=JSON.parse(fs.readFileSync(p,'utf8'));d.version='$V';fs.writeFileSync(p,JSON.stringify(d,null,2)+'\n')"
+
       # 缺少签名密钥时禁用 updater 产物生成，避免 tauri build 直接失败；
       # 此时仍能产出正常安装包，应用更新页会自动改为「前往 GitHub 下载」。
       - name: Prepare updater config

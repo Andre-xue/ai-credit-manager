@@ -2,7 +2,7 @@
 // 语速、试听、声音服务目录、第三方 TTS 代理配置。
 // 系统内置音色/拟真预设/方言已从界面移除；未克隆时底层仍用系统 TTS 兜底，避免 AI 完全无声。
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Volume2, Play, Square, Trash2, Loader2, Info, Globe2, Mic, Check, Pencil } from 'lucide-react'
 import {
   getRate, saveRate, stopSpeak, getSpeakSource, speakAsync,
@@ -38,7 +38,7 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
   const [volcConfig, setVolcConfig] = useState<VolcConfig>(() => getVolcConfig())
   const [volcOpen, setVolcOpen] = useState(false)
   const desktop = isDesktopApp()
-  const fileRef = useState(() => ({ current: null as HTMLInputElement | null }))[0]
+  const fileRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => { void loadVoiceSample().then(setSample) }, [])
 
@@ -75,14 +75,17 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
       const wav = await blobToWav(blob)
       if (wav) {
         blob = wav
-      } else if (!/wav|mpeg|mp3|mp4/i.test(blob.type)) {
-        setCloneError('录音格式转换失败。请改用「选择音频文件」导入 WAV / MP3 / M4A 样本。')
-        return
+      } else {
+        // webm/opus 等转换失败时保留原样本（安卓 WebView 常见），交给代理端按 mime 处理。
+        notify('格式转换未成功，将按原录音格式尝试克隆')
       }
       setCloneError('')
-      const finalName = blob.type.includes('wav') ? '录音样本.wav' : '录音样本.m4a'
+      const mt = blob.type || 'audio/webm'
+      const finalExt = mt.includes('wav') ? 'wav' : mt.includes('mp4') ? 'm4a'
+        : mt.includes('mpeg') || mt.includes('mp3') ? 'mp3' : 'webm'
+      const finalName = `录音样本.${finalExt}`
       setSample(await saveVoiceSample(blob, finalName))
-      notify('声音样本已保存（12 秒 WAV），可点击「克隆为 AI 发音」')
+      notify('声音样本已保存，可点击「克隆为 AI 发音」')
     } catch (e) { notify((e as Error).message ?? '录音失败') }
   }
 
@@ -103,18 +106,32 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
 
   const doPickFile = async (file?: File) => {
     if (!file) return
-    if (!file.type.startsWith('audio/')) { notify('请选择音频文件'); return }
     setCloneError('')
+    // 安卓 WebView 里 file.type 常为空，不能只看 MIME；结合扩展名判断，空 MIME 也放行交给后续处理。
+    const ext = (file.name.split('.').pop() ?? '').toLowerCase()
+    const looksAudio = file.type.startsWith('audio/') ||
+      ['wav', 'mp3', 'm4a', 'aac', 'ogg', 'webm', 'opus', '3gp', 'amr'].includes(ext) || !file.type
+    if (!looksAudio) { notify('请选择音频文件（WAV / MP3 / M4A）'); return }
     let blob: Blob = file
-    // WAV/MP3/M4A 原生支持；其余（webm/ogg 等）转成 WAV
-    if (!/\.(wav|mp3|m4a)$/i.test(file.name)) {
+    // WAV/MP3/M4A/AAC 原生支持；webm/ogg/3gp 等尽量转 WAV，转换失败也保留原文件（克隆前再按 mime 处理）。
+    if (!/\.(wav|mp3|m4a|aac)$/i.test(file.name)) {
       notify('正在转换音频格式…')
       const wav = await blobToWav(file)
-      if (wav) blob = wav
-      else { setCloneError('此音频格式不被语音服务支持，请换用 WAV / MP3 / M4A 文件'); return }
+      if (wav) {
+        blob = wav
+      } else {
+        // 转换失败不阻断：保留原 blob，用正确的 mime 命名，交给代理端尝试。
+        const fallbackMime = file.type || (ext === 'webm' ? 'audio/webm' : `audio/${ext || 'mp3'}`)
+        blob = new Blob([file], { type: fallbackMime })
+        notify('格式转换未成功，将按原格式尝试克隆')
+      }
     }
-    const name = blob.type.includes('wav') ? file.name.replace(/\.[^.]+$/, '.wav') : file.name
+    const mime = blob.type || file.type || 'audio/wav'
+    const finalExt = mime.includes('wav') ? 'wav' : mime.includes('mpeg') || mime.includes('mp3') ? 'mp3'
+      : mime.includes('mp4') ? 'm4a' : ext || 'm4a'
+    const name = file.name.replace(/\.[^.]+$/, '') + '.' + finalExt
     setSample(await saveVoiceSample(blob, name))
+    setCloneError('')
     notify('音频样本已保存，可点击「克隆为 AI 发音」')
   }
 
@@ -189,7 +206,11 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
         ) : (
           <>
             <button className="btn sm" onClick={() => fileRef.current?.click()}><Volume2 size={14} /> 选择音频文件</button>
-            <input ref={fileRef} type="file" accept="audio/*" style={{ display: 'none' }} onChange={e => { void doPickFile(e.target.files?.[0]); e.target.value = '' }} />
+            <input ref={fileRef} type="file" accept="audio/*" style={{ display: 'none' }} onChange={async e => {
+              const f = e.target.files?.[0]
+              await doPickFile(f)   // 先处理完，再清空，避免 File 失效竞态
+              e.target.value = ''
+            }} />
           </>
         )}
         <button className="btn sm primary" disabled={!sample || cloning} onClick={() => void doClone()}>

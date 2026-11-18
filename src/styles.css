@@ -1205,6 +1205,22 @@ html, body { touch-action: manipulation; }
   position: absolute; left: 0; bottom: 0; height: 3px; background: #818cf8;
   animation: undo-shrink 5s linear forwards;
 }
+
+/* 备份提醒横幅（全平台通用，独立于系统通知） */
+.backup-due-bar {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 205;
+  display: flex; align-items: center; gap: 10px; max-width: min(92vw, 620px);
+  background: #fffbeb; color: #78350f; border: 1px solid #fcd34d;
+  padding: 11px 14px; border-radius: 11px; box-shadow: 0 8px 24px rgba(0,0,0,.12); font-size: 12.5px;
+  animation: rise .2s ease;
+}
+.backup-due-bar > svg { color: #d97706; flex-shrink: 0; }
+.backup-due-bar > span { flex: 1; line-height: 1.5; }
+.backup-due-bar button {
+  flex-shrink: 0; border: 1px solid #f59e0b; border-radius: 7px; background: #f59e0b;
+  color: #fff; padding: 5px 10px; font-size: 12px; font-weight: 600;
+}
+.backup-due-bar .backup-due-close { background: transparent; color: #92400e; border-color: transparent; padding: 4px 6px; }
 @keyframes undo-shrink { from { width: 100%; } to { width: 0; } }
 @media (max-width: 680px) { .undo-bar { min-width: 0; width: calc(100% - 32px); bottom: 96px; } }
 

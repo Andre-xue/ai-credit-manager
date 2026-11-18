@@ -206,14 +206,15 @@ export async function blobToWav(blob: Blob): Promise<Blob | null> {
   }
 }
 
-/** 挑选 MediaRecorder 支持的、百炼可接受的音频 MIME（优先 wav，其次 opus/webm，绝不用 amr/3gpp） */
+/** 挑选 MediaRecorder 支持的音频 MIME。
+ *  安卓 WebView 通常只支持 webm/opus 或 mp4；优先 mp4（下游兼容性好），再 wav/webm。 */
 export function pickRecordMime(): string | undefined {
   if (typeof MediaRecorder === 'undefined') return undefined
   const candidates = [
+    'audio/mp4',
     'audio/wav',
     'audio/webm;codecs=opus',
     'audio/webm',
-    'audio/mp4',
     'audio/ogg;codecs=opus',
   ]
   for (const m of candidates) {

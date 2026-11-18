@@ -10,6 +10,14 @@
     "dialog:allow-message",
     "fs:allow-read-file",
     "fs:allow-exists",
+    "fs:allow-write-text-file",
+    "fs:allow-read-text-file",
+    "fs:allow-mkdir",
+    "fs:allow-remove",
+    {
+      "identifier": "fs:scope-appdata",
+      "allow": ["$APPDATA/**"]
+    },
     "updater:default",
     "process:allow-restart",
     "process:allow-exit"

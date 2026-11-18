@@ -99,8 +99,9 @@ function App() {
     after: () => void
   } | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [backupDue, setBackupDue] = useState(false)
   const [bioAvailableGlobal, setBioAvailableGlobal] = useState(false)
-  const [bioLabel, setBioLabel] = useState('指纹')
+  const [bioLabel, setBioLabel] = useState('生物识别')
   /**
    * 当前会话已验证的主密码。作用域仅限「API Key 管理页 + 安全设置」这一范畴：
    * 添加账户加密、修改主密码回填等。AI 助手等其余模块不读此值（各自独立解密），
@@ -456,6 +457,22 @@ function App() {
     if (notices.length > 0) sessionStorage.setItem(dayKey, JSON.stringify(sent))
   }, [])
 
+  /** 备份提醒：独立于系统通知，全平台通用的界面横幅。超过阈值天数未备份即提示。 */
+  const checkBackupDue = useCallback(() => {
+    const st = stateRef.current.settings
+    if (!st.backupReminder) { setBackupDue(false); return }
+    const days = st.backupReminderDays ?? 7
+    const ref = st.lastExportAt || stateRef.current.accounts[0]?.createdAt
+    if (!ref) { setBackupDue(false); return }   // 没有数据时无需提醒
+    const elapsed = Date.now() - new Date(ref).getTime()
+    setBackupDue(elapsed >= days * 86400000)
+  }, [])
+  useEffect(() => {
+    checkBackupDue()
+    const t = window.setInterval(checkBackupDue, 60 * 60 * 1000)
+    return () => window.clearInterval(t)
+  }, [checkBackupDue, state.settings.backupReminder, state.settings.backupReminderDays, state.settings.lastExportAt])
+
   // 启动后延迟检查一次；每 10 分钟复查。回调从 ref 读取最新 state，不依赖具体数据变化。
   useEffect(() => {
     if (!state.settings.systemNotify) return
@@ -760,6 +777,7 @@ function App() {
         const existing = latestQuota(state.quotas, quotaTarget)
         return <QuotaModal
           account={acc} provider={PROVIDER_MAP[acc.providerId]} existing={existing}
+          defaultUnit={state.settings.defaultUnit}
           onClose={() => setQuotaTarget(null)}
           onSave={(q) => { setState(s => upsertQuota(s, { accountId: quotaTarget, ...q })); setQuotaTarget(null); notify('额度已更新') }}
         />
@@ -828,7 +846,11 @@ function App() {
         backupOnly={backupGate.backupOnly}
         notify={notify}
         onClose={() => setBackupGate(null)}
-        onDone={() => { const after = backupGate.after; setBackupGate(null); after() }}
+        onDone={() => {
+          // 备份完成即更新基准时间（全平台通用，CSV/备忘录/云备份都算）
+          setState(prev => updateSettings(prev, { lastExportAt: new Date().toISOString() }))
+          const after = backupGate.after; setBackupGate(null); after()
+        }}
       />}
       {loginOpen && <CloudLoginModal onClose={() => setLoginOpen(false)} onSuccess={handleCloudLogin} />}
       {updateOpen && <UpdateModal onClose={() => setUpdateOpen(false)} notify={notify} />}
@@ -836,6 +858,12 @@ function App() {
         <span><Check size={15} /> {undo.label}</span>
         <button onClick={doUndo}><RotateCcw size={14} /> 撤回</button>
         <i className="undo-countdown" />
+      </div>}
+      {backupDue && !undo && <div className="backup-due-bar">
+        <AlertTriangle size={15} />
+        <span>已超过 {state.settings.backupReminderDays ?? 7} 天未备份数据，建议到「设置 → 数据管理」导出备份。</span>
+        <button onClick={() => { setTab('settings'); setBackupDue(false) }}>去备份</button>
+        <button className="backup-due-close" onClick={() => setBackupDue(false)} title="本次忽略"><X size={14} /></button>
       </div>}
       {toast && !undo && <div className="toast"><Check size={15} /> {toast}</div>}
     </div>
@@ -2396,12 +2424,13 @@ function VaultModal({ initialized, currentPwd, onClose, onInit, notify }: {
 }
 
 /** 额度录入 / 更新模态框 */
-function QuotaModal({ account, provider, existing, onClose, onSave }: {
+function QuotaModal({ account, provider, existing, defaultUnit, onClose, onSave }: {
   account: AppState['accounts'][number]; provider: ProviderDefinition; existing?: AppState['quotas'][number];
+  defaultUnit?: CreditUnit;
   onClose: () => void;
   onSave: (q: { unit: CreditUnit; used: number; total: number; resetAt?: string; source: QuotaSnapshot['source'] }) => void
 }) {
-  const [unit, setUnit] = useState<CreditUnit>(existing?.unit ?? 'credit')
+  const [unit, setUnit] = useState<CreditUnit>(existing?.unit ?? defaultUnit ?? 'credit')
   const [total, setTotal] = useState(existing ? String(existing.total) : '')
   const [used, setUsed] = useState(existing ? String(existing.used) : '0')
   const [resetAt, setResetAt] = useState(existing?.resetAt?.slice(0, 10) ?? '')
@@ -3145,8 +3174,16 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
           </SettingsSection>
 
           <SettingsSection title="数据管理" desc="备份、恢复与清理" icon={HardDrive} tone="amber">
-            <SettingsRow title="备份提醒" desc="超过 7 天未导出时在界面提示">
-              <Toggle checked={s.backupReminder} onChange={v => onChange({ backupReminder: v })} />
+            <SettingsRow title="备份提醒" desc="超过设定天数未备份时在界面提示（全平台通用）">
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <select className="select" style={{ width: 76 }} value={s.backupReminderDays ?? 7}
+                  onChange={e => onChange({ backupReminderDays: Number(e.target.value) as 3 | 7 | 15 })}>
+                  <option value={3}>3 天</option>
+                  <option value={7}>7 天</option>
+                  <option value={15}>15 天</option>
+                </select>
+                <Toggle checked={s.backupReminder} onChange={v => onChange({ backupReminder: v })} />
+              </span>
             </SettingsRow>
             <SettingsRow title="清空业务数据" desc="删除全部账户、额度、签到与用量记录；设置与保险箱保留">
               {confirmClear ? (
@@ -3181,8 +3218,10 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
                 <button className="btn sm" onClick={onOpenVault}>{s.vaultInitialized ? '管理' : '创建'}</button>
               </div>
             </SettingsRow>
-            <SettingsRow title="解锁方式" desc={onBioAvailable ? `可选密码或${bioLabel}解锁` : '当前设备不支持生物识别，仅可用密码'}>
-              <select className="select" style={{ width: 120 }} value={bioSwitchOpen ? 'biometric' : s.unlockMethod}
+            <SettingsRow title="解锁方式" desc={onBioAvailable
+              ? (bioLabel.includes('人脸') ? '可选密码或系统人脸解锁（Face ID）' : `可选密码或系统生物识别解锁（${bioLabel}）`)
+              : '当前设备不支持生物识别，仅可用密码'}>
+              <select className="select" style={{ width: 150 }} value={bioSwitchOpen ? 'biometric' : s.unlockMethod}
                 onChange={e => {
                   const m = e.target.value as 'biometric' | 'password'
                   if (m === 'password') {
@@ -3195,7 +3234,9 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
                   }
                 }}>
                 <option value="password">密码解锁</option>
-                {onBioAvailable && <option value="biometric">{bioLabel}解锁</option>}
+                {onBioAvailable && <option value="biometric">
+                  {bioLabel.includes('人脸') ? '系统人脸解锁 (Face ID)' : bioLabel.includes('触控') ? '系统触控解锁 (Touch ID)' : `${bioLabel}解锁`}
+                </option>}
               </select>
             </SettingsRow>
             {onBioAvailable && s.vaultInitialized && (
