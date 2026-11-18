@@ -2,6 +2,14 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './styles.css'
+import './liquid-glass.css'
+
+// 预览钩子：URL 带 ?preview=phone 时模拟 Capacitor 原生环境，便于在浏览器里预览手机端液态玻璃界面。
+// 仅用于开发/验收，正常用户不会带此参数，对生产无影响。
+if (typeof window !== 'undefined' && (new URLSearchParams(location.search).get('preview') === 'phone' || location.hash.includes('preview=phone'))) {
+  const w = window as unknown as { Capacitor?: unknown }
+  w.Capacitor = { isNative: true, getPlatform: () => 'android' }
+}
 
 // 手机端禁用双指/双击缩放，呈现原生 App 体验（viewport meta 之外的兜底）
 if (typeof window !== 'undefined') {

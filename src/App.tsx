@@ -5,7 +5,7 @@ import {
   Wallet, Flame, Clock, TrendingUp, Lock, Unlock, Download, X, Copy, CircleHelp,
   Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Gift, Eye, Pencil, Fingerprint,
   Film, Layers, Monitor, PanelLeftClose, PanelLeftOpen,
-  Cloud, Bell, Database, Volume2, HardDrive, Palette, RotateCcw,
+  Cloud, Bell, Database, Volume2, HardDrive, Palette, RotateCcw, Menu,
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { isLocalProvider } from './core/types'
@@ -35,7 +35,7 @@ import {
   type ExportFormat, type ServiceEntry, exportByFormat, detectCsvKind, isJsonImport,
   parseAccountsCsv, parseQuotasCsv, isServiceList, parseServiceList, noteCategory,
 } from './core/io'
-import { openExternal, openTool, isDesktopApp, isAppInstalled, biometricAvailable, biometricAuth, biometricLabel } from './core/openExternal'
+import { openExternal, openTool, isDesktopApp, isNativeApp, isAppInstalled, biometricAvailable, biometricAuth, biometricLabel } from './core/openExternal'
 import { cloud, type CloudUser } from './core/cloud'
 import { AIView } from './components/AIView'
 import { VoiceSettings } from './components/VoiceSettings'
@@ -73,8 +73,20 @@ const CATEGORY_ICON: Record<ProviderDefinition['category'], typeof Code2> = {
 
 function App() {
   const [state, setState] = useState<AppState>(() => loadState())
-  const [tab, setTab] = useState<Tab>('dashboard')
+  // 手机原生端（安卓/iOS）默认进入 AI 聊天页、侧栏抽屉默认隐藏；其他端沿用旧行为
+  // 预览参数仅用于浏览器验收手机端界面，生产环境不会带此参数
+  const phonePreview = typeof location !== 'undefined' && (new URLSearchParams(location.search).get('preview') === 'phone' || location.hash.includes('preview=phone'))
+  const isPhone = isNativeApp() || phonePreview
+  const [tab, setTab] = useState<Tab>(() => {
+    if (phonePreview) {
+      const t = new URLSearchParams(location.search).get('tab')
+      if (t && ['ai', 'dashboard', 'checkin', 'benefits', 'keys', 'usage', 'voice', 'settings'].includes(t)) return t as Tab
+    }
+    return isPhone ? 'ai' : 'dashboard'
+  })
   const [sidebarVisible, setSidebarVisible] = useState<boolean>(() => {
+    if (phonePreview) return location.hash.includes('drawer') || new URLSearchParams(location.search).get('drawer') === '1'
+    if (isPhone) return false
     try { return localStorage.getItem('acm.sidebar.visible') !== '0' } catch { return true }
   })
   const toggleSidebar = () => setSidebarVisible(v => !v)
@@ -525,8 +537,27 @@ function App() {
     keys: '密钥', usage: '用量', voice: '语音', settings: '设置',
   }
 
+  // 手机端侧栏：AI 主页面置顶，其后依次为 看板 / 签到 / 福利 / 密钥 / 用量 / 设置
+  const drawerTabs: Tab[] = ['ai', 'dashboard', 'checkin', 'benefits', 'keys', 'usage', 'settings']
+
+  // 界面风格：手机端默认液态玻璃，桌面默认经典；用户可在偏好设置覆盖
+  const stylePref = state.settings.uiStyle ?? 'auto'
+  const liquidOn = isPhone
+    ? stylePref !== 'classic'
+    : stylePref === 'liquid'
+  const motionOn = state.settings.uiMotion !== false
+  const shellClass = [
+    'app-shell',
+    isPhone ? 'phone-shell' : '',
+    liquidOn ? 'liquid-ui' : '',
+    motionOn ? 'motion-ui' : 'no-motion',
+    sidebarVisible ? '' : 'sidebar-collapsed',
+  ].filter(Boolean).join(' ')
+
   return (
-    <div className={`app-shell ${sidebarVisible ? '' : 'sidebar-collapsed'}`}>
+    <div className={shellClass}>
+      {/* 手机端抽屉遮罩：点击关闭侧栏 */}
+      {isPhone && sidebarVisible && <button className="phone-scrim" aria-label="关闭菜单" onClick={() => setSidebarVisible(false)} />}
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark"><Sparkles size={18} /></div>
@@ -534,15 +565,20 @@ function App() {
             <div className="brand-name">AI 积分管家</div>
             <div className="brand-sub">Credit Manager</div>
           </div>
-          <button className="icon-btn sidebar-toggle" onClick={toggleSidebar} title="隐藏侧边栏"><PanelLeftClose size={17} /></button>
+          {isPhone
+            ? <button className="icon-btn sidebar-toggle" onClick={() => setSidebarVisible(false)} title="关闭菜单"><X size={19} /></button>
+            : <button className="icon-btn sidebar-toggle" onClick={toggleSidebar} title="隐藏侧边栏"><PanelLeftClose size={17} /></button>}
         </div>
         <nav className="nav">
-          {tabs.map((t) => {
+          {(isPhone ? drawerTabs : tabs.map(t => t.id)).map((id) => {
+            const t = tabs.find(x => x.id === id)!
             const Icon = t.icon
             return (
-              <button key={t.id} className={`nav-item ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)} title={t.label}>
+              <button key={t.id} className={`nav-item ${tab === t.id ? 'active' : ''}`}
+                onClick={() => { setTab(t.id); if (isPhone) setSidebarVisible(false); window.scrollTo(0, 0) }} title={t.label}>
                 <Icon size={17} />
                 <span>{t.label}</span>
+                {t.id === 'ai' && <span className="nav-pill">主页</span>}
               </button>
             )
           })}
@@ -556,6 +592,8 @@ function App() {
       </aside>
 
       <main className="main">
+        {/* 手机端：悬浮玻璃菜单按钮，点击打开侧栏抽屉 */}
+        {isPhone && !sidebarVisible && <button className="phone-menu-fab" aria-label="打开菜单" onClick={() => setSidebarVisible(true)}><Menu size={22} /></button>}
         <header className={`topbar ${tab === 'ai' ? 'topbar-ai' : ''}`}>
           <div className="topbar-heading">
             {!sidebarVisible && <button className="icon-btn sidebar-show" onClick={toggleSidebar} title="显示侧边栏"><PanelLeftOpen size={18} /></button>}
@@ -716,8 +754,8 @@ function App() {
         </div>
       </main>
 
-      {/* 移动端底部导航：侧边栏在小屏隐藏，用此栏切换模块 */}
-      <nav className="bottom-nav">
+      {/* 移动端底部导航：手机原生端改用侧栏抽屉，此处仅 Web/其他端显示 */}
+      {!isPhone && <nav className="bottom-nav">
         {bottomTabs.map(id => {
           const t = tabs.find(x => x.id === id)!
           const Icon = t.icon
@@ -728,7 +766,7 @@ function App() {
             </button>
           )
         })}
-      </nav>
+      </nav>}
 
       {addOpen && <PlatformPickerModal
         onClose={() => setAddOpen(false)}
@@ -3083,6 +3121,19 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
 
       <div className="set-content" key={setTab}>
         {setTab === 'general' && <>
+          <SettingsSection title="外观设计" desc="界面风格与动态效果，手机端默认液态玻璃" icon={Palette} tone="indigo">
+            <SettingsRow title="界面风格" desc="液态玻璃为半透明毛玻璃质感；经典为传统实心界面">
+              <select className="select" style={{ width: 128 }} value={s.uiStyle ?? 'auto'} onChange={e => onChange({ uiStyle: e.target.value as 'auto' | 'liquid' | 'classic' })}>
+                <option value="auto">自动（推荐）</option>
+                <option value="liquid">液态玻璃</option>
+                <option value="classic">经典</option>
+              </select>
+            </SettingsRow>
+            <SettingsRow title="动态效果" desc="抽屉滑入、卡片渐入、光斑浮动等动效">
+              <Toggle checked={s.uiMotion !== false} onChange={v => onChange({ uiMotion: v })} />
+            </SettingsRow>
+          </SettingsSection>
+
           <SettingsSection title="通用" desc="提醒与预警行为" icon={Settings} tone="indigo">
             <SettingsRow title="签到提醒" desc="在看板与侧栏显示 AI Agent 工具今日待签到数量">
               <Toggle checked={s.checkinReminder} onChange={v => onChange({ checkinReminder: v })} />

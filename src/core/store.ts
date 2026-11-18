@@ -20,6 +20,7 @@ function emptyState(): AppState {
       alertDays: 7, defaultUnit: 'credit', backupReminder: true, backupReminderDays: 7,
       systemNotify: false, quietStart: '', quietEnd: '',
       unlockMethod: 'password',
+      uiStyle: 'auto', uiMotion: true,
       unitPrices: {},
     },
   }
