@@ -1276,3 +1276,11 @@ html, body { touch-action: manipulation; }
 .cloned-voice-main b { font-size: 13px; font-weight: 600; }
 .cloned-voice-main small { font-size: 11px; color: var(--text-3); }
 .cloned-voice-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+
+/* 声音克隆失败：持久显示真实错误，避免 toast 一闪而过 */
+.voice-clone-error {
+  display: flex; align-items: flex-start; gap: 8px; margin: 8px 0; padding: 10px 12px;
+  background: rgba(239,68,68,.08); border: 1px solid var(--red); border-radius: 10px;
+  color: var(--red); font-size: 12px; line-height: 1.6;
+}
+.voice-clone-error span { flex: 1; word-break: break-word; }

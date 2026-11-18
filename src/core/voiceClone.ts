@@ -156,8 +156,62 @@ export async function deleteVoiceSample(): Promise<void> {
   // 只删除临时样本，不动已保存的克隆音色列表
 }
 
-/** 录音：需要浏览器/原生 WebView 提供 getUserMedia；桌面 Tauri 可用音频文件导入兜底 */
-export function recordVoiceSample(seconds = 8): Promise<Blob> {
+/** 把任意浏览器可解码的音频 Blob 转成 16-bit PCM WAV（百炼稳定支持）。失败则返回 null 由调用方兜底。 */
+export async function blobToWav(blob: Blob): Promise<Blob | null> {
+  try {
+    const Ctx = window.AudioContext || (window as any).webkitAudioContext
+    if (!Ctx) return null
+    const ctx = new Ctx()
+    const buf = await blob.arrayBuffer()
+    const decoded = await ctx.decodeAudioData(buf)
+    // 单声道、16kHz 即可满足百炼 ≥16kHz 要求，体积更小
+    const targetRate = 16000
+    const ch = 1
+    const len = Math.floor(decoded.duration * targetRate)
+    // 用 OfflineAudioContext 重采样到 16k 单声道
+    const off = new OfflineAudioContext(ch, len, targetRate)
+    const src = off.createBufferSource()
+    src.buffer = decoded
+    src.connect(off.destination)
+    src.start(0)
+    const rendered = await off.startRendering()
+    const data = rendered.getChannelData(0)
+    const pcm = new Int16Array(len)
+    for (let i = 0; i < len; i++) {
+      const s = Math.max(-1, Math.min(1, data[i]))
+      pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff
+    }
+    const header = new ArrayBuffer(44)
+    const dv = new DataView(header)
+    const w = (o: number, str: string) => { for (let i = 0; i < str.length; i++) dv.setUint8(o + i, str.charCodeAt(i)) }
+    w(0, 'RIFF'); dv.setUint32(4, 36 + pcm.byteLength, true); w(8, 'WAVE')
+    w(12, 'fmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true)
+    dv.setUint16(22, ch, true); dv.setUint32(24, targetRate, true)
+    dv.setUint32(28, targetRate * ch * 2, true); dv.setUint16(32, ch * 2, true); dv.setUint16(34, 16, true)
+    w(36, 'data'); dv.setUint32(40, pcm.byteLength, true)
+    return new Blob([header, pcm], { type: 'audio/wav' })
+  } catch { return null }
+}
+
+/** 挑选 MediaRecorder 支持的、百炼可接受的音频 MIME（优先 wav，其次 opus/webm，绝不用 amr/3gpp） */
+export function pickRecordMime(): string | undefined {
+  if (typeof MediaRecorder === 'undefined') return undefined
+  const candidates = [
+    'audio/wav',
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+    'audio/ogg;codecs=opus',
+  ]
+  for (const m of candidates) {
+    try { if (MediaRecorder.isTypeSupported(m)) return m } catch { /* ignore */ }
+  }
+  return undefined
+}
+
+/** 录音：需要浏览器/原生 WebView 提供 getUserMedia；桌面 Tauri 可用音频文件导入兜底。
+ *  百炼只接受 WAV/MP3/M4A 且 ≥16kHz，AMR/3gpp 会被拒，因此这里显式挑选安全格式。 */
+export function recordVoiceSample(seconds = 12): Promise<Blob> {
   return new Promise(async (resolve, reject) => {
     const md = navigator.mediaDevices as MediaDevices | undefined
     if (!md?.getUserMedia || typeof MediaRecorder === 'undefined') {
@@ -165,12 +219,25 @@ export function recordVoiceSample(seconds = 8): Promise<Blob> {
       return
     }
     let stream: MediaStream
-    try { stream = await md.getUserMedia({ audio: true }) }
-    catch { reject(new Error('麦克风权限被拒绝，请授权后再录音')); return }
+    try {
+      stream = await md.getUserMedia({ audio: { channelCount: 1, sampleRate: 24000 } })
+    } catch {
+      try { stream = await md.getUserMedia({ audio: true }) }
+      catch { reject(new Error('麦克风权限被拒绝，请授权后再录音')); return }
+    }
+    const mime = pickRecordMime()
+    // amr/3gpp 浏览器通常也无法 decode，宁可拒绝也不要产出错样本
+    if (!mime || /amr|3gpp/i.test(mime)) {
+      stream.getTracks().forEach(t => t.stop())
+      reject(new Error('当前设备录音格式不受支持，请改从「选择音频文件」导入 WAV/MP3/M4A'))
+      return
+    }
     const chunks: BlobPart[] = []
-    const rec = new MediaRecorder(stream)
+    let rec: MediaRecorder
+    try { rec = new MediaRecorder(stream, { mimeType: mime }) }
+    catch { rec = new MediaRecorder(stream) }
     rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data) }
-    rec.onstop = () => { stream.getTracks().forEach(t => t.stop()); resolve(new Blob(chunks, { type: rec.mimeType || 'audio/webm' })) }
+    rec.onstop = () => { stream.getTracks().forEach(t => t.stop()); resolve(new Blob(chunks, { type: rec.mimeType || mime })) }
     rec.onerror = () => { stream.getTracks().forEach(t => t.stop()); reject(new Error('录音失败')) }
     rec.start()
     window.setTimeout(() => { if (rec.state !== 'inactive') rec.stop() }, seconds * 1000)

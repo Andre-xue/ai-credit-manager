@@ -10,7 +10,7 @@ import {
 import {
   loadVoiceSample, saveVoiceSample, deleteVoiceSample, recordVoiceSample,
   cloneVoiceFromSample, getClonedVoiceId, listClonedVoices, removeClonedVoice,
-  setActiveClonedVoice, renameClonedVoice, type VoiceSample, type ClonedVoice,
+  setActiveClonedVoice, renameClonedVoice, blobToWav, type VoiceSample, type ClonedVoice,
 } from '../core/voiceClone'
 import { isDesktopApp, openExternal } from '../core/openExternal'
 import { VOICE_PROVIDERS } from '../core/voiceProviders'
@@ -31,6 +31,7 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
   const [renaming, setRenaming] = useState<string | null>(null)
   const [renameText, setRenameText] = useState('')
   const [cloning, setCloning] = useState(false)
+  const [cloneError, setCloneError] = useState('')
   const desktop = isDesktopApp()
   const fileRef = useState(() => ({ current: null as HTMLInputElement | null }))[0]
 
@@ -63,10 +64,20 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
   const doRecord = async () => {
     if (desktop) { notify('桌面端 WebView 不提供浏览器录音接口，请用「选择音频文件」导入样本'); return }
     try {
-      notify('开始录音，8 秒后自动结束…')
-      const blob = await recordVoiceSample(8)
-      setSample(await saveVoiceSample(blob, '录音样本.webm'))
-      notify('声音样本已保存，可点击「克隆为 AI 发音」')
+      notify('开始录音，请连续朗读 12 秒（10~20 秒最佳），自动结束…')
+      let blob = await recordVoiceSample(12)
+      notify('录音完成，正在转换为兼容格式…')
+      const wav = await blobToWav(blob)
+      if (wav) {
+        blob = wav
+      } else if (!/wav|mpeg|mp3|mp4/i.test(blob.type)) {
+        setCloneError('录音格式转换失败。请改用「选择音频文件」导入 WAV / MP3 / M4A 样本。')
+        return
+      }
+      setCloneError('')
+      const finalName = blob.type.includes('wav') ? '录音样本.wav' : '录音样本.m4a'
+      setSample(await saveVoiceSample(blob, finalName))
+      notify('声音样本已保存（12 秒 WAV），可点击「克隆为 AI 发音」')
     } catch (e) { notify((e as Error).message ?? '录音失败') }
   }
 
@@ -88,16 +99,32 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
   const doPickFile = async (file?: File) => {
     if (!file) return
     if (!file.type.startsWith('audio/')) { notify('请选择音频文件'); return }
-    setSample(await saveVoiceSample(file, file.name))
+    setCloneError('')
+    let blob: Blob = file
+    // WAV/MP3/M4A 原生支持；其余（webm/ogg 等）转成 WAV
+    if (!/\.(wav|mp3|m4a)$/i.test(file.name)) {
+      notify('正在转换音频格式…')
+      const wav = await blobToWav(file)
+      if (wav) blob = wav
+      else { setCloneError('此音频格式不被语音服务支持，请换用 WAV / MP3 / M4A 文件'); return }
+    }
+    const name = blob.type.includes('wav') ? file.name.replace(/\.[^.]+$/, '.wav') : file.name
+    setSample(await saveVoiceSample(blob, name))
     notify('音频样本已保存，可点击「克隆为 AI 发音」')
   }
 
   const doClone = async () => {
     if (!sample) { notify('请先录音或选择音频文件'); return }
     setCloning(true)
+    setCloneError('')
     try {
       const r = await cloneVoiceFromSample(sample)
-      if (!r.ok) { notify(r.error ?? '克隆失败'); return }
+      if (!r.ok) {
+        const msg = r.error ?? '克隆失败'
+        setCloneError(msg)
+        notify(msg)
+        return
+      }
       setClonedId(r.voiceId ?? null)
       setClonedVoices(listClonedVoices())
       notify('克隆成功，AI 回复将优先使用该音色')
@@ -151,7 +178,7 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
       {/* 声音克隆 */}
       <div className="voice-section-label dialect"><Volume2 size={14} /> 声音克隆（录音 / 音频文件 → AI 发音）</div>
       <div className="voice-row" style={{ flexWrap: 'wrap', gap: 8 }}>
-        <button className="btn sm" disabled={desktop} title={desktop ? '桌面 WebView 不支持浏览器录音' : '录制 8 秒声音样本'} onClick={() => void doRecord()}><Mic size={14} /> 录音 8 秒</button>
+        <button className="btn sm" disabled={desktop} title={desktop ? '桌面 WebView 不支持浏览器录音' : '连续朗读 12 秒（10~20 秒最佳）'} onClick={() => void doRecord()}><Mic size={14} /> 录音 12 秒</button>
         {desktop ? (
           <button className="btn sm primary" onClick={() => void pickNativeAudio()}><Volume2 size={14} /> 选择音频文件</button>
         ) : (
@@ -166,6 +193,12 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
         {sample && <button className="btn sm ghost" onClick={() => void removeSample()}><Trash2 size={14} /> 删除样本</button>}
       </div>
       {sample && <div className="voice-hint">样本：{sample.name}（{(sample.size / 1024).toFixed(0)} KB）</div>}
+      {sample && /\.(amr|3gpp)$/i.test(sample.name) && (
+        <div className="voice-hint" style={{ color: 'var(--red)' }}>
+          <Info size={13} /> 当前样本是 AMR 格式，语音服务不支持。请点「录音 12 秒」重新录，或从「选择音频文件」导入 WAV / MP3 / M4A。
+        </div>
+      )}
+      {cloneError && <div className="voice-clone-error"><Info size={14} /> <span>{cloneError}</span><button className="icon-btn" onClick={() => setCloneError('')}>×</button></div>}
       {!ttsConfigured && <div className="voice-hint"><Info size={13} /> 声音克隆需要第三方语音服务代理（下方配置）；内置免费模型不提供克隆能力。</div>}
       {desktop && <div className="voice-hint"><Info size={13} /> 桌面 WebView 不提供浏览器录音接口；请用「选择音频文件」导入样本（可先用 QuickTime 等工具录音）。</div>}
 
