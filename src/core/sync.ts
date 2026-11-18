@@ -40,9 +40,32 @@ export interface PushResult {
   error?: string
 }
 
-function errMsg(error: unknown): string {
-  const e = error as { message?: string }
-  return e?.message ?? String(error)
+export function errMsg(error: unknown): string {
+  // 云 SDK 的错误结构不固定：可能是 Error、{message}、{error:{message}}、
+  // 或 message 本身又是个对象。深度提取可读文本，避免显示 [object Object]。
+  const seen = new Set<unknown>()
+  const pick = (v: unknown, depth: number): string => {
+    if (v == null || depth > 4 || seen.has(v)) return ''
+    seen.add(v)
+    if (typeof v === 'string') return v.trim()
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+    if (v instanceof Error) return pick(v.message, depth + 1) || v.name
+    if (Array.isArray(v)) return v.map(x => pick(x, depth + 1)).filter(Boolean).join('; ')
+    if (typeof v === 'object') {
+      const o = v as Record<string, unknown>
+      for (const k of ['message', 'msg', 'error_description', 'error', 'hint', 'details', 'detail', 'code']) {
+        const s = pick(o[k], depth + 1)
+        if (s && s !== '[object Object]') return s
+      }
+      // 兜底：安全序列化
+      try {
+        const s = JSON.stringify(o)
+        if (s && s !== '{}') return s.slice(0, 200)
+      } catch { /* ignore */ }
+    }
+    return ''
+  }
+  return pick(error, 0) || '未知错误（请检查网络或云同步登录状态）'
 }
 
 function dbAny() { return cloud.database as any }

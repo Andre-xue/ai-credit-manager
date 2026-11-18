@@ -15,10 +15,14 @@ const isMobile = (v: string) => /^1\d{10}$/.test(v)
 function friendlyAuthError(message: string): string {
   const m = String(message ?? '')
   if (/password not set|no password|password.*(not set|unset)/i.test(m)) {
-    return '该账号还没有设置密码：早期用手机号注册/登录的账号无法补设密码，请改用「手机号 + 验证码」登录；邮箱账号可在下方点「设置密码」后即可用密码登录。'
+    return '这个手机号/账号没有设置过密码，所以密码登录一定失败。注意：密码是绑定在账号上的，换了新手机号不会自动带着旧密码。请用「手机号 + 验证码」登录（下方有一键切换）；想用密码登录，请用你当初设置过密码的邮箱账号。'
   }
-  if (/invalid.*(password|credential)|wrong password|password.*incorrect/i.test(m)) return '密码错误，请重新输入'
-  if (/user not found|no user|account not found|not registered/i.test(m)) return '账号不存在，请确认账号或先用验证码注册'
+  if (/invalid.*(password|credential)|wrong password|password.*incorrect/i.test(m)) {
+    return '密码错误。如果你刚换了新手机号：新号码是另一个账号，旧号码的密码不适用——请用「手机号 + 验证码」登录，或输入你当初设密码的那个邮箱。'
+  }
+  if (/user not found|no user|account not found|not registered/i.test(m)) {
+    return '这个账号不存在或未注册。换了新手机号的话，请先用「手机号 + 验证码」登录完成注册；旧账号的密码不能用于新号码。'
+  }
   if (/too many|rate limit|429/i.test(m)) return '尝试次数过多，请稍后再试'
   return m
 }
@@ -222,6 +226,14 @@ export function CloudLoginModal({ onClose, onSuccess }: {
             <button className="btn primary" style={{ width: '100%', marginTop: 18, justifyContent: 'center' }} onClick={() => void signInPassword()} disabled={busy}>
               {busy ? <><Loader2 size={14} className="spin" /> 登录中…</> : '密码登录'}
             </button>
+            {/* 换了新手机号后用密码登录失败：一键带着号码切到验证码登录 */}
+            {isMobile(account.trim()) && (
+              <button className="form-link" style={{ marginTop: 10 }} onClick={() => {
+                setIdentifier(account.trim()); setMethod('phone'); setErr(''); setCode(''); setPending(null)
+              }}>
+                这个手机号用不了密码？改用验证码登录 →
+              </button>
+            )}
             <button className="form-link" style={{ marginTop: 12 }} onClick={() => { setShowReset(v => !v); setErr(''); setResetChallenge(null); setResetCode(''); setResetNewPwd('') }}>
               {showReset ? '收起' : '邮箱账号设置 / 找回密码'}
             </button>
