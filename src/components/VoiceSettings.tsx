@@ -37,7 +37,7 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
   const [cloneError, setCloneError] = useState('')
   const [volcConfig, setVolcConfig] = useState<VolcConfig>(() => getVolcConfig())
   const [volcOpen, setVolcOpen] = useState(false)
-  const [providersOpen, setProvidersOpen] = useState(false)
+  const [providersOpen, setProvidersOpen] = useState(() => typeof location !== 'undefined' && location.hash.includes('showProviders'))
   const desktop = isDesktopApp()
   const fileRef = useRef<HTMLInputElement | null>(null)
 
@@ -271,18 +271,25 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
         <Globe2 size={14} /> 声音服务目录（{VOICE_PROVIDERS.length} 家 · 免费优先）<span>{providersOpen ? '收起' : '展开'}</span>
       </button>
       {providersOpen && <div className="voice-provider-list">
-        {VOICE_PROVIDERS.map(p => (
-          <div key={p.id} className={`voice-provider-row ${p.recommended ? 'recommended' : ''}`}>
-            <button className="voice-provider-row-main" onClick={() => {
-              setConfig({ ...config, provider: p.id === 'system' ? '' : p.id as TtsProviderConfig['provider'] }); setConfigOpen(true)
-            }}>
-              <span className="voice-provider-row-name">{p.name}</span>
-              <span className="voice-provider-row-free">{p.free}</span>
-            </button>
-            {p.id !== 'system' && <button className="voice-provider-row-doc" title={`打开 ${p.name} 官方文档`}
-              onClick={() => void openExternal(p.docs)}><ExternalLink size={13} /></button>}
-          </div>
-        ))}
+        {VOICE_PROVIDERS.map(p => {
+          // 当前生效的服务商：已保存第三方配置则用它，否则为系统内置（默认兜底）
+          const selected = (ttsConfigured && config.provider ? config.provider : 'system') === p.id
+          return (
+            <div key={p.id} className={`voice-provider-row ${selected ? 'selected' : ''}`}>
+              <button className="voice-provider-row-main" onClick={() => {
+                setConfig({ ...config, provider: p.id === 'system' ? '' : p.id as TtsProviderConfig['provider'] }); setConfigOpen(true)
+              }}>
+                {selected && <Check size={14} className="voice-provider-row-check" />}
+                <span className="voice-provider-row-name">{p.name}</span>
+                {p.recommended && <em className="voice-provider-row-badge">免费优先</em>}
+                <span className="voice-provider-row-free">{p.free}</span>
+                {selected && <span className="voice-provider-row-using">使用中</span>}
+              </button>
+              {p.id !== 'system' && <button className="voice-provider-row-doc" title={`打开 ${p.name} 官方文档`}
+                onClick={() => void openExternal(p.docs)}><ExternalLink size={13} /></button>}
+            </div>
+          )
+        })}
       </div>}
 
       {/* 第三方 TTS 配置 */}

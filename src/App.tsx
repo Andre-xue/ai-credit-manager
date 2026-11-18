@@ -78,10 +78,8 @@ function App() {
   const phonePreview = typeof location !== 'undefined' && (new URLSearchParams(location.search).get('preview') === 'phone' || location.hash.includes('preview=phone'))
   const isPhone = isNativeApp() || phonePreview
   const [tab, setTab] = useState<Tab>(() => {
-    if (phonePreview) {
-      const t = new URLSearchParams(location.search).get('tab')
-      if (t && ['ai', 'dashboard', 'checkin', 'benefits', 'keys', 'usage', 'voice', 'settings'].includes(t)) return t as Tab
-    }
+    const t = new URLSearchParams(location.search).get('tab')
+    if (t && ['ai', 'dashboard', 'checkin', 'benefits', 'keys', 'usage', 'voice', 'settings'].includes(t)) return t as Tab
     return isPhone ? 'ai' : 'dashboard'
   })
   const [sidebarVisible, setSidebarVisible] = useState<boolean>(() => {
