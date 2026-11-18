@@ -12,7 +12,7 @@ import { isLocalProvider } from './core/types'
 import { detectLocalServices, type LocalService } from './core/localServices'
 import { PROVIDERS, PROVIDER_MAP, CATEGORY_LABEL, CATEGORY_ORDER } from './data/providers'
 import {
-  loadState, saveState, uid, updateAccount, removeAccount, upsertQuota, latestQuota, toggleCheckin,
+  loadState, saveStateDebounced, flushState, uid, updateAccount, removeAccount, upsertQuota, latestQuota, toggleCheckin,
   importState, mergeState, addUsageEvent, updateSettings, clearAllData, markBenefit,
 } from './core/store'
 import { BENEFITS, BENEFIT_KIND_LABEL, type BenefitItem } from './data/benefits'
@@ -111,7 +111,18 @@ function App() {
     touchCurrentDevice()
   }, [])
 
-  useEffect(() => { saveState(state) }, [state])
+  useEffect(() => { saveStateDebounced(state) }, [state])
+  // 页面隐藏/关闭前立即落盘，避免 250ms 防抖窗口内丢失最后一笔
+  useEffect(() => {
+    const flush = () => { if (document.visibilityState === 'hidden') flushState() }
+    document.addEventListener('visibilitychange', flush)
+    window.addEventListener('beforeunload', flushState)
+    return () => {
+      document.removeEventListener('visibilitychange', flush)
+      window.removeEventListener('beforeunload', flushState)
+      flushState()
+    }
+  }, [])
 
   // 切换模块后重置滚动到顶部，避免从长页面切到短页面时停留在半空造成"一高一低"
   useEffect(() => {
@@ -261,12 +272,13 @@ function App() {
   /** 检查云端是否有其他端的更新：版本变化且不是自己推的，则拉取并刷新 */
   const checkRemote = useCallback(async (silent = true) => {
     if (!cloudUserRef.current || !syncReady.current || syncingRef.current) return
-    const known = getRemoteVersion()
-    const check = await checkRemoteVersion()
-    if (!check.ok || !check.version) return
-    if (known && check.version === known) return   // 无变化
+    // 先占互斥锁再发请求，避免 interval 与 visibilitychange 并发触发重复拉取
     syncingRef.current = true
     try {
+      const known = getRemoteVersion()
+      const check = await checkRemoteVersion()
+      if (!check.ok || !check.version) return
+      if (known && check.version === known) return   // 无变化
       const result = await pullPayload()
       if (!result.ok) return
       // 是自己刚推的（比如推送延迟导致基线未更新），只更新基线不覆盖本地
@@ -281,14 +293,25 @@ function App() {
     } finally { syncingRef.current = false }
   }, [applyRemote, notify])
 
-  // 定时轮询（5s）+ 切回前台立即检查：实现无需手动点击、无需重开 App 的自动刷新
+  // 轮询 + 切回前台立即检查：后台/锁屏时暂停轮询，省电省流量
   useEffect(() => {
     if (!cloudUser) return
-    const timer = window.setInterval(() => { void checkRemote() }, 5000)
-    const onVisible = () => { if (document.visibilityState === 'visible') void checkRemote() }
+    let timer: number | null = null
+    const start = () => {
+      if (timer !== null) return
+      void checkRemote()  // 切回前台立即检查一次
+      timer = window.setInterval(() => {
+        if (document.visibilityState === 'visible') void checkRemote()
+      }, 8000)
+    }
+    const stop = () => {
+      if (timer !== null) { window.clearInterval(timer); timer = null }
+    }
+    const onVisible = () => { if (document.visibilityState === 'visible') start(); else stop() }
+    if (document.visibilityState === 'visible') start()
     document.addEventListener('visibilitychange', onVisible)
     return () => {
-      window.clearInterval(timer)
+      stop()
       document.removeEventListener('visibilitychange', onVisible)
     }
   }, [cloudUser, checkRemote])

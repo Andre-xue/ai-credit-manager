@@ -95,16 +95,21 @@ export function renameClonedVoice(id: string, name: string): void {
   saveClonedVoices(list)
 }
 
+// 复用单个 IndexedDB 连接，避免每次操作 open 新连接造成资源累积（内存泄漏）
+let dbPromise: Promise<IDBDatabase> | null = null
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (dbPromise) return dbPromise
+  dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1)
     req.onupgradeneeded = () => {
       const db = req.result
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE)
     }
     req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
+    req.onerror = () => { dbPromise = null; reject(req.error) }
+    req.onblocked = () => { dbPromise = null; reject(new Error('IndexedDB 被其他标签页占用')) }
   })
+  return dbPromise
 }
 
 function toDataUrl(blob: Blob): Promise<string> {
@@ -158,10 +163,12 @@ export async function deleteVoiceSample(): Promise<void> {
 
 /** 把任意浏览器可解码的音频 Blob 转成 16-bit PCM WAV（百炼稳定支持）。失败则返回 null 由调用方兜底。 */
 export async function blobToWav(blob: Blob): Promise<Blob | null> {
+  let ctx: AudioContext | null = null
+  let off: OfflineAudioContext | null = null
   try {
     const Ctx = window.AudioContext || (window as any).webkitAudioContext
     if (!Ctx) return null
-    const ctx = new Ctx()
+    ctx = new Ctx()
     const buf = await blob.arrayBuffer()
     const decoded = await ctx.decodeAudioData(buf)
     // 单声道、16kHz 即可满足百炼 ≥16kHz 要求，体积更小
@@ -169,7 +176,7 @@ export async function blobToWav(blob: Blob): Promise<Blob | null> {
     const ch = 1
     const len = Math.floor(decoded.duration * targetRate)
     // 用 OfflineAudioContext 重采样到 16k 单声道
-    const off = new OfflineAudioContext(ch, len, targetRate)
+    off = new OfflineAudioContext(ch, len, targetRate)
     const src = off.createBufferSource()
     src.buffer = decoded
     src.connect(off.destination)
@@ -191,6 +198,12 @@ export async function blobToWav(blob: Blob): Promise<Blob | null> {
     w(36, 'data'); dv.setUint32(40, pcm.byteLength, true)
     return new Blob([header, pcm], { type: 'audio/wav' })
   } catch { return null }
+  finally {
+    // 释放 AudioContext，避免反复转换后累积（浏览器有同时存活数量上限）。
+    // OfflineAudioContext 渲染完即被回收，无需也无法在此 TS 版本下显式 close。
+    try { void ctx?.close() } catch { /* ignore */ }
+    off = null
+  }
 }
 
 /** 挑选 MediaRecorder 支持的、百炼可接受的音频 MIME（优先 wav，其次 opus/webm，绝不用 amr/3gpp） */

@@ -4,7 +4,7 @@
 
 > **仓库**：https://github.com/Andre-xue/ai-credit-manager
 > **线上演示**（启用 Pages 后）：https://andre-xue.github.io/ai-credit-manager/
-> **Docker 镜像**：`docker compose up -d` → http://localhost:8080
+> **Docker 镜像**：`docker compose up -d` → http://localhost:8081
 
 ## Docker 版（容器运行）
 
@@ -13,14 +13,14 @@
 ```bash
 # 方式一：docker compose（推荐）
 docker compose up -d --build
-# 访问 http://localhost:8080
+# 访问 http://localhost:8081
 
 # 方式二：纯 docker 命令
 docker build -t ai-credit-manager:latest .
-docker run -d --name ai-credit-manager -p 8080:80 --restart unless-stopped ai-credit-manager:latest
+docker run -d --name ai-credit-manager -p 8081:80 --restart unless-stopped ai-credit-manager:latest
 ```
 
-- 健康检查：`curl http://localhost:8080/health` 返回 `ok`
+- 健康检查：`curl http://localhost:8081/health` 返回 `ok`
 - 更新：[见下方"GitHub 实时更新"](#github-实时更新)
 
 > **数据说明**：本应用为本地优先架构，所有账户/额度/密钥数据保存在**浏览器 localStorage**，容器不持久化任何用户数据。因此容器可随时删除重建，数据不会丢失；但换浏览器/设备需通过「导出/导入」迁移。容器本身无状态，无需挂载数据卷。
@@ -72,7 +72,7 @@ npm run dev     # 启动，然后浏览器访问 http://localhost:5173
 **关于 iOS**：Apple 要求所有 iOS 应用必须签名才能在真机安装，签名需要加入 Apple Developer 计划（$99/年）。因此无法提供可直接安装的 IPA。可选方案：
 1. **自行编译**（免费）：在有 Xcode 的 Mac 上 `cd android && npx cap add ios && npx cap sync ios && npx cap open ios`，用免费开发者账号签名后安装到自己的设备
 2. **TestFlight 分发**：加入开发者计划后走 App Store Connect 分发给测试者
-3. **使用 Web 版**：把 `http://localhost:8080`（Docker）或 Pages 线上地址添加到 iPhone 主屏幕，体验接近原生 App
+3. **使用 Web 版**：把 `http://localhost:8081`（Docker）或 Pages 线上地址添加到 iPhone 主屏幕，体验接近原生 App
 
 
 > **定位说明**：本工具管理的是你**自己账户**的资源。所有数据本地优先存储；签到仅做提醒并跳转官方页面，由你本人登录完成领取。工具**不模拟登录、不自动领取、不共享凭证、不抓取私有接口**，因此可通过各应用商店与小程序审核。

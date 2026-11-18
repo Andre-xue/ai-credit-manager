@@ -164,24 +164,30 @@ export function resetVault(): void {
   clearBiometricPassword()
 }
 
-/** 保险箱原始材料，用于跨设备同步（盐+校验位+指纹模式混淆密码）。主密码永不入库，仅用户持有。 */
+/**
+ * 保险箱同步材料：仅盐 + 校验位，用于跨设备解密同一批密钥密文。
+ * 安全约束：**主密码凭据（含生物解锁用的混淆密码）绝不进入同步/备份**——
+ * 它是可还原的主密码副本，一旦上传云端或写入备份，保险箱即形同虚设。
+ * 生物解锁是本机便利功能，各设备各自在本机设置，不跨设备同步。
+ */
 export interface VaultSyncMaterial {
   salt: string | null
   verify: string | null
-  biometricPwd: string | null
+  /** 仅为兼容读取旧备份/旧云端数据而保留；导出时永远为 null，应用时忽略 */
+  biometricPwd?: string | null
 }
 
 export function getVaultSyncMaterial(): VaultSyncMaterial {
   return {
     salt: localStorage.getItem(SALT_KEY),
     verify: localStorage.getItem(VERIFY_KEY),
-    biometricPwd: localStorage.getItem(BIOMETRIC_PWD_KEY),
+    biometricPwd: null,
   }
 }
 
-/** 应用来自云端的保险箱材料。仅当本地无保险箱时应用，避免覆盖本机正在使用的密钥体系。 */
+/** 应用来自云端/备份的保险箱材料。仅还原盐与校验位；主密码凭据始终忽略。 */
 export function applyVaultSyncMaterial(m: VaultSyncMaterial): void {
   if (m.salt) localStorage.setItem(SALT_KEY, m.salt)
   if (m.verify) localStorage.setItem(VERIFY_KEY, m.verify)
-  if (m.biometricPwd) localStorage.setItem(BIOMETRIC_PWD_KEY, m.biometricPwd)
+  // 不还原 biometricPwd：旧数据里的可还原主密码副本一律丢弃
 }

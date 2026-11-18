@@ -30,16 +30,21 @@ const EMPTY_CONFIG: TtsProviderConfig = { provider: '', endpoint: '' }
 /** 切换音色时的标准提示（保留原意，措辞更自然） */
 export const SWITCH_NOTICE = '为避免存储空间过载，已清理原下载的音色，正在下载新音色…'
 
+// 复用单个 IndexedDB 连接，避免每次操作 open 新连接造成资源累积（内存泄漏）
+let dbPromise: Promise<IDBDatabase> | null = null
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (dbPromise) return dbPromise
+  dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1)
     req.onupgradeneeded = () => {
       const db = req.result
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE)
     }
     req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
+    req.onerror = () => { dbPromise = null; reject(req.error) }
+    req.onblocked = () => { dbPromise = null; reject(new Error('IndexedDB 被其他标签页占用')) }
   })
+  return dbPromise
 }
 
 /** 读取当前已下载的音色文件（只会有一个） */

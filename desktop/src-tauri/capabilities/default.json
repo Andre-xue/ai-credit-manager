@@ -9,12 +9,7 @@
     "dialog:allow-save",
     "dialog:allow-message",
     "fs:allow-read-file",
-    "fs:allow-write-file",
-    "fs:allow-mkdir",
     "fs:allow-exists",
-    "fs:allow-remove",
-    "fs:allow-copy-file",
-    { "identifier": "fs:scope", "allow": ["**/*"] },
     "updater:default",
     "process:allow-restart",
     "process:allow-exit"

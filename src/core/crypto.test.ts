@@ -17,8 +17,25 @@ beforeAll(async () => {
 
 const {
   fingerprint, isVaultInitialized, initVault, verifyVault, encryptSecret, decryptSecret,
-  resetVault, changeMasterPassword,
+  resetVault, changeMasterPassword, getVaultSyncMaterial, applyVaultSyncMaterial,
+  saveBiometricPassword, getBiometricPassword,
 } = await import('./crypto')
+
+describe('保险箱同步材料不含主密码凭据（安全回归）', () => {
+  it('getVaultSyncMaterial 绝不返回可还原的主密码', () => {
+    resetVault()
+    saveBiometricPassword('super-secret-master-pwd')
+    const mat = getVaultSyncMaterial()
+    expect(mat.biometricPwd == null || mat.biometricPwd === '').toBe(true)
+    expect(JSON.stringify(mat)).not.toContain('super-secret-master-pwd')
+  })
+
+  it('applyVaultSyncMaterial 忽略旧数据里的 biometricPwd，不还原到本机', () => {
+    resetVault()
+    applyVaultSyncMaterial({ salt: 's', verify: 'v', biometricPwd: 'obfuscated-old-pwd' })
+    expect(getBiometricPassword()).toBeNull()
+  })
+})
 
 describe('fingerprint', () => {
   it('短密钥打码', () => {

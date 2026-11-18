@@ -1,16 +1,39 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::OnceLock;
+
+/// 进程级共享 HTTP Client：复用 TLS 连接池，避免每次调用重新握手（性能）。
+/// 官方端点用默认重定向策略；用户自定义 API 端点用禁用重定向的版本（SSRF 防护）。
+fn shared_http_client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .user_agent("ai-credit-manager/0.1")
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .expect("初始化 HTTP 客户端失败")
+    })
+}
+
+fn shared_provider_client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .user_agent("ai-credit-manager/0.1")
+            .timeout(std::time::Duration::from_secs(120))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("初始化 API 代理客户端失败")
+    })
+}
 
 /// 云 LLM 代理：桌面 WebView 直连云端 SSE 会被 CORS 拦截（POST /chat/completions 预检失败），
 /// 由 Rust 后端带 publishableKey 头转发，收集 SSE 的 content delta 后返回完整文本。
 #[tauri::command]
 async fn call_cloud_llm(endpoint: String, publishable_key: String, body_json: String, conversation_id: Option<String>) -> Result<String, String> {
     let url = format!("{}/.cloud/llm/chat/completions", endpoint.trim_end_matches('/'));
-    let client = reqwest::Client::builder()
-        .user_agent("ai-credit-manager/0.1")
-        .timeout(std::time::Duration::from_secs(120))
-        .build().map_err(|e| e.to_string())?;
+    let client = shared_http_client();
     let _: serde_json::Value = serde_json::from_str(&body_json).map_err(|e| format!("请求体非法：{}", e))?;
     let mut req = client.post(&url)
         .header("x-wb-webapp-access-key", &publishable_key)
@@ -43,23 +66,69 @@ async fn call_cloud_llm(endpoint: String, publishable_key: String, body_json: St
     Ok(answer)
 }
 
+/// 校验代理目标 URL，防止 SSRF 与 API Key 外泄。
+/// - https：允许公网域名，但拒绝解析到内网/回环/链路本地/云元数据地址的主机
+/// - http：仅允许本机（localhost / 127.0.0.0/8 / ::1），供本地 Ollama 等模型使用
+fn validate_proxy_url(raw: &str) -> Result<reqwest::Url, String> {
+    let u = reqwest::Url::parse(raw).map_err(|_| "URL 格式不合法".to_string())?;
+    let scheme = u.scheme();
+    if scheme != "https" && scheme != "http" {
+        return Err("仅允许 http(s) 协议".into())
+    }
+    let host = u.host_str().ok_or_else(|| "URL 缺少主机".to_string())?;
+    let is_local = host == "localhost"
+        || host == "::1"
+        || host == "[::1]"
+        || host.starts_with("127.")
+        || host == "0.0.0.0";
+    if scheme == "http" {
+        if !is_local {
+            return Err("http 仅允许本机地址（localhost / 127.0.0.1 / ::1）".into())
+        }
+        return Ok(u)
+    }
+    // https：拒绝字面量的内网/保留地址（防止 https://127.0.0.1、169.254.169.254 等绕过）
+    let ip_blocked = host.parse::<std::net::IpAddr>().map(|ip| !is_public_ip(&ip)).unwrap_or(false);
+    if is_local || ip_blocked {
+        return Err("不允许请求内网或本机地址".into())
+    }
+    Ok(u)
+}
+
+/// 判断 IP 是否为公网地址（用于 SSRF 防护）
+fn is_public_ip(ip: &std::net::IpAddr) -> bool {
+    use std::net::IpAddr;
+    match ip {
+        IpAddr::V4(v) => {
+            let o = v.octets();
+            !(o[0] == 10
+                || o[0] == 127
+                || o[0] == 0
+                || (o[0] == 169 && o[1] == 254)
+                || (o[0] == 172 && (16..=31).contains(&o[1]))
+                || (o[0] == 192 && o[1] == 168)
+                || (o[0] == 100 && (64..=127).contains(&o[1]))
+                || (o[0] >= 224))
+        }
+        IpAddr::V6(v) => {
+            !v.is_loopback() && !v.is_unspecified() && !v.is_multicast()
+                // 拒绝 IPv4 映射的内网地址
+                && v.to_ipv4().map(|x| is_public_ip(&IpAddr::V4(x))).unwrap_or(true)
+        }
+    }
+}
+
 /// 通用模型 API 代理：让「用自己 Key 调用」绕过桌面 CORS。
-/// 安全约束：仅 http(s)；禁止内网/回环以外的私有地址（防止开放代理 SSRF）；
+/// 安全约束：仅 http(s)，且拒绝内网/回环/保留地址（防止开放代理 SSRF 与 Key 外发）；
 /// 不存储任何凭证，Key 仅用于本次请求头。生图/视频的异步任务也用此命令提交与轮询。
 #[tauri::command]
 async fn call_provider_api(url: String, api_key: String, body_json: String, method: String) -> Result<String, String> {
     if api_key.trim().is_empty() { return Err("API Key 不能为空".into()) }
-    // URL 基础校验
-    if !(url.starts_with("https://") || url.starts_with("http://localhost") || url.starts_with("http://127.0.0.1")) {
-        return Err("仅允许 https 或本机地址".into())
-    }
+    let url = validate_proxy_url(&url)?.to_string();
     let m = method.to_uppercase();
     if m != "POST" && m != "GET" { return Err("仅支持 POST / GET".into()) }
 
-    let client = reqwest::Client::builder()
-        .user_agent("ai-credit-manager/0.1")
-        .timeout(std::time::Duration::from_secs(120))
-        .build().map_err(|e| format!("客户端初始化失败：{}", e))?;
+    let client = shared_provider_client(); // 进程级复用；已禁用重定向，避免 302 到内网绕过 SSRF 校验
 
     let mut req = if m == "POST" {
         let parsed: serde_json::Value = serde_json::from_str(&body_json)
@@ -356,10 +425,7 @@ async fn proxy_usage(provider: String, api_key: String) -> Result<serde_json::Va
         _ => return Err(format!("平台 {} 不支持官方只读用量 API", provider)),
     };
 
-    let client = reqwest::Client::builder()
-        .user_agent("ai-credit-manager/0.1")
-        .build()
-        .map_err(|e| format!("客户端初始化失败：{}", e))?;
+    let client = shared_http_client();
     let mut req = client.get(url).header("Authorization", format!("Bearer {}", api_key));
     if need_range {
         let now = SystemTime::now()

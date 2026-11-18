@@ -92,8 +92,15 @@ export async function buildKeyBackup(
   }
 }
 
-const csvCell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+/** CSV 单元格：转义双引号，并防公式注入（= + - @ 等开头加单引号） */
+const csvCell = (v: unknown) => {
+  const s = String(v ?? '')
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s
+  return `"${safe.replace(/"/g, '""')}"`
+}
 
+// 不再导出 vaultBiometricPwd（可还原的主密码副本）。列顺序保持不变以兼容旧导入，
+// 该列留空；导入端也忽略旧值。
 const CSV_HEADER = [
   'kind', 'version', 'backupId', 'confirmationCode', 'createdAt', 'format',
   'vaultSalt', 'vaultVerify', 'vaultBiometricPwd',
@@ -133,7 +140,7 @@ export function serializeKeyBackup(backup: KeyBackupFile, fileFormat: BackupFile
     '[vault]',
     `salt=${JSON.stringify(vault?.salt ?? null)}`,
     `verify=${JSON.stringify(vault?.verify ?? null)}`,
-    `biometricPwd=${JSON.stringify(vault?.biometricPwd ?? null)}`,
+    // 不写入主密码凭据；旧备份里的 biometricPwd 行在导入时也会被忽略
   ]
   rows.forEach(r => {
     lines.push('[account]')

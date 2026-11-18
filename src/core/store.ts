@@ -44,6 +44,26 @@ export function saveState(state: AppState): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
 }
 
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+let pendingState: AppState | null = null
+
+/** 防抖持久化：频繁 setState 时避免每次都同步 JSON.stringify + 主线程 IO */
+export function saveStateDebounced(state: AppState): void {
+  pendingState = state
+  if (saveTimer !== null) clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    if (pendingState) saveState(pendingState)
+    pendingState = null
+    saveTimer = null
+  }, 250)
+}
+
+/** 立即落盘（页面隐藏/卸载、关键操作后调用），避免防抖窗口内丢失 */
+export function flushState(): void {
+  if (saveTimer !== null) { clearTimeout(saveTimer); saveTimer = null }
+  if (pendingState) { saveState(pendingState); pendingState = null }
+}
+
 /** 局部更新设置项 */
 export function updateSettings(state: AppState, patch: Partial<AppState['settings']>): AppState {
   return { ...state, settings: { ...state.settings, ...patch } }
