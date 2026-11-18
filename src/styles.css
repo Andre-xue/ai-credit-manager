@@ -1397,3 +1397,34 @@ html, body { touch-action: manipulation; }
   .ap-modal { max-width: 100%; }
   .ap-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
 }
+
+/* ============ 设置中心模态弹窗（通用基础，各主题再覆盖） ============ */
+.set-modal-backdrop {
+  position: fixed; inset: 0; z-index: 70;
+  background: rgba(17, 24, 39, .42);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.set-modal {
+  width: min(920px, 96vw); max-height: min(88vh, 860px);
+  background: var(--panel); border-radius: 16px; overflow: hidden;
+  display: flex; flex-direction: column;
+  box-shadow: var(--shadow-lg);
+}
+.set-modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 24px; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.set-modal-head h2 { font-size: 17px; font-weight: 600; margin: 0; }
+.set-modal-body { display: flex; flex-direction: column; min-height: 0; flex: 1; overflow: hidden; }
+.set-modal-body > .set-hero { display: none; }
+/* 非 Claude 主题：tabs 横排在顶部，内容全宽 */
+.set-modal-body .set-tabs { flex: 0 0 auto; overflow-x: auto; }
+.set-modal-body .set-content { flex: 1 1 auto; min-width: 0; overflow-y: auto; }
+@media (max-width: 680px) {
+  .set-modal-backdrop { padding: 0; align-items: flex-end; }
+  .set-modal { width: 100%; max-width: 100%; max-height: 92dvh; border-radius: 18px 18px 0 0; }
+  .set-modal-head { padding: 14px 18px; }
+  .set-modal-body .set-content { padding: 16px 16px 40px; }
+}

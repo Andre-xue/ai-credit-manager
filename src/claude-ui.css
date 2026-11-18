@@ -196,27 +196,46 @@
   padding: 18px 24px; border-bottom: 1px solid #f0f0ee;
 }
 .claude-ui .set-modal-head h2 { font-size: 16px; font-weight: 600; margin: 0; }
-.claude-ui .set-modal-body { display: flex; min-height: 0; flex: 1; }
-/* SettingsView 内部：隐藏大 hero（模态头部已是标题），把横排 tabs 变成左侧竖排导航 */
+/* SettingsView 内部：隐藏大 hero（模态头部已是标题） */
 .claude-ui .set-modal-body > .set-hero { display: none; }
-.claude-ui .set-modal-body { display: block; }
+/* 用 flex 左右布局，替代脆弱的 float+margin（真机上会把内容挤成窄条导致文字竖排） */
+.claude-ui .set-modal-body { display: flex; flex-direction: row; min-height: 0; flex: 1; overflow: hidden; }
 .claude-ui .set-tabs {
   display: flex; flex-direction: column; gap: 2px;
-  width: 190px; float: left; height: 100%;
+  flex: 0 0 190px; width: 190px;
   padding: 16px 10px; margin: 0;
-  background: #f9f9f8; border-right: 1px solid #f0f0ee; border-bottom: none;
-  box-sizing: border-box;
+  background: #f9f9f8; border-right: 1px solid #f0f0ee;
+  box-sizing: border-box; overflow-y: auto;
 }
 .claude-ui .set-tabs button {
   display: flex; align-items: center; gap: 10px;
   width: 100%; padding: 9px 12px; border: none; border-radius: 8px;
   background: transparent; color: #55565a; font-size: 13px; text-align: left;
+  white-space: nowrap; flex-shrink: 0;
 }
 .claude-ui .set-tabs button.active { background: #ebebe8; color: #1f2023; font-weight: 600; }
-.claude-ui .set-content { margin-left: 190px; padding: 24px 28px 40px; }
-.claude-ui .set-modal-body::after { content: ''; display: block; clear: both; }
-/* 弹窗滚动：整体内容区可滚动，设置内容跟随 */
-.claude-ui .set-modal-body { overflow-y: auto; }
+.claude-ui .set-content { flex: 1 1 auto; min-width: 0; padding: 24px 28px 40px; overflow-y: auto; }
+
+/* 手机端：弹窗改为上下布局，分类导航变横向 tab 条，内容全宽 —— 根治窄屏内容被挤成竖排 */
+@media (max-width: 680px) {
+  .claude-ui .set-modal-backdrop { padding: 0; align-items: flex-end; }
+  .claude-ui .set-modal {
+    width: 100%; max-width: 100%; max-height: 92dvh;
+    border-radius: 18px 18px 0 0;
+  }
+  .claude-ui .set-modal-head { padding: 16px 20px; }
+  .claude-ui .set-modal-body { flex-direction: column; }
+  .claude-ui .set-tabs {
+    flex: 0 0 auto; width: 100%; flex-direction: row; gap: 6px;
+    padding: 10px 14px; border-right: none; border-bottom: 1px solid #f0f0ee;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .claude-ui .set-tabs::-webkit-scrollbar { display: none; }
+  .claude-ui .set-tabs button {
+    flex: 0 0 auto; width: auto; padding: 8px 14px; white-space: nowrap;
+  }
+  .claude-ui .set-content { padding: 18px 18px 40px; }
+}
 
 /* 动效关闭时：本主题动画也禁用 */
 .no-motion.claude-ui *,
