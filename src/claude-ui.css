@@ -251,3 +251,61 @@
 /* pwa-512 图标自带圆角，容器圆角与它对齐，避免边角露出底色 */
 .brand-mark { border-radius: 9px !important; }
 .ai-welcome-mark { border-radius: 13px !important; }
+
+/* ============================================================
+   AI 聊天页布局（全平台统一，覆盖三种风格与手机/桌面）
+   welcome=刚进入(欢迎居中) / focus=点了输入框(欢迎隐藏,输入框居中) / chat=已对话(输入框贴底)
+   ============================================================ */
+
+/* 顶部栏：只留三个图标靠右，间距适中 */
+.ai-layout-welcome .ai-topbar,
+.ai-layout-focus .ai-topbar,
+.ai-layout-chat .ai-topbar {
+  display: flex; justify-content: flex-end; align-items: center;
+  border-bottom: none; padding: 12px 0 8px; min-height: 44px;
+}
+.ai-layout-welcome .ai-top-actions,
+.ai-layout-focus .ai-top-actions,
+.ai-layout-chat .ai-top-actions { gap: 16px; min-width: 0; }
+
+/* 欢迎区：只留图标+欢迎语，屏幕正中间；去掉描述与快捷卡（JSX 已删） */
+.ai-layout-welcome .ai-welcome,
+.ai-layout-focus .ai-welcome {
+  margin: 0 auto; text-align: center; max-width: 720px;
+}
+.ai-layout-welcome .ai-welcome-mark,
+.ai-layout-focus .ai-welcome-mark { margin: 0 auto 20px; }
+.ai-layout-welcome .ai-welcome h2,
+.ai-layout-focus .ai-welcome h2 { margin: 0; }
+
+/* 输入框工具条：分类/模型/引擎/推理/附件，从左到右、间距适中、居中 */
+.ai-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  gap: 10px; margin-top: 16px;
+}
+.ai-toolbar .ai-model-btn { flex: 0 0 auto; white-space: nowrap; }
+.ai-toolbar .ai-icon-btn { flex: 0 0 auto; }
+.ai-toolbar .reasoning-wrap { flex: 0 0 auto; }
+.ai-toolbar .reasoning-btn { white-space: nowrap; }
+.ai-hint-inline {
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  font-size: 11px; color: var(--text-3); margin-top: 8px;
+}
+
+/* 布局切换：welcome/focus 时输入区在屏幕中间；chat 时消息撑开、输入区贴底 */
+.ai-layout-welcome .ai-shell,
+.ai-layout-focus .ai-shell { justify-content: center; }
+.ai-layout-welcome .ai-messages,
+.ai-layout-focus .ai-messages { flex: 0 0 auto; padding: 0; overflow: visible; }
+.ai-layout-chat .ai-messages { flex: 1 1 auto; overflow-y: auto; }
+.ai-layout-chat .ai-compose { flex-shrink: 0; }
+.ai-layout-welcome .ai-compose,
+.ai-layout-focus .ai-compose { border-top: none; padding-top: 0; }
+/* welcome/focus：输入框与欢迎语保持适度距离，不紧贴 */
+.ai-layout-welcome .ai-compose,
+.ai-layout-focus .ai-compose { margin-top: 26px; }
+@media (max-width: 680px) {
+  .ai-toolbar { gap: 8px; margin-top: 14px; }
+  .ai-layout-welcome .ai-compose,
+  .ai-layout-focus .ai-compose { margin-top: 20px; }
+}

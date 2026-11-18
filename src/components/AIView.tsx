@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import {
-  Send, Square, Plus, ChevronDown, Copy, Trash2, CornerDownLeft, Volume2, VolumeX,
+  Send, Square, Plus, ChevronDown, Copy, Volume2, VolumeX,
   Phone, Layers, ExternalLink, Info, Loader2, FileText, Image as ImageIcon, Video, X, RotateCcw, Cpu,
 } from 'lucide-react'
 import {
@@ -34,13 +34,6 @@ import {
   enginesFor, enginesFromRemote, hasCatalog, REASONING_LEVELS, REASONING_DESC, toReasoningEffort,
   type ReasoningLevel,
 } from '../data/engines'
-
-const QUICK_PROMPTS = [
-  { icon: '📊', title: '如何管理我的 AI 订阅费用？', desc: '给出预算与额度控制建议' },
-  { icon: '🔑', title: 'API Key 怎么安全保管？', desc: '本地保险箱与合规使用要点' },
-  { icon: '📅', title: '每天签到有哪些注意事项？', desc: '签到提醒与官方页面操作' },
-  { icon: '💡', title: '这个 App 能帮我做什么？', desc: '快速了解全部功能' },
-]
 
 /** 根据系统时间生成问候语（ Claude 式动态称呼） */
 function timeGreeting(): string {
@@ -391,70 +384,61 @@ export function AIView({ notify, accounts }: {
     : selectedOption?.label ?? '选择模型'
   const hasChat = messages.length > 0 || generating
   const callEnabled = !selectedOption || CATEGORY_META[selectedOption.category].canChat
+  // 对话态：点击输入框或发送后进入，欢迎语/图标隐藏、输入框落到底部；进入页或切回来时复位居中
+  const [composeActive, setComposeActive] = useState(false)
+  useEffect(() => { if (!hasChat) setComposeActive(false) }, [hasChat])
+  // 引擎面板只在对话态需要时保留开关状态，切走对话复位
+  const enteredChat = composeActive || hasChat
+  const layoutMode = !enteredChat ? 'welcome' : (hasChat ? 'chat' : 'focus')
+
+  // 工具条下拉：分类 / 模型（与模型下拉联动）
+  const categoryDropdown = <div className="ai-model-wrap">
+    <button className="ai-model-btn" onClick={() => { setCategoryOpen(v => !v); setModelOpen(false) }} title="模型分类">
+      <Layers size={13} /> {category} <ChevronDown size={13} />
+    </button>
+    {categoryOpen && <div className="ai-model-menu">
+      {MODEL_CATEGORIES.map(c => (
+        <button key={c} className={`ai-model-option ${c === category ? 'active' : ''}`}
+          onClick={() => {
+            setCategory(c); setCategoryOpen(false)
+            const list = allOptions.filter(o => o.category === c)
+            if (list.length && !list.some(o => o.key === model)) { setModel(list[0].key); saveModel(list[0].key) }
+          }}>
+          <span>{CATEGORY_META[c].icon} {c}</span>
+          <small>{allOptions.filter(o => o.category === c).length}</small>
+        </button>
+      ))}
+    </div>}
+  </div>
+  const modelDropdown = <div className="ai-model-wrap">
+    <button className="ai-model-btn" onClick={() => { setModelOpen(v => !v); setCategoryOpen(false) }} title="切换模型">
+      {currentModel} <ChevronDown size={13} />
+    </button>
+    {modelOpen && <div className="ai-model-menu">
+      {visibleOptions.length === 0 && <div className="ai-model-empty">该分类暂无模型，请到 API Key 管理页添加</div>}
+      {visibleOptions.map(o => (
+        <button key={o.key} className={`ai-model-option ${o.key === model ? 'active' : ''}`}
+          onClick={() => { setModel(o.key); saveModel(o.key); setModelOpen(false) }}>
+          <span>{o.free ? '⚡ ' : '🔑 '}{o.label}</span>
+          {!o.free && <small>{o.category}</small>}
+        </button>
+      ))}
+    </div>}
+  </div>
 
   return (
-    <div className="ai-page">
+    <div className={`ai-page ai-layout-${layoutMode}`}>
       <div className="ai-shell">
-        {/* 顶部栏 */}
+        {/* 顶部栏：朗读开关 / 电话 / 刷新，靠右间距适中 */}
         <div className="ai-topbar">
-          <div className="ai-brand" onClick={() => { setClonedVoices(listClonedVoices()); setIdentityOpen('bot') }} title="点击更换 AI 头像、名字与音色" style={{ cursor: 'pointer' }}>
-            <div className="ai-brand-mark" style={{ background: avatarBg(botProfile) }}>{avatarContent(botProfile)}</div>
-            <div>
-              <div className="ai-brand-title">{botProfile.name}</div>
-              <div className="ai-brand-sub">积分管家智能助理</div>
-            </div>
-          </div>
           <div className="ai-top-actions">
-            {/* 模型分类下拉（与模型下拉联动） */}
-            <div className="ai-model-wrap">
-              <button className="ai-model-btn" onClick={() => { setCategoryOpen(v => !v); setModelOpen(false) }} title="模型分类">
-                <Layers size={13} /> {category} <ChevronDown size={13} />
-              </button>
-              {categoryOpen && <div className="ai-model-menu">
-                {MODEL_CATEGORIES.map(c => (
-                  <button key={c} className={`ai-model-option ${c === category ? 'active' : ''}`}
-                    onClick={() => {
-                      setCategory(c); setCategoryOpen(false)
-                      // 分类切换后，若当前模型不在新分类里，自动选该分类第一个
-                      const list = allOptions.filter(o => o.category === c)
-                      if (list.length && !list.some(o => o.key === model)) { setModel(list[0].key); saveModel(list[0].key) }
-                    }}>
-                    <span>{CATEGORY_META[c].icon} {c}</span>
-                    <small>{allOptions.filter(o => o.category === c).length}</small>
-                  </button>
-                ))}
-              </div>}
-            </div>
-            {/* 模型下拉（按分类过滤） */}
-            <div className="ai-model-wrap">
-              <button className="ai-model-btn" onClick={() => { setModelOpen(v => !v); setCategoryOpen(false) }} title="切换模型">
-                {currentModel} <ChevronDown size={13} />
-              </button>
-              {modelOpen && <div className="ai-model-menu">
-                {visibleOptions.length === 0 && <div className="ai-model-empty">该分类暂无模型，请到 API Key 管理页添加</div>}
-                {visibleOptions.map(o => (
-                  <button key={o.key} className={`ai-model-option ${o.key === model ? 'active' : ''}`}
-                    onClick={() => { setModel(o.key); saveModel(o.key); setModelOpen(false) }}>
-                    <span>{o.free ? '⚡ ' : '🔑 '}{o.label}</span>
-                    {!o.free && <small>{o.category}</small>}
-                  </button>
-                ))}
-              </div>}
-            </div>
-            {currentAccount && hasCatalog(currentAccount.providerId) && (
-              <button className="ai-model-btn ai-engine-btn" onClick={() => setEnginePanelOpen(v => !v)} title="选择该平台的模型引擎">
-                <Cpu size={13} /> 引擎 <ChevronDown size={13} />
-              </button>
-            )}
             <button className={`ai-icon-btn auto-speak-btn ${autoSpeak ? 'active' : ''}`} onClick={toggleAutoSpeak}
               title={autoSpeak ? '自动朗读已开启：AI 回复后自动朗读纯文字，点击关闭' : '开启自动朗读：AI 回复后自动朗读纯文字'}>
               <Volume2 size={17} />
             </button>
             <button className="ai-icon-btn call" onClick={() => setCallOpen(true)} disabled={!callEnabled}
               title={callEnabled ? 'AI 语音通话' : '当前分类模型不支持语音通话'}><Phone size={17} /></button>
-            <button className="ai-icon-btn" onClick={() => setAttachPickerOpen(true)} title="添加附件（点击选择或拖拽）"><Plus size={18} /></button>
             <button className="ai-icon-btn" onClick={clear} title="新建对话"><RotateCcw size={17} /></button>
-            {messages.length > 0 && <button className="ai-icon-btn ai-clear-btn" onClick={() => { setMessages([]); rotateConversationId(); notify('对话已清空') }} title="清空对话"><Trash2 size={17} /></button>}
           </div>
         </div>
 
@@ -491,20 +475,10 @@ export function AIView({ notify, accounts }: {
 
         {/* 对话区 */}
         <div className="ai-messages">
-          {!hasChat ? (
+          {!enteredChat ? (
             <div className="ai-welcome">
-              <div className="ai-welcome-mark"><img src="/pwa-512.png" alt="AI 积分管家" className="app-mark-img" /></div>
+              <div className="ai-welcome-mark" onClick={() => { setClonedVoices(listClonedVoices()); setIdentityOpen('bot') }} title="点击更换 AI 头像、名字与音色"><img src="/pwa-512.png" alt="AI 积分管家" className="app-mark-img" /></div>
               <h2>{welcomeText(userProfile.nickname)}</h2>
-              <p>关于积分、额度、签到、费用与 API Key 安全，都可以问我。</p>
-              <div className="ai-quick-grid">
-                {QUICK_PROMPTS.map(q => (
-                  <button key={q.title} className="ai-quick-card" onClick={() => void send(q.title)}>
-                    <span className="ai-quick-icon">{q.icon}</span>
-                    <span className="ai-quick-title">{q.title}</span>
-                    <span className="ai-quick-desc">{q.desc}</span>
-                  </button>
-                ))}
-              </div>
             </div>
           ) : (
             <div className="ai-thread">
@@ -561,7 +535,7 @@ export function AIView({ notify, accounts }: {
               </div>
             ))}
           </div>}
-          <div className="ai-compose-box">
+          <div className="ai-compose-box" onClick={() => setComposeActive(true)}>
             <textarea ref={textareaRef} className="ai-textarea" rows={1}
               placeholder={attachments.length ? '对这些附件说点什么…（也可直接发送）' : '输入你的问题…'} value={input}
               onChange={e => onInput(e.target.value)}
@@ -573,17 +547,23 @@ export function AIView({ notify, accounts }: {
               <button className="ai-send" onClick={() => void send()} disabled={!input.trim() && attachments.length === 0} title="发送"><Send size={17} /></button>
             )}
           </div>
-          <div className="ai-hint">
-            <span>{resolvingKey ? <><Loader2 size={12} className="spin" /> 正在解锁密钥…</> : <><CornerDownLeft size={12} /> Enter 发送 · Shift+Enter 换行</>}</span>
+          {/* 工具条：分类 / 模型 / 引擎 / 推理等级 / 附件，从左到右间距适中 */}
+          <div className="ai-toolbar" onClick={() => setComposeActive(true)}>
+            {categoryDropdown}
+            {modelDropdown}
+            {currentAccount && hasCatalog(currentAccount.providerId) && (
+              <button className="ai-model-btn ai-engine-btn" onClick={() => setEnginePanelOpen(v => !v)} title="选择该平台的模型引擎">
+                <Cpu size={13} /> 引擎 <ChevronDown size={13} />
+              </button>
+            )}
             <div className="reasoning-wrap">
-              <span>推理等级</span>
-              <button className="reasoning-btn" onClick={() => setReasoningOpen(v => !v)} title={REASONING_DESC[reasoning]}>{reasoning} <ChevronDown size={12} /></button>
+              <button className="reasoning-btn" onClick={() => setReasoningOpen(v => !v)} title={REASONING_DESC[reasoning]}>推理 {reasoning} <ChevronDown size={12} /></button>
               {reasoningOpen && <div className="reasoning-menu">
                 {REASONING_LEVELS.map(l => (
                   <button key={l} className={`reasoning-option ${l === reasoning ? 'active' : ''}`} title={REASONING_DESC[l]}
                     onClick={() => {
                       setReasoning(l); setReasoningOpen(false)
-                      notify(`${l}：${REASONING_DESC[l]}`)  // 手机端点选后提示（桌面/Docker 也有 title 悬停提示）
+                      notify(`${l}：${REASONING_DESC[l]}`)
                     }}>
                     <span className="reasoning-option-label">{l} {l === reasoning && <span>✓</span>}</span>
                     <small>{REASONING_DESC[l]}</small>
@@ -591,7 +571,9 @@ export function AIView({ notify, accounts }: {
                 ))}
               </div>}
             </div>
+            <button className="ai-icon-btn" onClick={() => setAttachPickerOpen(true)} title="添加附件（点击选择或拖拽）"><Plus size={17} /></button>
           </div>
+          {resolvingKey && <div className="ai-hint-inline"><Loader2 size={12} className="spin" /> 正在解锁密钥…</div>}
         </div>
       </div>
       {/* 右侧引擎选择面板 */}
