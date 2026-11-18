@@ -371,33 +371,37 @@
 .agent-desc { display: none !important; }
 
 /* ============================================================
-   极简留白：清除全平台装饰性标语 / 提示文字 / 次要标签
-   保留功能性数据（用户备注、错误提示、状态文案、可操作标签）
+   极简留白：侧边栏重新布局
+   菜单垂直居中分布，上下留白均衡；加大间距与点击区域，美观大气
    ============================================================ */
-/* 侧栏品牌副标题、底部合规提示卡 */
-.brand-sub,
-.sidebar-foot,
-.compliance { display: none !important; }
-/* 顶栏副标题 */
-.subtitle { display: none !important; }
-/* 设置页说明文字（section 描述、行描述、note） */
-.set-card-heading p,
-.settings-row-desc,
-.set-note,
-.set-about-note { display: none !important; }
-/* 表单/录入说明文字 */
-.form-hint,
-.desc,
-.stat-hint,
-.hint { display: none !important; }
-/* 语音配置提示（保留红色错误提示） */
-.voice-hint:not([style*="red"]),
-.voice-config-note { display: none !important; }
-/* 附件拖拽提示、引擎说明、通话提示、更新说明 */
-.ap-drop-hint,
-.engine-note,
-.call-hint,
-.upd-hint,
-.upd-notes { display: none !important; }
-/* 工具卡片描述文字（保留分类/地区/月活等可操作标签） */
-.agent-desc { display: none !important; }
+.nav {
+  display: flex;
+  flex-direction: column;
+  padding: 20px 14px;
+}
+.nav-item {
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  font-size: 14.5px;
+}
+/* 首尾 auto margin：垂直居中；内容超高时自动退化，避免裁切 */
+.nav-item:first-child { margin-top: auto; }
+.nav-item:last-child { margin-bottom: auto; }
+
+/* ============================================================
+   极简留白：侧边栏重新布局
+   菜单垂直居中分布，上下留白均衡；加大间距与点击区域，美观大气
+   ============================================================ */
+.nav {
+  display: flex;
+  flex-direction: column;
+  padding: 20px 14px;
+}
+.nav-item {
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  font-size: 14.5px;
+}
+/* 首尾 auto margin：垂直居中；内容超高时自动退化，避免裁切 */
+.nav-item:first-child { margin-top: auto; }
+.nav-item:last-child { margin-bottom: auto; }

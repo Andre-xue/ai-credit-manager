@@ -558,7 +558,7 @@ function App() {
             </div>
           </div>
           <div className="topbar-actions">
-            <button className="btn primary" onClick={() => setAddOpen(true)}><Plus size={16} /> 添加账户</button>
+            {tab === 'keys' && <button className="btn primary" onClick={() => setAddOpen(true)}><Plus size={16} /> 添加账户</button>}
           </div>
         </header>
 
@@ -1218,13 +1218,6 @@ function AgentToolsView({ checkins, notify, onToggle }: {
           <div><b>{tools.length}</b><span>收录工具</span></div>
           <div><b>{tools.filter(t => t.canCheckin).length}</b><span>可签到</span></div>
           <div><b>{doneCount}</b><span>今日已签</span></div>
-        </div>
-      </div>
-
-      <div className="notice-box">
-        <Info size={15} />
-        <div>
-          <b>可签到</b>仅指官方确有「每日签到 / 登录领积分」机制；免费额度、试用、新用户赠金归为<b>无签到</b>。图标为各平台官方 logo（本地存储，离线可用）。<b>桌面端</b>会优先检测并唤醒本机已安装客户端（显示「本机已装 / 直达客户端」），未安装则打开官网。<b>实时更新</b>：启动时联网抓取最新目录（使用量/签到规则），失败自动回退本地数据。签到由你本人在官方端完成，不模拟登录、不自动领取，规则以官方实时页面为准。
         </div>
       </div>
 
