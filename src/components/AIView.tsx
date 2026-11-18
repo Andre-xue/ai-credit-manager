@@ -254,7 +254,7 @@ export function AIView({ notify, accounts }: {
     if ((!content && !hasAttach) || generating) return
     const effectiveText = content || '请分析这些附件'
     if (!model) { notify('模型尚未就绪，请稍候'); return }
-    if (selectedOption && !canChat) { notify(`${selectedOption.category}模型不支持文字对话，请切换到对话型/通用型`); return }
+    // 生图型/视频型：允许发送提示词，交给 callByCategory 调用生图/视频接口（不再拦截）
     // 自有模型需要先有解密凭据：给出持久可见的对话提示，避免"打字没反应"
     if (needPwd) {
       notify('请先在上方的密码框验证主密码，再发送消息')
@@ -409,7 +409,9 @@ export function AIView({ notify, accounts }: {
             <Info size={15} />
             <div>
               <b>{selectedOption.label}</b> 属于「{selectedOption.category}」——{CATEGORY_META[selectedOption.category].desc}。
-              直接对话已在此输入你的问题，尝试调用官方接口（生图/视频类多为异步任务，结果请到官方平台查看）。
+              直接在输入框写画面描述并发送，App 会调用该账户 API 地址对应的
+              {selectedOption.category === '生图型' ? '「/images/generations」生图接口' : '生视频接口'}；
+              若该模型不是生图/生视频模型或接口为私有协议，会返回错误提示，此时请改用官方页面生成。
             </div>
             <button className="btn sm ghost" onClick={() => {
               const url = PROVIDER_MAP[selectedOption.account!.providerId]?.officialUrl
