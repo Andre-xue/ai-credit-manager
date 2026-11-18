@@ -372,36 +372,16 @@
 
 /* ============================================================
    极简留白：侧边栏重新布局
-   菜单垂直居中分布，上下留白均衡；加大间距与点击区域，美观大气
+   菜单项均匀分布铺满侧栏高度，消除上下大块留白；点击区域舒展大气
    ============================================================ */
 .nav {
   display: flex;
   flex-direction: column;
-  padding: 20px 14px;
+  justify-content: space-evenly;
+  padding: 12px 14px;
 }
 .nav-item {
   padding: 14px 16px;
-  margin-bottom: 10px;
+  margin-bottom: 0;
   font-size: 14.5px;
 }
-/* 首尾 auto margin：垂直居中；内容超高时自动退化，避免裁切 */
-.nav-item:first-child { margin-top: auto; }
-.nav-item:last-child { margin-bottom: auto; }
-
-/* ============================================================
-   极简留白：侧边栏重新布局
-   菜单垂直居中分布，上下留白均衡；加大间距与点击区域，美观大气
-   ============================================================ */
-.nav {
-  display: flex;
-  flex-direction: column;
-  padding: 20px 14px;
-}
-.nav-item {
-  padding: 14px 16px;
-  margin-bottom: 10px;
-  font-size: 14.5px;
-}
-/* 首尾 auto margin：垂直居中；内容超高时自动退化，避免裁切 */
-.nav-item:first-child { margin-top: auto; }
-.nav-item:last-child { margin-bottom: auto; }
