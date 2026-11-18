@@ -5,6 +5,16 @@
    桌面端 / Web 完全不受影响。
    ============================================================ */
 
+/* ---------- 0. 锁定横向：手机端严禁左右滑动，避免"网页复刻感" ---------- */
+html:has(.phone-shell),
+html:has(.phone-shell) body,
+html:has(.phone-shell) #root {
+  overflow-x: hidden;
+  max-width: 100vw;
+  width: 100%;
+}
+.phone-shell { overflow-x: hidden; max-width: 100vw; }
+
 /* ---------- 1. 全局背景：柔和渐变 + 浮动光斑 ---------- */
 .phone-shell {
   position: relative;
@@ -13,18 +23,20 @@
   isolation: isolate;
 }
 
-/* 背景光斑层（用 body 伪元素，固定铺满视口，不随内容滚动） */
+/* 背景光斑层：固定铺满视口并用 overflow 裁剪，杜绝超出视口产生横向滚动。
+   不用 inset:-30%（那会撑出视口导致可左右滑动），改为 inset:0 + 内部渐变位移。 */
 .phone-shell::before {
   content: '';
   position: fixed;
-  inset: -30%;
+  inset: 0;
   z-index: -1;
   pointer-events: none;
+  overflow: hidden;
   background:
-    radial-gradient(38% 30% at 18% 12%, rgba(129, 140, 248, .30), transparent 70%),
-    radial-gradient(34% 28% at 82% 22%, rgba(244, 114, 182, .22), transparent 70%),
-    radial-gradient(42% 34% at 70% 82%, rgba(45, 212, 191, .24), transparent 70%),
-    radial-gradient(36% 30% at 22% 76%, rgba(96, 165, 250, .22), transparent 70%);
+    radial-gradient(60% 45% at 18% 12%, rgba(129, 140, 248, .30), transparent 70%),
+    radial-gradient(55% 40% at 82% 22%, rgba(244, 114, 182, .22), transparent 70%),
+    radial-gradient(65% 50% at 70% 82%, rgba(45, 212, 191, .24), transparent 70%),
+    radial-gradient(55% 45% at 22% 76%, rgba(96, 165, 250, .22), transparent 70%);
   filter: blur(20px);
 }
 /* 经典风格：不显示光斑、用纯色背景 */
@@ -32,7 +44,10 @@
 .phone-shell:not(.liquid-ui)::before { display: none; }
 
 /* ---------- 2. 侧栏抽屉 ---------- */
+/* display:flex !important 强制覆盖 @media(max-width:680px) 里的 .sidebar{display:none}，
+   否则真机窄屏下侧栏被媒体查询隐藏，遮罩出现但抽屉永远不显示（用户反馈的 bug）。 */
 .phone-shell .sidebar {
+  display: flex !important;
   position: fixed;
   top: 0; left: 0; bottom: 0;
   width: min(82vw, 320px);
@@ -42,10 +57,14 @@
   border-right: 1px solid rgba(255, 255, 255, .5);
   box-shadow: 8px 0 40px rgba(31, 41, 55, .18);
   transform: translateX(-104%);
-  transition: transform .38s cubic-bezier(.22, 1, .36, 1);
+  visibility: hidden;
+  transition: transform .38s cubic-bezier(.22, 1, .36, 1), visibility .38s;
   will-change: transform;
 }
-.phone-shell:not(.sidebar-collapsed) .sidebar { transform: translateX(0); }
+.phone-shell:not(.sidebar-collapsed) .sidebar {
+  transform: translateX(0);
+  visibility: visible;
+}
 
 /* 玻璃质感侧栏（仅液态风格） */
 .phone-shell.liquid-ui .sidebar {
@@ -121,18 +140,40 @@
 
 /* AI 页占满屏（手机端无底部导航，为悬浮菜单按钮留出顶部空间） */
 .phone-shell .content-ai { padding: 0 14px calc(env(safe-area-inset-bottom, 0px) + 8px) !important; }
+/* 兜底：手机端所有主链路容器禁止横向溢出 */
+.phone-shell .main,
+.phone-shell .content,
+.phone-shell .content-ai,
 .phone-shell .ai-page,
-.phone-shell .ai-shell { width: 100%; max-width: 100%; }
+.phone-shell .ai-shell,
+.phone-shell .ai-messages,
+.phone-shell .ai-welcome,
+.phone-shell .ai-compose { max-width: 100vw; overflow-x: clip; }
 .phone-shell .ai-shell {
   height: calc(100dvh - env(safe-area-inset-bottom, 0px) - 8px);
   min-height: 0;
 }
-.phone-shell .ai-topbar { padding-left: 46px; padding-top: calc(env(safe-area-inset-top, 0px) + 6px); }
-/* 顶栏空间紧张：品牌文字收紧，模型/分类按钮不溢出 */
-.phone-shell .ai-top-actions { gap: 4px; min-width: 0; }
-.phone-shell .ai-brand { gap: 6px; min-width: 0; }
+.phone-shell .ai-topbar {
+  padding-left: 46px;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 6px);
+  /* 关键：顶栏整体锁在视口宽度内，右侧按钮区内部横向滚动，绝不撑开页面 */
+  width: 100%; max-width: 100vw; overflow: hidden;
+  gap: 6px;
+}
+/* 品牌区固定不收缩太多；右侧按钮区在剩余空间内横向滚动（隐藏滚动条） */
+.phone-shell .ai-brand { gap: 6px; flex: 0 0 auto; max-width: 42%; }
 .phone-shell .ai-brand-title { display: none; }
-.phone-shell .ai-model-btn { max-width: 104px; }
+.phone-shell .ai-top-actions {
+  gap: 4px; min-width: 0; flex: 1 1 auto;
+  overflow-x: auto; overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.phone-shell .ai-top-actions::-webkit-scrollbar { display: none; }
+.phone-shell .ai-model-btn { max-width: 96px; flex: 0 0 auto; white-space: nowrap; }
+.phone-shell .ai-icon-btn { flex: 0 0 auto; }
+/* 下拉菜单定位在视口内，避免超出屏幕 */
+.phone-shell .ai-model-menu { max-width: 78vw; }
 /* 欢迎区：占满内容宽度，避免居中边距导致右偏移/右侧被切 */
 .phone-shell .ai-welcome { width: 100%; max-width: 100%; margin: 10px 0 0; }
 .phone-shell .ai-welcome p { white-space: normal; line-height: 1.5; }
@@ -168,11 +209,13 @@
 }
 
 /* 光斑缓慢浮动 */
-.motion-ui.phone-shell.liquid-ui::before { animation: blob-drift 26s ease-in-out infinite alternate; }
+.motion-ui.phone-shell.liquid-ui::before {
+  /* 只做背景位置呼吸，不对元素做 translate/rotate，避免撑出视口 */
+  animation: blob-drift 18s ease-in-out infinite alternate;
+}
 @keyframes blob-drift {
-  0%   { transform: translate3d(0, 0, 0) rotate(0deg); }
-  50%  { transform: translate3d(3%, -2%, 0) rotate(8deg); }
-  100% { transform: translate3d(-2%, 3%, 0) rotate(-6deg); }
+  0%   { background-position: 0% 0%, 0% 0%, 0% 0%, 0% 0%; }
+  100% { background-position: 12% 8%, -10% 6%, 8% -8%, -8% -6%; }
 }
 
 /* 侧栏菜单项依次滑入 */
