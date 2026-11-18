@@ -104,6 +104,16 @@ export function AIView({ notify, accounts }: {
     // 弹窗打开时也刷新一次，确保跨页面/跨标签的改动也能拿到
     return () => window.removeEventListener('acm:cloned-voices-changed', refresh)
   }, [])
+  // 点击下拉列表以外的任意位置（含页面空白、输入框等），关闭所有未选择的弹层
+  useEffect(() => {
+    const closeOnOutside = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t && t.closest('.ai-model-wrap, .reasoning-wrap')) return
+      setCategoryOpen(false); setModelOpen(false); setReasoningOpen(false)
+    }
+    document.addEventListener('click', closeOnOutside)
+    return () => document.removeEventListener('click', closeOnOutside)
+  }, [])
   // 自有模型的解密凭据：优先用指纹/人脸模式保存的密码自动解密；纯密码模式则本次会话内输入一次
   const [aiPwd, setAiPwd] = useState('')
   const [aiPwdInput, setAiPwdInput] = useState('')
@@ -535,27 +545,9 @@ export function AIView({ notify, accounts }: {
               </div>
             ))}
           </div>}
-          <div className="ai-compose-box" onClick={() => setComposeActive(true)}>
-            <textarea ref={textareaRef} className="ai-textarea" rows={1}
-              placeholder={attachments.length ? '对这些附件说点什么…（也可直接发送）' : '输入你的问题…'} value={input}
-              onChange={e => onInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
-              disabled={generating} />
-            {generating ? (
-              <button className="ai-send stop" onClick={stop} title="停止生成"><Square size={15} fill="currentColor" /></button>
-            ) : (
-              <button className="ai-send" onClick={() => void send()} disabled={!input.trim() && attachments.length === 0} title="发送"><Send size={17} /></button>
-            )}
-          </div>
-          {/* 工具条：分类 / 模型 / 引擎 / 推理等级 / 附件，从左到右间距适中 */}
-          <div className="ai-toolbar" onClick={() => setComposeActive(true)}>
-            {categoryDropdown}
-            {modelDropdown}
-            {currentAccount && hasCatalog(currentAccount.providerId) && (
-              <button className="ai-model-btn ai-engine-btn" onClick={() => setEnginePanelOpen(v => !v)} title="选择该平台的模型引擎">
-                <Cpu size={13} /> 引擎 <ChevronDown size={13} />
-              </button>
-            )}
+          {/* 输入框上方一行：左=添加附件，右=推理等级 */}
+          <div className="ai-compose-top" onClick={() => setComposeActive(true)}>
+            <button className="ai-icon-btn" onClick={() => setAttachPickerOpen(true)} title="添加附件（点击选择或拖拽）"><Plus size={18} /></button>
             <div className="reasoning-wrap">
               <button className="reasoning-btn" onClick={() => setReasoningOpen(v => !v)} title={REASONING_DESC[reasoning]}>推理 {reasoning} <ChevronDown size={12} /></button>
               {reasoningOpen && <div className="reasoning-menu">
@@ -571,7 +563,28 @@ export function AIView({ notify, accounts }: {
                 ))}
               </div>}
             </div>
-            <button className="ai-icon-btn" onClick={() => setAttachPickerOpen(true)} title="添加附件（点击选择或拖拽）"><Plus size={17} /></button>
+          </div>
+          <div className="ai-compose-box" onClick={() => setComposeActive(true)}>
+            <textarea ref={textareaRef} className="ai-textarea" rows={1}
+              placeholder={attachments.length ? '对这些附件说点什么…（也可直接发送）' : '输入你的问题…'} value={input}
+              onChange={e => onInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
+              disabled={generating} />
+            {generating ? (
+              <button className="ai-send stop" onClick={stop} title="停止生成"><Square size={15} fill="currentColor" /></button>
+            ) : (
+              <button className="ai-send" onClick={() => void send()} disabled={!input.trim() && attachments.length === 0} title="发送"><Send size={17} /></button>
+            )}
+          </div>
+          {/* 输入框下方一行：左=模型分组，中=模型名，右=模型引擎，三分分散 */}
+          <div className="ai-toolbar" onClick={() => setComposeActive(true)}>
+            {categoryDropdown}
+            {modelDropdown}
+            {currentAccount && hasCatalog(currentAccount.providerId) && (
+              <button className="ai-model-btn ai-engine-btn" onClick={() => setEnginePanelOpen(v => !v)} title="选择该平台的模型引擎">
+                <Cpu size={13} /> 引擎 <ChevronDown size={13} />
+              </button>
+            )}
           </div>
           {resolvingKey && <div className="ai-hint-inline"><Loader2 size={12} className="spin" /> 正在解锁密钥…</div>}
         </div>
