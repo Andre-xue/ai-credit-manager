@@ -420,11 +420,12 @@ tbody tr:hover { background: var(--panel-2); }
 .agent-section-head h3 { margin: 0; font-size: 13.5px; font-weight: 600; color: var(--text); }
 .agent-section-count { font-size: 11.5px; color: var(--text-3); }
 
-.agent-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.agent-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; grid-auto-rows: 1fr; }
 .agent-card {
   display: flex; flex-direction: column; padding: 16px; border-radius: 14px;
   background: var(--panel); border: 1px solid var(--border); box-shadow: var(--shadow);
   transition: transform .16s, box-shadow .16s, border-color .16s;
+  height: 100%;
 }
 .agent-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); border-color: #d6dae8; }
 .agent-card-top { display: flex; align-items: center; gap: 11px; }
@@ -437,12 +438,18 @@ tbody tr:hover { background: var(--panel-2); }
 .agent-chip { font-size: 10.5px; font-weight: 500; padding: 3px 9px; border-radius: 20px; }
 .agent-chip.muted { background: var(--panel-2); color: var(--text-3); border: 1px solid var(--border); }
 .agent-chip.local { background: var(--green-soft); color: var(--green); border: 1px solid #d1fae5; display: inline-flex; align-items: center; gap: 3px; }
-.agent-desc { font-size: 12px; line-height: 1.6; color: var(--text-2); margin: 0 0 11px; min-height: 38px; }
-.agent-tip { font-size: 11.5px; line-height: 1.65; border-radius: 9px; padding: 9px 11px; margin-bottom: 12px; flex: 1; }
+.agent-desc {
+  font-size: 12px; line-height: 1.6; color: var(--text-2); margin: 0 0 11px;
+  height: 57px; flex: none; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+}
+.agent-tip {
+  font-size: 11.5px; line-height: 1.65; border-radius: 9px; padding: 9px 11px; margin-bottom: 12px;
+  height: 92px; flex: none; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4;
+}
 .agent-tip.checkin { background: var(--green-soft); color: #166534; border: 1px solid #d1fae5; }
 .agent-tip.benefit { background: var(--panel-2); color: var(--text-2); border: 1px solid var(--border); }
 .agent-tip-label { display: block; font-weight: 650; font-size: 10.5px; letter-spacing: .3px; margin-bottom: 3px; text-transform: uppercase; opacity: .75; }
-.agent-card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.agent-card-actions { display: flex; gap: 6px; flex-wrap: wrap; flex: none; margin-top: auto; }
 .agent-card-actions .btn { flex: 1; justify-content: center; white-space: nowrap; min-width: 72px; }
 .agent-empty { padding: 30px; text-align: center; color: var(--text-3); font-size: 12.5px; border: 1px dashed var(--border); border-radius: 12px; background: var(--panel-2); }
 

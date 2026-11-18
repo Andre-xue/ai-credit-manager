@@ -936,12 +936,13 @@ const AgentToolCard = memo(function AgentToolCard({ t, done, hasLocal, notify, o
         <span className="agent-chip muted">{t.region === 'cn' ? '国内' : '海外'}</span>
         {hasLocal && <span className="agent-chip local"><Monitor size={10} /> 本机已装</span>}
       </div>
-      <p className="agent-desc">{t.desc}</p>
+      <p className="agent-desc" title={t.desc}>{t.desc}</p>
       <div className="agent-card-meta">
         <span className="agent-usage" title="按公开月访问量/月活估算，由高到低排序"><TrendingUp size={12} /> {t.usageLabel}</span>
         <span className="agent-platforms">{t.platforms.map(p => <i key={p} title={p}>{p === '浏览器插件' ? '插件' : p}</i>)}</span>
       </div>
-      <div className={`agent-tip ${t.canCheckin ? 'checkin' : 'benefit'}`}>
+      <div className={`agent-tip ${t.canCheckin ? 'checkin' : 'benefit'}`}
+        title={t.canCheckin ? t.checkinTip : t.benefitTip}>
         <span className="agent-tip-label">{t.canCheckin ? '签到规则' : '福利说明'}</span>
         {t.canCheckin ? t.checkinTip : t.benefitTip}
       </div>
