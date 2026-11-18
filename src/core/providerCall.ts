@@ -159,6 +159,24 @@ export async function callChat(
   }
 }
 
+/**
+ * 从账户备注/名称中提取真实模型 ID。
+ * 生图/生视频接口要求 model 是平台模型 ID（如 Kwai-Kolors/Kolors、black-forest-labs/FLUX.1-schnell），
+ * 而用户填写的 label / note 常混入分类前缀与中文说明。约定：含 '/' 的 token 视为模型 ID。
+ */
+export function extractModelId(account: Account): string {
+  const candidates: string[] = []
+  // note 形如 "[生图型] Kwai-Kolors/Kolors" → 取分类前缀之后的部分
+  if (account.note) {
+    const cleaned = account.note.replace(/^\[[^\]]+\]\s*/, '')
+    cleaned.split(/[\s,，;；]+/).forEach(tok => { if (tok) candidates.push(tok) })
+  }
+  if (account.label) account.label.split(/[\s,，;；]+/).forEach(tok => { if (tok) candidates.push(tok) })
+  // 含 '/' 的最可能是模型 ID（Kolors/Kolors、FLUX.1、Qwen/...）
+  const withSlash = candidates.find(t => t.includes('/'))
+  return withSlash ?? candidates[0] ?? account.label ?? ''
+}
+
 /** 生图：OpenAI 兼容 images generations */
 export async function callImage(
   account: Account, apiKey: string, prompt: string,
@@ -168,11 +186,14 @@ export async function callImage(
     if (!base) throw new Error('该账户未填写 API 地址')
     if (!/\/v\d+/.test(base)) base += '/v1'
     const url = `${base}/images/generations`
-    const body = { model: account.label, prompt, n: 1, size: '1024x1024', response_format: 'url' }
+    const model = extractModelId(account)
+    const body = { model, prompt, n: 1, size: '1024x1024', response_format: 'url' }
     const raw = isDesktopApp() ? await invokeApi(url, apiKey, body) : await directFetch(url, apiKey, body)
     const json = JSON.parse(raw)
     const images: string[] = (json.data ?? []).map((d: { url?: string; b64_json?: string }) => d.url ?? (d.b64_json ? `data:image/png;base64,${d.b64_json}` : '')).filter(Boolean)
-    if (images.length === 0) return { ok: false, text: '', error: '接口未返回图片，该平台可能使用私有协议，请到官方生成' }
+    if (images.length === 0) {
+      return { ok: false, text: '', error: `接口未返回图片（模型：${model}）。请确认账户名称/备注里填的是真实生图模型 ID，如 Kwai-Kolors/Kolors、black-forest-labs/FLUX.1-schnell、Qwen/Qwen-Image` }
+    }
     return { ok: true, text: `已生成 ${images.length} 张图片`, images }
   } catch (e) {
     return toError(e)
@@ -188,9 +209,10 @@ export async function callVideo(
   // 尝试常见的 OpenAI 兼容视频端点；失败则明确引导官方
   const candidates = [`${base}/v1/videos/generations`, `${base}/v1/video/generations`, `${base}/videos/generations`]
   let lastErr = ''
+  const model = extractModelId(account)
   for (const url of candidates) {
     try {
-      const body = { model: account.label, prompt, duration: 5 }
+      const body = { model, prompt, duration: 5 }
       const raw = isDesktopApp() ? await invokeApi(url, apiKey, body) : await directFetch(url, apiKey, body)
       const json = JSON.parse(raw)
       const id = json.id ?? json.task_id ?? json.data?.id

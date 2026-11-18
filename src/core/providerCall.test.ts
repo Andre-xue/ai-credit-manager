@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Account } from './types'
-import { callChat, normalizeReasoningEffort, usesFixedSampling } from './providerCall'
+import { callChat, normalizeReasoningEffort, usesFixedSampling, extractModelId } from './providerCall'
 
 const acct = (providerId: string): Account => ({
   id: 'a1', providerId, label: 'test', mode: 'api',
@@ -53,5 +53,21 @@ describe('自有模型请求参数兼容', () => {
     expect(r.ok).toBe(true)
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).temperature).toBeUndefined()
+  })
+})
+
+describe('生图/生视频模型 ID 提取', () => {
+  it('从备注分类前缀后提取含斜杠的真实模型 ID', () => {
+    const a = { ...acct('siliconflow'), label: '硅基流动', note: '[生图型] Kwai-Kolors/Kolors' }
+    expect(extractModelId(a)).toBe('Kwai-Kolors/Kolors')
+  })
+  it('从 label 中提取模型 ID', () => {
+    const a = { ...acct('siliconflow'), label: 'black-forest-labs/FLUX.1-schnell' }
+    expect(extractModelId(a)).toBe('black-forest-labs/FLUX.1-schnell')
+  })
+  it('无模型 ID 时退回第一个候选/label', () => {
+    const a = { ...acct('custom'), label: '硅基流动 · BAABe Large En V1.5', note: '[生图型] 我的账户' }
+    // 无斜杠，取 note 去掉分类后的首个 token
+    expect(extractModelId(a)).toBe('我的账户')
   })
 })
