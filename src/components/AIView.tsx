@@ -326,7 +326,7 @@ export function AIView({ notify, accounts }: {
     if (speakingId === m.id) { stopSpeak(); setSpeakingId(null); return }
     void speakAsync(m.content, botProfile.voiceURI ?? getSavedVoice(), (state) => {
       if (state === 'end' || state === 'error') setSpeakingId(null)
-    }).then(ok => {
+    }, (reason) => notify(reason)).then(ok => {
       if (!ok) { notify('当前环境不支持语音朗读'); return }
       setSpeakingId(m.id)
     })

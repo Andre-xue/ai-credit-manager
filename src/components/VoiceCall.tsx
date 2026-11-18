@@ -7,7 +7,7 @@ import {
   Phone, PhoneOff, Mic, MicOff, Volume2, Loader2, Keyboard, Send, ShieldCheck,
 } from 'lucide-react'
 import { speakAsync, stopSpeak, getSavedVoice, unlockTts } from '../core/tts'
-import { isNativeApp, isDesktopApp, openMicSettings } from '../core/openExternal'
+import { isNativeApp, isDesktopApp, openMicSettings, openSpeechSettings } from '../core/openExternal'
 
 type Engine = 'capacitor' | 'web' | 'none'
 type MicPerm = 'unknown' | 'granted' | 'denied' | 'unsupported' | 'system'
@@ -54,6 +54,7 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock, 
   const [liveText, setLiveText] = useState('')
   const [lastReply, setLastReply] = useState('')
   const [callError, setCallError] = useState('')
+  const [permCode, setPermCode] = useState('')
   const [seconds, setSeconds] = useState(0)
   const [engine, setEngine] = useState<Engine>('none')
   const [micPerm, setMicPerm] = useState<MicPerm>('unknown')
@@ -160,7 +161,7 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock, 
             window.setTimeout(() => { if (sessionActive.current) void startListeningRef.current() }, 350)
           }
         }
-      })
+      }, (reason) => notifyRef.current(reason))
       if (!ok) {
         setStatus('idle')
         speakingRef.current = false
@@ -273,12 +274,15 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock, 
           const code = e?.error ?? 'unknown'
           const hint = code === 'not-allowed' || code === 'service-not-allowed'
             ? (isDesktopApp()
-              ? '麦克风权限被拒绝：请在「系统设置 → 隐私与安全性 → 麦克风」中允许本应用，或点下方按钮打开设置'
+              ? (code === 'service-not-allowed'
+                ? '语音识别服务被系统拒绝：请在「系统设置 → 隐私与安全性 → 语音识别」中允许本应用（麦克风之外还需这一项）'
+                : '麦克风权限被拒绝：请在「系统设置 → 隐私与安全性 → 麦克风」中允许本应用，或点下方按钮打开设置')
               : '语音识别权限被拒绝，请在系统设置中允许，或改用文字输入')
             : code === 'network'
               ? '语音识别需要联网，当前网络不可用，请改用文字输入'
               : '语音识别在当前环境不可用，请改用文字输入'
           notifyRef.current(hint)
+          setPermCode(code)
           setStatus('idle')
           setMicPerm('denied')
           setFallbackOpen(true)
@@ -374,7 +378,12 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock, 
                     : '首次使用需要授权麦克风'}
             </div>
             <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-              {micPerm === 'denied' && isDesktopApp() && (
+              {micPerm === 'denied' && isDesktopApp() && permCode === 'service-not-allowed' && (
+                <button className="btn sm" onClick={() => void openSpeechSettings().then(ok => { if (!ok) notify('无法打开系统设置，请前往 系统设置→隐私与安全性→语音识别') })}>
+                  <ShieldCheck size={14} /> 语音识别设置
+                </button>
+              )}
+              {micPerm === 'denied' && isDesktopApp() && permCode !== 'service-not-allowed' && (
                 <button className="btn sm" onClick={() => void openMicSettings().then(ok => { if (!ok) notify('无法打开系统设置，请手动前往隐私设置') })}>
                   <ShieldCheck size={14} /> 打开设置
                 </button>

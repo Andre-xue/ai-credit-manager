@@ -193,25 +193,39 @@ export function speak(text: string, voiceURI: string | null, onState?: (s: 'star
  * 异步朗读：若已克隆声音且配置了第三方代理，优先走代理合成；失败回退系统 TTS。
  * 克隆声音只有代理端实现 /synthesize 后才会真正生效，系统音色不应伪装成克隆效果。
  */
-export async function speakAsync(text: string, voiceURI: string | null, onState?: (s: 'start' | 'end' | 'error') => void): Promise<boolean> {
+export async function speakAsync(
+  text: string,
+  voiceURI: string | null,
+  onState?: (s: 'start' | 'end' | 'error') => void,
+  onFallback?: (reason: string) => void,
+): Promise<boolean> {
   if (getSpeakSource() === 'clone') {
     const cloned = getClonedVoiceId()!
     const cfg = getTtsConfig()
+    let lastErr = ''
     try {
       stopSpeak()
       const url = `${cfg.endpoint.replace(/\/$/, '')}/synthesize?provider=${encodeURIComponent(cfg.provider)}&voice=${encodeURIComponent(cloned)}&text=${encodeURIComponent(text)}`
       const res = await fetch(url)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '')
+        throw new Error(`HTTP ${res.status} ${detail.slice(0, 80)}`)
+      }
       const blob = await res.blob()
       if (!blob.size) throw new Error('合成音频为空')
-      const audio = new Audio(URL.createObjectURL(blob))
+      const objUrl = URL.createObjectURL(blob)
+      const audio = new Audio(objUrl)
       activeCallback = onState ?? null
       audio.onplay = () => activeCallback?.('start')
-      audio.onended = () => { activeCallback?.('end'); activeCallback = null; URL.revokeObjectURL(audio.src) }
-      audio.onerror = () => { activeCallback?.('error'); activeCallback = null }
+      audio.onended = () => { activeCallback?.('end'); activeCallback = null; URL.revokeObjectURL(objUrl) }
+      audio.onerror = () => { activeCallback?.('error'); activeCallback = null; URL.revokeObjectURL(objUrl) }
       await audio.play()
       return true
-    } catch { /* 回退系统 TTS */ }
+    } catch (e) {
+      lastErr = (e as Error)?.message ?? String(e)
+      // 克隆音色合成/播放失败：明确告知，不再静默回退，避免误以为克隆没生效
+      onFallback?.(`克隆音色播放失败（${lastErr.slice(0, 60)}），已临时改用系统音色`)
+    }
   }
   return speak(text, voiceURI, onState)
 }

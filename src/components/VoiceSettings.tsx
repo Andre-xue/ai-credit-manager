@@ -1,48 +1,29 @@
-// 「语音配置」独立模块：系统音色选择、方言音色（需第三方 TTS）、试听、语速、
-// 第三方 TTS 配置、音色文件下载管理（单槽位互斥）、声音样本录音/克隆。
+// 「语音配置」独立模块：声音克隆（录音/音频文件 → AI 发音）、已保存音色管理、
+// 语速、试听、声音服务目录、第三方 TTS 代理配置。
+// 系统内置音色/拟真预设/方言已从界面移除；未克隆时底层仍用系统 TTS 兜底，避免 AI 完全无声。
 
 import { useEffect, useState } from 'react'
-import { Volume2, Play, Square, Download, Trash2, Loader2, Info, MapPin, Globe2, Mic, Check, Pencil } from 'lucide-react'
+import { Volume2, Play, Square, Trash2, Loader2, Info, Globe2, Mic, Check, Pencil } from 'lucide-react'
 import {
-  listSystemVoices, onVoicesReady, getSavedVoice, saveVoice, listPresetVoices,
-  getRate, saveRate, previewVoice, stopSpeak, getSpeakSource, speakAsync, type VoiceOption,
+  getRate, saveRate, stopSpeak, getSpeakSource, speakAsync,
 } from '../core/tts'
 import {
   loadVoiceSample, saveVoiceSample, deleteVoiceSample, recordVoiceSample,
   cloneVoiceFromSample, getClonedVoiceId, listClonedVoices, removeClonedVoice,
   setActiveClonedVoice, renameClonedVoice, type VoiceSample, type ClonedVoice,
 } from '../core/voiceClone'
-import { isDesktopApp, isNativeApp, openExternal } from '../core/openExternal'
+import { isDesktopApp, openExternal } from '../core/openExternal'
 import { VOICE_PROVIDERS } from '../core/voiceProviders'
 import {
   hasTtsConfig, getTtsConfig, saveTtsConfig, clearTtsConfig,
-  getActiveVoiceFile, hasDownloadedVoice, deleteActiveVoiceFile, switchVoice,
-  type VoiceDownloadState, type TtsProviderConfig,
+  type TtsProviderConfig,
 } from '../core/voice-download'
 
-/** 方言音色：需第三方 TTS，无配置时禁用 */
-const DIALECT_VOICES = [
-  { id: 'yue', name: '粤语', desc: '广东话 · 标准粤语', flag: '粤' },
-  { id: 'sichuan', name: '四川话', desc: '西南官话 · 成都腔', flag: '川' },
-  { id: 'shanghai', name: '上海话', desc: '吴语 · 市区腔', flag: '沪' },
-  { id: 'northeast', name: '东北话', desc: '东北官话 · 沈阳腔', flag: '东北' },
-]
-
-const GROUP_LABEL: Record<VoiceOption['group'], string> = {
-  mandarin: '普通话', tw: '台湾腔', cantonese: '粤语（系统）', other: '其他', dialect: '方言',
-}
-
 export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
-  const [voices, setVoices] = useState<VoiceOption[]>([])
-  const [selected, setSelected] = useState<string | null>(() => getSavedVoice())
   const [rate, setRate] = useState(getRate())
-  const [downloaded, setDownloaded] = useState(false)
-  const [voiceName, setVoiceName] = useState('')
   const [ttsConfigured, setTtsConfigured] = useState(hasTtsConfig())
   const [config, setConfig] = useState<TtsProviderConfig>(() => getTtsConfig())
   const [configOpen, setConfigOpen] = useState(false)
-  const [dlState, setDlState] = useState<VoiceDownloadState>('idle')
-  const [dialectId, setDialectId] = useState<string | null>(null)
   const [previewing, setPreviewing] = useState(false)
   const [sample, setSample] = useState<VoiceSample | null>(null)
   const [clonedId, setClonedId] = useState<string | null>(() => getClonedVoiceId())
@@ -50,95 +31,26 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
   const [renaming, setRenaming] = useState<string | null>(null)
   const [renameText, setRenameText] = useState('')
   const [cloning, setCloning] = useState(false)
-  const [nativeTtsStatus, setNativeTtsStatus] = useState('')
-  const native = isNativeApp()
+  const desktop = isDesktopApp()
   const fileRef = useState(() => ({ current: null as HTMLInputElement | null }))[0]
 
-  useEffect(() => {
-    const refresh = () => setVoices(listSystemVoices())
-    refresh()
-    return onVoicesReady(refresh)
-  }, [])
-  useEffect(() => {
-    hasDownloadedVoice().then(async has => {
-      setDownloaded(has)
-      if (has) { const f = await getActiveVoiceFile(); setVoiceName(f?.name ?? '') }
-    })
-  }, [])
-
-  useEffect(() => {
-    void loadVoiceSample().then(setSample)
-  }, [])
-
-  const pickVoice = (v: VoiceOption) => {
-    saveVoice(v.uri)
-    setSelected(v.uri)
-    notify(`已选择音色：${v.name}`)
-  }
+  useEffect(() => { void loadVoiceSample().then(setSample) }, [])
 
   const tryPreview = () => {
     if (previewing) { stopSpeak(); setPreviewing(false); return }
-    setPreviewing(true)
-    const done = () => setPreviewing(false)
-    if (getSpeakSource() === 'clone') {
-      const text = '你好，这是当前克隆音色的试听。'
-      void speakAsync(text, selected, (s) => { if (s === 'end' || s === 'error') done() })
-        .then(ok => { if (!ok) { notify('克隆音色试听失败'); done() } })
-    } else {
-      const ok = previewVoice(selected)
-      if (!ok) { notify('当前环境不支持语音朗读'); done(); return }
-      window.setTimeout(done, 4000)
+    if (getSpeakSource() !== 'clone') {
+      notify('当前没有可用的克隆音色，请先在下方导入声音样本并克隆')
+      return
     }
+    setPreviewing(true)
+    void speakAsync('你好，这是当前克隆音色的试听。', null, (s) => {
+      if (s === 'end' || s === 'error') setPreviewing(false)
+    }, (reason) => { notify(reason); setPreviewing(false) }).then(ok => {
+      if (!ok) { notify('克隆音色试听失败'); setPreviewing(false) }
+    })
   }
 
   const changeRate = (r: number) => { setRate(r); saveRate(r) }
-
-  /** 手机原生 TTS：检测系统是否支持中文语音，必要时引导安装语音包 */
-  const checkNativeTts = async () => {
-    try {
-      const { TextToSpeech } = await import('@capacitor-community/text-to-speech')
-      const { languages } = await TextToSpeech.getSupportedLanguages()
-      const hasZh = languages.some(l => /^zh/i.test(l))
-      setNativeTtsStatus(hasZh
-        ? `系统已支持中文语音（${languages.filter(l => /^zh/i.test(l)).join('、')}），可直接朗读。`
-        : '系统当前没有中文语音包，朗读会失败或读成英文。请点下方按钮安装中文语音数据。')
-    } catch (e) {
-      setNativeTtsStatus(`检测失败：${(e as Error)?.message ?? '未知错误'}。可尝试下方的语音包安装入口。`)
-    }
-  }
-
-  const openTtsInstall = async () => {
-    try {
-      const { TextToSpeech } = await import('@capacitor-community/text-to-speech')
-      await TextToSpeech.openInstall()
-    } catch {
-      notify('无法直接打开系统语音设置，请在系统「设置 → 语言与输入法 → 文字转语音」中安装中文语音包')
-    }
-  }
-
-  const downloadDialect = async (d: typeof DIALECT_VOICES[number]) => {
-    if (!ttsConfigured) { notify('请先在下方配置第三方语音服务'); return }
-    setDialectId(d.id)
-    const result = await switchVoice(d.id, d.name, setDlState, msg => {
-      notify(msg)
-      // 旧文件已被删除，立即刷新状态
-      setDownloaded(false)
-      setVoiceName('')
-    })
-    if (result.ok) {
-      setDownloaded(true)
-      setVoiceName(d.name)
-      notify(`${d.name}音色已就绪`)
-    } else notify(result.error ?? '下载失败')
-    setDialectId(null)
-  }
-
-  const removeVoice = async () => {
-    await deleteActiveVoiceFile()
-    setDownloaded(false)
-    setVoiceName('')
-    notify('已删除下载的音色文件，释放了存储空间')
-  }
 
   const saveConfig = () => {
     if (config.provider && !config.endpoint) { notify('请填写服务端点'); return }
@@ -147,8 +59,6 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
     setConfigOpen(false)
     notify(config.provider ? '语音服务配置已保存' : '已清除语音服务配置')
   }
-
-  const desktop = isDesktopApp()
 
   const doRecord = async () => {
     if (desktop) { notify('桌面端 WebView 不提供浏览器录音接口，请用「选择音频文件」导入样本'); return }
@@ -221,67 +131,13 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
     notify('已重命名')
   }
 
-  const groups: VoiceOption['group'][] = ['mandarin', 'tw', 'cantonese', 'other']
-
   return (
     <div className="voice-settings">
-      {/* 音色选择 */}
-      <div className="voice-section-label"><Volume2 size={14} /> 朗读音色（系统内置 · 无需下载）</div>
-      {native && <>
-        <div className="voice-hint" style={{ marginBottom: 8 }}>手机端使用系统文字转语音引擎朗读（不是浏览器朗读）。若无法出声，通常是系统缺少中文语音包，请检测并安装。</div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-          <button className="btn sm" onClick={() => void checkNativeTts()}>检测中文语音</button>
-          <button className="btn sm ghost" onClick={() => void openTtsInstall()}>安装系统语音包</button>
-        </div>
-        {nativeTtsStatus && <div className="voice-hint" style={{ marginBottom: 10 }}>{nativeTtsStatus}</div>}
-      </>}
-      {voices.length === 0 ? (
-        <div className="voice-empty">{native
-          ? '手机原生朗读不依赖下方浏览器音色列表；直接点「试听当前音色」即可。'
-          : '正在加载系统音色…若长时间为空，说明当前系统未安装中文语音包。'}</div>
-      ) : groups.map(g => {
-        const list = voices.filter(v => v.group === g)
-        if (list.length === 0) return null
-        return (
-          <div key={g} className="voice-group">
-            <div className="voice-group-title">{GROUP_LABEL[g]} <span>{list.length}</span></div>
-            <div className="voice-chips">
-              {list.map(v => (
-                <button key={v.uri} className={`voice-chip ${selected === v.uri ? 'active' : ''}`} onClick={() => pickVoice(v)}>
-                  {v.name}
-                </button>
-              ))}
-            </div>
-          </div>
-        )
-      })}
-
-      {/* 拟真音色预设 */}
-      <div className="voice-section-label"><Volume2 size={14} /> 拟真音色预设（豆包风格 · 基于系统语音包）</div>
-      <div className="voice-dialect-grid">
-        {listPresetVoices().map(p => {
-          const active = !!selected && selected === p.uri
-          return (
-            <button key={p.id} className={`voice-dialect ${active ? 'busy' : ''}`} onClick={() => {
-              const uri = p.uri ?? listSystemVoices()[0]?.uri ?? null
-              if (!uri) { notify('系统暂无可用中文音色'); return }
-              saveVoice(uri); setSelected(uri)
-              notify(p.matched ? `已选择「${p.name}」→ 系统音色 ${p.matchedName}`
-                : `「${p.name}」未找到匹配音色，已用系统音色 ${p.matchedName} 代替（可安装更多语音包获得差异）`)
-            }}>
-              <span className="voice-dialect-flag">{p.name.slice(0, 1)}</span>
-              <span className="voice-dialect-info"><b>{p.name}</b><small>{p.matched ? p.desc : `≈ ${p.matchedName || p.fallbackName}（未精确匹配）`}</small></span>
-              {active ? <span className="voice-ready">使用中</span> : null}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* 当前朗读源标识：让用户一眼看出 AI 回复用哪种声音 */}
+      {/* 当前朗读源标识 */}
       <div className={`voice-source-badge ${getSpeakSource() === 'clone' ? 'clone' : 'system'}`}>
         {getSpeakSource() === 'clone'
-          ? <>🎙 当前 AI 回复使用「克隆音色」——下方试听也是克隆音；聊天/通话的朗读均走此音色</>
-          : <>🔊 当前 AI 回复使用「系统音色」——试听的是上面选中的系统音色；配置云端代理并克隆后可切换为克隆音色</>}
+          ? <>🎙 当前 AI 回复使用「克隆音色」——下方试听、聊天与通话朗读均走此音色</>
+          : <>🔊 当前未设置克隆音色，AI 回复使用系统默认音色兜底。导入声音样本并克隆后即可用你自己的声音。</>}
       </div>
 
       <div className="voice-row">
@@ -289,34 +145,8 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
         <input type="range" min="0.5" max="2" step="0.1" value={rate} onChange={e => changeRate(Number(e.target.value))} className="voice-range" />
       </div>
       <button className="voice-preview" onClick={tryPreview}>
-        {previewing ? <Square size={14} /> : <Play size={14} />} {previewing ? '停止试听' : getSpeakSource() === 'clone' ? '试听克隆音色' : '试听当前音色'}
+        {previewing ? <Square size={14} /> : <Play size={14} />} {previewing ? '停止试听' : '试听克隆音色'}
       </button>
-
-      {/* 方言音色 */}
-      <div className="voice-section-label dialect"><MapPin size={14} /> 方言音色（需第三方语音服务）</div>
-      <div className="voice-dialect-grid">
-        {DIALECT_VOICES.map(d => (
-          <button key={d.id} className={`voice-dialect ${dialectId === d.id ? 'busy' : ''}`}
-            onClick={() => void downloadDialect(d)} disabled={dlState === 'downloading'}>
-            <span className="voice-dialect-flag">{d.flag}</span>
-            <span className="voice-dialect-info"><b>{d.name}</b><small>{d.desc}</small></span>
-            {dlState === 'downloading' && dialectId === d.id ? <Loader2 size={15} className="spin" />
-              : downloaded && voiceName === d.name ? <span className="voice-ready">已下载</span>
-              : <Download size={15} />}
-          </button>
-        ))}
-      </div>
-      {!ttsConfigured && (
-        <div className="voice-hint"><Info size={13} /> 方言音色需配置第三方语音服务后下载；未配置时无法使用。</div>
-      )}
-
-      {/* 已下载音色管理（单槽位） */}
-      {downloaded && (
-        <div className="voice-downloaded">
-          <div><b>已下载音色：{voiceName}</b><small>本地仅保留一个音色文件，切换新音色会自动替换</small></div>
-          <button className="voice-remove" onClick={() => void removeVoice()}><Trash2 size={14} /> 删除</button>
-        </div>
-      )}
 
       {/* 声音克隆 */}
       <div className="voice-section-label dialect"><Volume2 size={14} /> 声音克隆（录音 / 音频文件 → AI 发音）</div>
@@ -331,17 +161,17 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
           </>
         )}
         <button className="btn sm primary" disabled={!sample || cloning} onClick={() => void doClone()}>
-          {cloning ? '克隆中…' : '克隆为 AI 发音'}
+          {cloning ? <><Loader2 size={14} className="spin" /> 克隆中…</> : '克隆为 AI 发音'}
         </button>
         {sample && <button className="btn sm ghost" onClick={() => void removeSample()}><Trash2 size={14} /> 删除样本</button>}
       </div>
       {sample && <div className="voice-hint">样本：{sample.name}（{(sample.size / 1024).toFixed(0)} KB）</div>}
       {!ttsConfigured && <div className="voice-hint"><Info size={13} /> 声音克隆需要第三方语音服务代理（下方配置）；内置免费模型不提供克隆能力。</div>}
-      {desktop && <div className="voice-hint"><Info size={13} /> 桌面 WebView 不提供浏览器录音接口，系统授权开关也无法补上；请用「选择音频文件」导入样本（可先用 QuickTime 等工具录音）。</div>}
+      {desktop && <div className="voice-hint"><Info size={13} /> 桌面 WebView 不提供浏览器录音接口；请用「选择音频文件」导入样本（可先用 QuickTime 等工具录音）。</div>}
 
       {/* 已保存的克隆音色列表：可命名、切换、删除 */}
-      {clonedVoices.length > 0 && <>
-        <div className="voice-section-label dialect" style={{ marginTop: 14 }}>已保存的克隆音色（{clonedVoices.length}）· 点击切换</div>
+      <div className="voice-section-label dialect" style={{ marginTop: 14 }}>已保存的克隆音色（{clonedVoices.length}）· 点击切换</div>
+      {clonedVoices.length > 0 ? (
         <div className="cloned-voice-list">
           {clonedVoices.map(v => {
             const active = v.voiceId === clonedId
@@ -371,16 +201,18 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
             )
           })}
         </div>
-        <div className="voice-hint">克隆音色保存在本机；删除记录只移除本机引用，云端音色请到百炼控制台清理以释放配额。</div>
-      </>}
+      ) : (
+        <div className="voice-empty">还没有克隆音色。导入一段清晰人声（10~20 秒），点「克隆为 AI 发音」即可创建。</div>
+      )}
+      <div className="voice-hint">克隆音色保存在本机；删除记录只移除本机引用，云端音色请到百炼控制台清理以释放配额。</div>
 
       {/* 免费优先语音服务目录 */}
       <div className="voice-section-label"><Globe2 size={14} /> 声音服务（免费优先 · 点卡片查看官方文档）</div>
       <div className="voice-provider-grid">
         {VOICE_PROVIDERS.map(p => (
           <button key={p.id} className={`voice-provider ${p.recommended ? 'recommended' : ''}`} onClick={() => {
-            if (p.id === 'system') { setConfig({ provider: '', endpoint: '' }); saveTtsConfig({ provider: '', endpoint: '' }); setTtsConfigured(false); notify('已切换为系统音色（完全免费）'); return }
-            setConfig({ ...config, provider: p.id as TtsProviderConfig['provider'] }); setConfigOpen(true); void openExternal(p.docs)
+            setConfig({ ...config, provider: p.id === 'system' ? '' : p.id as TtsProviderConfig['provider'] }); setConfigOpen(true)
+            if (p.id !== 'system') void openExternal(p.docs)
           }}>
             <span className="voice-provider-head"><b>{p.name}</b>{p.recommended && <em>免费优先</em>}</span>
             <span className="voice-provider-free">{p.free}</span>
@@ -396,16 +228,16 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
       {configOpen && <div className="voice-config">
         <label className="form-label">服务商
           <select className="select" value={config.provider} onChange={e => setConfig({ ...config, provider: e.target.value as TtsProviderConfig['provider'] })}>
-            <option value="">未选择（使用系统音色）</option>
+            <option value="">未选择</option>
             {VOICE_PROVIDERS.filter(p => p.id !== 'system').map(p => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
         </label>
-        <label className="form-label">服务端点（代理地址，密钥在服务端持有）
+        <label className="form-label">服务端点（代理地址，密钥在服务端持有)
           <input className="input" value={config.endpoint} onChange={e => setConfig({ ...config, endpoint: e.target.value })} placeholder="https://your-tts-proxy.example.com" />
         </label>
-        <div className="voice-config-note">为安全起见，请将 AccessKey 保存在服务端代理，前端仅配置端点地址。方言音色通过代理下载。</div>
+        <div className="voice-config-note">为安全起见，请将 AccessKey 保存在服务端代理，前端仅配置端点地址。</div>
         <div className="voice-config-actions">
           <button className="btn sm primary" onClick={saveConfig}>保存配置</button>
           {ttsConfigured && <button className="btn sm ghost" onClick={() => { clearTtsConfig(); setConfig({ provider: '', endpoint: '' }); setTtsConfigured(false); notify('已清除配置') }}>清除</button>}

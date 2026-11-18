@@ -201,6 +201,27 @@ async fn open_mic_settings() -> Result<(), String> {
     result.map(|_| ()).map_err(|e| format!("打开系统设置失败：{}", e))
 }
 
+/// 打开系统「语音识别隐私设置」面板（仅桌面端）。
+#[tauri::command]
+async fn open_speech_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition").status();
+        let _ = std::process::Command::new("open").args(["-a", "System Settings"]).status();
+        return Ok(())
+    }
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", "ms-settings:privacy-speech"]).status();
+    #[cfg(target_os = "linux")]
+    let result = std::process::Command::new("xdg-open").arg("gnome-control-center privacy").status();
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    let result = Ok(std::process::ExitStatus::default());
+    #[cfg(not(target_os = "macos"))]
+    result.map(|_| ()).map_err(|e| format!("打开系统设置失败：{}", e))
+}
+
 /// 检测本机是否安装了指定客户端。
 /// macOS：用 mdfind 按官方 bundle id 精确匹配（Spotlight 索引）；Windows：查注册表 App Paths / where。
 /// 仅做只读检测，不启动任何程序。
@@ -416,7 +437,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services])
+        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -116,6 +116,17 @@ export async function openMicSettings(): Promise<boolean> {
   } catch { return false }
 }
 
+/** 打开系统「语音识别隐私设置」面板（仅桌面端）。返回是否成功发起 */
+export async function openSpeechSettings(): Promise<boolean> {
+  if (!isDesktopApp()) return false
+  try {
+    const w = window as unknown as { __TAURI_INTERNALS__?: { invoke?: (cmd: string) => Promise<void> } }
+    if (!w.__TAURI_INTERNALS__?.invoke) return false
+    await w.__TAURI_INTERNALS__.invoke('open_speech_settings')
+    return true
+  } catch { return false }
+}
+
 /** 在系统默认浏览器中打开官方页面。返回是否成功发起 */
 export async function openExternal(url: string): Promise<boolean> {
   if (!url || !/^https?:\/\//.test(url)) return false

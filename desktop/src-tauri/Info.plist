@@ -6,5 +6,7 @@
   <string>用于 AI 语音通话，把您说的话转成文字与 AI 对话</string>
   <key>NSCameraUsageDescription</key>
   <string>用于拍摄照片作为 AI 对话附件</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>用于 AI 语音通话，把您说的话转成文字与 AI 对话</string>
 </dict>
 </plist>
