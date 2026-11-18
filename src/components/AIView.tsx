@@ -41,6 +41,29 @@ const QUICK_PROMPTS = [
   { icon: '💡', title: '这个 App 能帮我做什么？', desc: '快速了解全部功能' },
 ]
 
+/** 根据系统时间生成问候语（ Claude 式动态称呼） */
+function timeGreeting(): string {
+  const h = new Date().getHours()
+  if (h >= 5 && h < 11) return '早上好'
+  if (h >= 11 && h < 13) return '中午好'
+  if (h >= 13 && h < 18) return '下午好'
+  if (h >= 18 && h < 22) return '晚上好'
+  if (h >= 22 || h < 5) return '夜深了'   // 深夜/凌晨
+  return '您好'
+}
+/** 结合时段与用户昵称生成欢迎语，如"晚上好，夜猫子" */
+function welcomeText(userNick?: string): string {
+  const greet = timeGreeting()
+  const name = (userNick || '').trim()
+  // 默认昵称"我"或空时，按时段给一个自然的称呼，避免"夜深了，我"这种生硬表达
+  if (!name || name === '我') {
+    const h = new Date().getHours()
+    const defaultName = (h >= 22 || h < 5) ? '夜猫子' : '朋友'
+    return `${greet}，${defaultName}`
+  }
+  return `${greet}，${name}`
+}
+
 export function AIView({ notify, accounts }: {
   notify: (m: string) => void
   accounts: Account[]
@@ -439,7 +462,7 @@ export function AIView({ notify, accounts }: {
           {!hasChat ? (
             <div className="ai-welcome">
               <div className="ai-welcome-mark"><Sparkles size={34} /></div>
-              <h2>有什么可以帮你？</h2>
+              <h2>{welcomeText(userProfile.nickname)}</h2>
               <p>关于积分、额度、签到、费用与 API Key 安全，都可以问我。</p>
               <div className="ai-quick-grid">
                 {QUICK_PROMPTS.map(q => (

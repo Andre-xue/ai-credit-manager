@@ -1,0 +1,224 @@
+/* ============================================================
+   Claude 极简风主题（全平台默认）
+   特征：纯白/浅灰大留白、克制配色、无渐变无毛玻璃、靠排版营造高级感。
+   用户可在偏好设置切到 liquid（液态玻璃）或 classic（经典）。
+   本文件在 styles.css / liquid-glass.css 之后导入，覆盖前者。
+   ============================================================ */
+
+.claude-ui {
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #f9f9f8;
+  --border: #ececea;
+  --border-strong: #e0e0dd;
+  --text: #1f2023;
+  --text-2: #6b6c70;
+  --text-3: #9b9c9f;
+  --primary: #c15f3c;          /* Claude 暖橙棕主色 */
+  --primary-soft: #faf1ec;
+  --primary-hover: #a84e2e;
+  background: #ffffff;
+  color: var(--text);
+}
+.claude-ui,
+.claude-ui body { letter-spacing: -.01em; }
+
+/* ---------- 全局：去渐变、去玻璃、纯白底 ---------- */
+.claude-ui.app-shell { background: #ffffff; }
+.claude-ui.phone-shell { background: #ffffff !important; }
+.claude-ui.phone-shell::before { display: none !important; }
+.claude-ui .topbar {
+  background: #ffffff !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* ---------- 侧栏：浅灰底、紧凑、克制 ---------- */
+.claude-ui .sidebar {
+  background: #f9f9f8 !important;
+  border-right: 1px solid #ececea !important;
+  box-shadow: none !important;
+}
+.claude-ui .brand { border-bottom-color: #ececea; padding: 20px 20px 18px; }
+.claude-ui .brand-mark {
+  background: #c15f3c !important;
+  box-shadow: none !important;
+  border-radius: 9px;
+  width: 32px; height: 32px;
+}
+.claude-ui .brand-mark svg { width: 18px; height: 18px; }
+.claude-ui .brand-name { font-size: 14px; font-weight: 600; }
+.claude-ui .nav { padding: 12px 12px; }
+.claude-ui .nav-item {
+  padding: 9px 12px; margin-bottom: 2px; border-radius: 8px;
+  font-size: 13.5px; color: #55565a; gap: 11px;
+}
+.claude-ui .nav-item svg { width: 17px; height: 17px; }
+.claude-ui .nav-item:hover { background: #efefed; color: #1f2023; }
+.claude-ui .nav-item.active { background: #ebebe8; color: #1f2023; font-weight: 600; }
+.claude-ui .nav-item.active::before { display: none; }  /* 去掉指示条，Claude 无此元素 */
+.claude-ui .compliance {
+  background: #fffdf5; border-color: #f0e6c8; border-radius: 8px;
+}
+/* 手机端抽屉侧栏在 Claude 风下也用浅灰纯色 */
+.claude-ui.phone-shell .sidebar {
+  background: #f9f9f8 !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  border-right-color: #ececea !important;
+}
+
+/* ---------- 顶栏：极简，弱化 ---------- */
+.claude-ui .topbar { height: 60px; border-bottom-color: #f0f0ee; }
+.claude-ui .topbar h1 { font-size: 16px; font-weight: 600; }
+.claude-ui .topbar .subtitle { display: none; }  /* Claude 顶栏只有标题，副标题冗余 */
+.claude-ui .topbar-actions .btn.primary {
+  background: #1f2023; border-color: #1f2023; color: #fff;
+}
+
+/* ---------- 卡片/面板：扁平、无强阴影 ---------- */
+.claude-ui .stat-card,
+.claude-ui .panel,
+.claude-ui .set-section,
+.claude-ui .agent-card,
+.claude-ui .account-card {
+  background: #ffffff !important;
+  border: 1px solid #ececea !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  border-radius: 12px;
+}
+.claude-ui.liquid-ui .stat-card { background: #ffffff !important; }
+/* 机器人头像 */
+.claude-ui .ai-welcome-mark,
+.claude-ui .brand-mark { background: #c15f3c !important; }
+
+/* ---------- AI 页：Claude 式极简居中布局 ---------- */
+.claude-ui .content-ai { padding: 0 !important; }
+.claude-ui .ai-page { background: #ffffff; }
+.claude-ui .ai-shell {
+  max-width: 780px !important;   /* Claude 对话窄版宽度 */
+  margin: 0 auto;
+  height: calc(100dvh - 24px);
+  min-height: 0;
+}
+/* AI 页隐藏全局顶栏与自带品牌，只留极简模型控件（Claude 顶部只有套餐标签+模型） */
+.claude-ui .topbar-ai { display: none; }
+.claude-ui .content-ai { margin-top: 0; }
+.claude-ui .ai-topbar {
+  border-bottom: none;
+  padding: 14px 0 8px;
+  justify-content: flex-end;   /* 品牌隐藏后按钮靠右 */
+}
+/* 手机端：为悬浮菜单按钮留位置，避免压住第一个模型下拉 */
+.claude-ui.phone-shell .ai-topbar { padding-left: 52px; }
+.claude-ui .ai-brand { display: none; }
+.claude-ui .ai-top-actions { gap: 6px; }
+.claude-ui .ai-model-btn {
+  background: #fafafa; border-color: #ececea; color: #55565a;
+  border-radius: 8px; font-size: 12.5px;
+}
+.claude-ui .ai-icon-btn { background: transparent; border-color: transparent; color: #8a8b8e; }
+.claude-ui .ai-icon-btn:hover { color: #1f2023; border-color: transparent; }
+
+/* 欢迎区：大居中问候语 */
+.claude-ui .ai-welcome { max-width: 720px; margin: 12vh auto 0; text-align: center; }
+.claude-ui .ai-welcome-mark {
+  width: 44px; height: 44px; border-radius: 12px; margin: 0 auto 22px;
+  background: #c15f3c !important;
+  box-shadow: none !important;
+}
+.claude-ui .ai-welcome-mark svg { width: 24px; height: 24px; color: #fff; }
+.claude-ui .ai-welcome h2 {
+  font-size: 30px; font-weight: 400; letter-spacing: -.6px;
+  color: #1f2023; margin: 0 0 10px;
+}
+.claude-ui .ai-welcome p { font-size: 13.5px; color: #9b9c9f; margin: 0 0 36px; }
+/* 快捷提示卡：Claude 无卡片，改成极简文字条目 */
+.claude-ui .ai-quick-grid { grid-template-columns: 1fr 1fr; gap: 0 16px; max-width: 620px; margin: 0 auto; }
+.claude-ui .ai-quick-card {
+  background: transparent; border: none; box-shadow: none;
+  padding: 12px 14px; border-radius: 8px; align-items: flex-start;
+  flex-direction: row; gap: 10px; text-align: left;
+}
+.claude-ui .ai-quick-card:hover { background: #f7f7f5; border: none; transform: none; }
+.claude-ui .ai-quick-icon { font-size: 16px; line-height: 1.4; }
+.claude-ui .ai-quick-title { font-size: 13px; font-weight: 500; color: #44454a; }
+.claude-ui .ai-quick-desc { display: none; }
+
+/* 消息区：Claude 纯文本风格（无气泡） */
+.claude-ui .ai-msg-body { max-width: 100%; }
+.claude-ui .ai-bubble {
+  background: transparent !important; border: none !important;
+  box-shadow: none !important; border-radius: 0 !important;
+  padding: 4px 0 !important; color: #2a2b2e; line-height: 1.75;
+}
+.claude-ui .ai-msg.user .ai-bubble {
+  background: #f7f7f5 !important; border-radius: 12px !important; padding: 10px 14px !important;
+}
+.claude-ui .ai-avatar { border-radius: 8px; width: 30px; height: 30px; }
+
+/* 输入区：Claude 圆角大输入框 */
+.claude-ui .ai-compose { padding: 8px 0 4px; border-top: none; }
+.claude-ui .ai-compose-box {
+  border: 1px solid #e3e3e0; border-radius: 16px;
+  padding: 14px 16px 10px; background: #fff;
+  box-shadow: 0 2px 12px rgba(16, 24, 40, .04);
+}
+.claude-ui .ai-compose-box:focus-within {
+  border-color: #d0d0cc; box-shadow: 0 2px 16px rgba(16, 24, 40, .07);
+}
+.claude-ui .ai-textarea { font-size: 14px; }
+.claude-ui .ai-send { background: #1f2023; border-radius: 10px; color: #fff; }
+.claude-ui .ai-send:disabled { background: #e5e5e2; }
+.claude-ui .ai-hint { color: #b0b0ad; }
+.claude-ui .reasoning-btn { background: #fafafa; border-color: #ececea; }
+
+/* ---------- 设置中心：Claude 式居中弹窗 ---------- */
+.claude-ui .set-modal-backdrop {
+  position: fixed; inset: 0; z-index: 70;
+  background: rgba(24, 24, 27, .38);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; animation: set-fade .18s ease both;
+}
+.claude-ui .set-modal {
+  width: min(920px, 96vw); max-height: min(88vh, 860px);
+  background: #fff; border-radius: 16px; overflow: hidden;
+  display: flex; flex-direction: column;
+  box-shadow: 0 24px 80px rgba(16, 24, 40, .22);
+  animation: set-pop .22s cubic-bezier(.22, 1, .36, 1) both;
+}
+@keyframes set-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes set-pop { from { opacity: 0; transform: translateY(12px) scale(.98); } to { opacity: 1; transform: none; } }
+.claude-ui .set-modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 24px; border-bottom: 1px solid #f0f0ee;
+}
+.claude-ui .set-modal-head h2 { font-size: 16px; font-weight: 600; margin: 0; }
+.claude-ui .set-modal-body { display: flex; min-height: 0; flex: 1; }
+/* SettingsView 内部：隐藏大 hero（模态头部已是标题），把横排 tabs 变成左侧竖排导航 */
+.claude-ui .set-modal-body > .set-hero { display: none; }
+.claude-ui .set-modal-body { display: block; }
+.claude-ui .set-tabs {
+  display: flex; flex-direction: column; gap: 2px;
+  width: 190px; float: left; height: 100%;
+  padding: 16px 10px; margin: 0;
+  background: #f9f9f8; border-right: 1px solid #f0f0ee; border-bottom: none;
+  box-sizing: border-box;
+}
+.claude-ui .set-tabs button {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 9px 12px; border: none; border-radius: 8px;
+  background: transparent; color: #55565a; font-size: 13px; text-align: left;
+}
+.claude-ui .set-tabs button.active { background: #ebebe8; color: #1f2023; font-weight: 600; }
+.claude-ui .set-content { margin-left: 190px; padding: 24px 28px 40px; }
+.claude-ui .set-modal-body::after { content: ''; display: block; clear: both; }
+/* 弹窗滚动：整体内容区可滚动，设置内容跟随 */
+.claude-ui .set-modal-body { overflow-y: auto; }
+
+/* 动效关闭时：本主题动画也禁用 */
+.no-motion.claude-ui *,
+.no-motion.claude-ui *::before,
+.no-motion.claude-ui *::after { animation: none !important; }

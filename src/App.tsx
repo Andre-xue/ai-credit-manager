@@ -86,7 +86,15 @@ function App() {
     if (isPhone) return false
     try { return localStorage.getItem('acm.sidebar.visible') !== '0' } catch { return true }
   })
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const toggleSidebar = () => setSidebarVisible(v => !v)
+  // 统一导航：Claude 风格下"设置"走居中弹窗，其余模块正常切 tab
+  const openTab = (id: Tab) => {
+    if (id === 'settings') { setSettingsOpen(true); if (isPhone) setSidebarVisible(false); return }
+    setTab(id)
+    if (isPhone) setSidebarVisible(false)
+    window.scrollTo(0, 0)
+  }
   useEffect(() => {
     try { localStorage.setItem('acm.sidebar.visible', sidebarVisible ? '1' : '0') } catch { /* 忽略 */ }
   }, [sidebarVisible])
@@ -490,15 +498,15 @@ function App() {
   // 手机端侧栏：AI 主页面置顶，其后依次为 看板 / 签到 / 福利 / 密钥 / 用量 / 设置
   const drawerTabs: Tab[] = ['ai', 'dashboard', 'checkin', 'benefits', 'keys', 'usage', 'settings']
 
-  // 界面风格：手机端默认液态玻璃，桌面默认经典；用户可在偏好设置覆盖
-  const stylePref = state.settings.uiStyle ?? 'auto'
-  const liquidOn = isPhone
-    ? stylePref !== 'classic'
-    : stylePref === 'liquid'
+  // 界面风格：全平台默认 Claude 极简风；液态玻璃/经典为用户可选项（手机端也保留切换）
+  const stylePref = state.settings.uiStyle ?? 'claude'
+  const liquidOn = stylePref === 'liquid'
+  const claudeOn = stylePref === 'claude' || stylePref === 'auto'
   const motionOn = state.settings.uiMotion !== false
   const shellClass = [
     'app-shell',
     isPhone ? 'phone-shell' : '',
+    claudeOn ? 'claude-ui' : '',
     liquidOn ? 'liquid-ui' : '',
     motionOn ? 'motion-ui' : 'no-motion',
     sidebarVisible ? '' : 'sidebar-collapsed',
@@ -525,7 +533,7 @@ function App() {
             const Icon = t.icon
             return (
               <button key={t.id} className={`nav-item ${tab === t.id ? 'active' : ''}`}
-                onClick={() => { setTab(t.id); if (isPhone) setSidebarVisible(false); window.scrollTo(0, 0) }} title={t.label}>
+                onClick={() => openTab(t.id)} title={t.label}>
                 <Icon size={17} />
                 <span>{t.label}</span>
                 {t.id === 'ai' && <span className="nav-pill">主页</span>}
@@ -637,63 +645,75 @@ function App() {
             </SettingsSection>
           </div>}
 
-          {tab === 'settings' && <SettingsView
-            state={state}
-            onChange={(patch) => setState(s => updateSettings(s, patch))}
-            notify={notify}
-            onOpenVault={() => setVaultOpen(true)}
-            onChangePassword={async (oldPwd, newPwd) => {
-              const keyAccounts = state.accounts.filter(a => a.encryptedKey)
-              const ciphers = keyAccounts.map(a => a.encryptedKey!)
-              const renewed = await changeMasterPassword(oldPwd, newPwd, ciphers)
-              // 更新每个账户的密文
-              renewed.forEach((cipher, i) => {
-                setState(s => ({ ...s, accounts: s.accounts.map(a => a.id === keyAccounts[i].id ? { ...a, encryptedKey: cipher } : a) }))
-              })
-              // 指纹模式同步更新存储的密码
-              if (state.settings.unlockMethod === 'biometric') saveBiometricPassword(newPwd)
-              setSessionPwd(newPwd)
-            }}
-            onResetVault={() => {
-              clearBiometricPassword()
-              resetVault()
-              setSessionPwd('')
-              setState(s => ({
-                ...s,
-                accounts: s.accounts.map(a => ({ ...a, encryptedKey: undefined, keyFingerprint: undefined })),
-                settings: { ...s.settings, vaultInitialized: false, unlockMethod: 'password' },
-              }))
-              notify('保险箱已重置')
-            }}
-            onBioAvailable={bioAvailableGlobal}
-            onBioUnlock={() => void handleBioUnlock()}
-            bioLabel={bioLabel}
-            sessionPwd={sessionPwd}
-            onCheckUpdate={() => setUpdateOpen(true)}
-            onClear={() => {
-              requestBackup(state.accounts.map(a => a.id), '清空前必须备份', '确认清空', () => {
-                // 不可逆清除：先尝试系统指纹/人脸验证；设备不支持时要求已解锁的主密码凭据
-                void (async () => {
-                  const bioOk = await biometricAuth('验证身份以清空全部业务数据')
-                  if (!bioOk) {
-                    const unlocked = !!(sessionPwd || getBiometricPassword())
-                    if (!unlocked) { notify('请先解锁保险箱或在支持生物识别的设备上验证，未执行清空'); return }
-                  }
-                  scheduleUndo(stateRef.current, '业务数据已清空')
-                  setState(s => clearAllData(s))
-                  notify('业务数据已清空（5 秒内可撤回）')
-                })()
-              })
-            }}
-            cloudUser={cloudUser}
-            syncing={syncing}
-            lastSyncAt={lastSyncAt}
-            onLogin={() => setLoginOpen(true)}
-            onLogout={handleCloudLogout}
-            onSync={() => void pullCloud()}
-          />}
         </div>
       </main>
+
+      {/* 设置中心：Claude 风为居中模态弹窗，其他风格仍可经 tab 打开 */}
+      {settingsOpen && (() => {
+        const node = <SettingsView
+          state={state}
+          onChange={(patch) => setState(s => updateSettings(s, patch))}
+          notify={notify}
+          onOpenVault={() => setVaultOpen(true)}
+          onChangePassword={async (oldPwd, newPwd) => {
+            const keyAccounts = state.accounts.filter(a => a.encryptedKey)
+            const ciphers = keyAccounts.map(a => a.encryptedKey!)
+            const renewed = await changeMasterPassword(oldPwd, newPwd, ciphers)
+            renewed.forEach((cipher, i) => {
+              setState(s => ({ ...s, accounts: s.accounts.map(a => a.id === keyAccounts[i].id ? { ...a, encryptedKey: cipher } : a) }))
+            })
+            if (state.settings.unlockMethod === 'biometric') saveBiometricPassword(newPwd)
+            setSessionPwd(newPwd)
+          }}
+          onResetVault={() => {
+            clearBiometricPassword()
+            resetVault()
+            setSessionPwd('')
+            setState(s => ({
+              ...s,
+              accounts: s.accounts.map(a => ({ ...a, encryptedKey: undefined, keyFingerprint: undefined })),
+              settings: { ...s.settings, vaultInitialized: false, unlockMethod: 'password' },
+            }))
+            notify('保险箱已重置')
+          }}
+          onBioAvailable={bioAvailableGlobal}
+          onBioUnlock={() => void handleBioUnlock()}
+          bioLabel={bioLabel}
+          sessionPwd={sessionPwd}
+          onCheckUpdate={() => setUpdateOpen(true)}
+          onClear={() => {
+            requestBackup(state.accounts.map(a => a.id), '清空前必须备份', '确认清空', () => {
+              void (async () => {
+                const bioOk = await biometricAuth('验证身份以清空全部业务数据')
+                if (!bioOk) {
+                  const unlocked = !!(sessionPwd || getBiometricPassword())
+                  if (!unlocked) { notify('请先解锁保险箱或在支持生物识别的设备上验证，未执行清空'); return }
+                }
+                scheduleUndo(stateRef.current, '业务数据已清空')
+                setState(s => clearAllData(s))
+                notify('业务数据已清空（5 秒内可撤回）')
+              })()
+            })
+          }}
+          cloudUser={cloudUser}
+          syncing={syncing}
+          lastSyncAt={lastSyncAt}
+          onLogin={() => setLoginOpen(true)}
+          onLogout={handleCloudLogout}
+          onSync={() => void pullCloud()}
+        />
+        return (
+          <div className="set-modal-backdrop" onClick={() => setSettingsOpen(false)}>
+            <div className="set-modal" onClick={e => e.stopPropagation()}>
+              <div className="set-modal-head">
+                <h2>设置</h2>
+                <button className="icon-btn" onClick={() => setSettingsOpen(false)} title="关闭"><X size={18} /></button>
+              </div>
+              <div className="set-modal-body">{node}</div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* 移动端底部导航：手机原生端改用侧栏抽屉，此处仅 Web/其他端显示 */}
       {!isPhone && <nav className="bottom-nav">
@@ -701,7 +721,7 @@ function App() {
           const t = tabs.find(x => x.id === id)!
           const Icon = t.icon
           return (
-            <button key={t.id} className={`bottom-nav-item ${tab === t.id ? 'active' : ''} ${t.id === 'ai' ? 'center' : ''}`} onClick={() => { setTab(t.id); window.scrollTo(0, 0) }}>
+            <button key={t.id} className={`bottom-nav-item ${tab === t.id ? 'active' : ''} ${t.id === 'ai' ? 'center' : ''}`} onClick={() => openTab(t.id)}>
               <Icon size={20} />
               <span>{shortLabel[t.id]}</span>
             </button>
@@ -841,7 +861,7 @@ function App() {
       {backupDue && !undo && <div className="backup-due-bar">
         <AlertTriangle size={15} />
         <span>已超过 {state.settings.backupReminderDays ?? 7} 天未备份数据，建议到「设置 → 数据管理」导出备份。</span>
-        <button onClick={() => { setTab('settings'); setBackupDue(false) }}>去备份</button>
+        <button onClick={() => { setSettingsOpen(true); setBackupDue(false) }}>去备份</button>
         <button className="backup-due-close" onClick={() => setBackupDue(false)} title="本次忽略"><X size={14} /></button>
       </div>}
       {toast && !undo && <div className="toast"><Check size={15} /> {toast}</div>}
@@ -3060,10 +3080,10 @@ function SettingsView({ state, onChange, notify, onOpenVault, onClear, onChangeP
 
       <div className="set-content" key={setTab}>
         {setTab === 'general' && <>
-          <SettingsSection title="外观设计" desc="界面风格与动态效果，手机端默认液态玻璃" icon={Palette} tone="indigo">
-            <SettingsRow title="界面风格" desc="液态玻璃为半透明毛玻璃质感；经典为传统实心界面">
-              <select className="select" style={{ width: 128 }} value={s.uiStyle ?? 'auto'} onChange={e => onChange({ uiStyle: e.target.value as 'auto' | 'liquid' | 'classic' })}>
-                <option value="auto">自动（推荐）</option>
+          <SettingsSection title="外观设计" desc="界面风格与动态效果，全平台默认极简留白风" icon={Palette} tone="indigo">
+            <SettingsRow title="界面风格" desc="极简留白(推荐)为纯白克制风格；液态玻璃为半透明毛玻璃；经典为传统实心界面">
+              <select className="select" style={{ width: 128 }} value={s.uiStyle ?? 'claude'} onChange={e => onChange({ uiStyle: e.target.value as 'claude' | 'auto' | 'liquid' | 'classic' })}>
+                <option value="claude">极简留白（推荐）</option>
                 <option value="liquid">液态玻璃</option>
                 <option value="classic">经典</option>
               </select>

@@ -146,8 +146,8 @@ export interface AppSettings {
   lastExportAt?: string
   /** 上次同步时间（预留云同步） */
   lastSyncAt?: string
-  /** 手机端界面风格：auto=手机液态玻璃/桌面经典，liquid=液态玻璃，classic=经典 */
-  uiStyle?: 'auto' | 'liquid' | 'classic'
+  /** 界面风格：claude=极简留白(默认/全平台)，liquid=液态玻璃，classic=经典 */
+  uiStyle?: 'claude' | 'auto' | 'liquid' | 'classic'
   /** 界面动态效果开关（抽屉滑入、卡片渐入、光斑浮动等） */
   uiMotion?: boolean
 }
