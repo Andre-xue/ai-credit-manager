@@ -14,6 +14,7 @@ import sys
 import glob
 import os
 import datetime
+from urllib.parse import quote
 
 release_dir = sys.argv[1]
 out_path = sys.argv[2]
@@ -49,7 +50,12 @@ for key, patterns in PLATFORMS.items():
     if not signature:
         continue
     name = os.path.basename(artifact)
-    url = f'https://github.com/{repo}/releases/latest/download/{name}'
+    # 关键修复：
+    # 1) 文件名含空格（如 "AI Credit Manager.app.tar.gz"）必须 URL 编码，否则 Tauri 下载失败；
+    # 2) URL 指向本 tag 而非 latest，保证签名(.sig)与下载文件严格对应（latest 会随新版本漂移导致签名不匹配）。
+    encoded = quote(name, safe='')
+    tag = 'v' + version.lstrip('v')
+    url = f'https://github.com/{repo}/releases/download/{tag}/{encoded}'
     platforms[key] = {'signature': signature, 'url': url}
 
 if not platforms:

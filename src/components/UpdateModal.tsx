@@ -21,6 +21,7 @@ export function UpdateModal({ onClose, notify }: { onClose: () => void; notify: 
   const [copied, setCopied] = useState(false)
   const [apkUrl, setApkUrl] = useState<string | null>(null)
   const [fallback, setFallback] = useState(false)
+  const [autoErr, setAutoErr] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -28,7 +29,9 @@ export function UpdateModal({ onClose, notify }: { onClose: () => void; notify: 
       if (platform === 'desktop') {
         const u = await checkDesktopUpdate()
         if (!alive) return
-        if (u) { setLatest(u.version); setNotes(u.body ?? ''); setPhase('available'); return }
+        if (u && !u.error) { setLatest(u.version); setNotes(u.body ?? ''); setPhase('available'); return }
+        // 自动更新检查失败：记住原因，继续走手动通道，保证用户仍可下载
+        if (u?.error) setAutoErr(u.error)
         // 没有签名更新清单时退回 GitHub Releases 检查：提示手动下载安装包
         // 传 true：若最新版桌面包仍在构建，自动回退到最近一个带完整安装包的版本
         const info = await checkReleaseUpdate(true)
@@ -161,6 +164,7 @@ export function UpdateModal({ onClose, notify }: { onClose: () => void; notify: 
               )}
               {platform === 'desktop' && (
                 <>
+                  {autoErr && <div className="upd-hint" style={{ color: 'var(--amber)' }}>自动更新检查未通过：{autoErr.slice(0, 160)}。已为你提供手动下载方式。</div>}
                   <div className="upd-hint">{fallback
                     ? '检测到一个更新的版本，但其桌面安装包还在构建中。下面提供的是最近一个可直接安装的稳定版本，下载覆盖安装即可，数据不会丢失。等新版本构建完成后，再检查更新即可继续升级。'
                     : '当前安装包未配置签名更新通道，无法静默升级。请到 GitHub 下载页获取最新安装包，下载后覆盖安装即可，数据不会丢失。'}</div>

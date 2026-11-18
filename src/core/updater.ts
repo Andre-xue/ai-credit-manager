@@ -7,7 +7,7 @@
 import { isDesktopApp, isNativeApp } from './openExternal'
 
 /** 与 tauri.conf.json / package.json 保持一致 */
-export const APP_VERSION = '0.1.81'
+export const APP_VERSION = '0.1.82'
 
 const REPO = 'Andre-xue/ai-credit-manager'
 const RELEASES_API = `https://api.github.com/repos/${REPO}/releases/latest`
@@ -122,14 +122,19 @@ export async function checkReleaseUpdate(requireDesktopInstaller = false): Promi
   }
 }
 
-/** 桌面端：用 Tauri updater 检查（返回 null 表示已是最新或不可用） */
-export async function checkDesktopUpdate(): Promise<{ version: string; currentVersion: string; body?: string } | null> {
+/** 桌面端：用 Tauri updater 检查。返回 { update, error }，error 用于界面显示真实原因 */
+export async function checkDesktopUpdate(): Promise<{
+  version: string; currentVersion: string; body?: string; error?: string
+} | null> {
   try {
     const { check } = await import('@tauri-apps/plugin-updater')
     const update = await check()
     if (!update) return null
     return { version: update.version, currentVersion: update.currentVersion, body: update.body }
-  } catch { return null }
+  } catch (e) {
+    const msg = (e as Error)?.message ?? String(e)
+    return { version: '', currentVersion: APP_VERSION, error: msg }
+  }
 }
 
 export interface InstallProgress { downloaded: number }
