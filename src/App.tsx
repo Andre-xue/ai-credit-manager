@@ -4,7 +4,7 @@ import {
   ExternalLink, Trash2, RefreshCw, AlertTriangle, Info, Check,
   Wallet, Flame, Clock, TrendingUp, Lock, Unlock, Download, X, Copy, CircleHelp,
   Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Gift, Eye, Pencil, Fingerprint,
-  Film, Layers, Monitor,
+  Film, Layers, Monitor, PanelLeftClose, PanelLeftOpen,
   Cloud, Database, Volume2, HardDrive, Palette, RotateCcw, Menu,
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
@@ -81,13 +81,13 @@ function App() {
     if (t && ['ai', 'dashboard', 'checkin', 'benefits', 'keys', 'usage', 'voice', 'settings'].includes(t)) return t as Tab
     return isPhone ? 'ai' : 'dashboard'
   })
-  // 桌面/网页端侧栏常驻显示（无折叠开关）；仅手机端用抽屉式侧栏
   const [sidebarVisible, setSidebarVisible] = useState<boolean>(() => {
     if (phonePreview) return location.hash.includes('drawer') || new URLSearchParams(location.search).get('drawer') === '1'
     if (isPhone) return false
-    return true
+    try { return localStorage.getItem('acm.sidebar.visible') !== '0' } catch { return true }
   })
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const toggleSidebar = () => setSidebarVisible(v => !v)
   // 统一导航：Claude 风格下"设置"走居中弹窗，其余模块正常切 tab
   const openTab = (id: Tab) => {
     if (id === 'settings') { setSettingsOpen(true); if (isPhone) setSidebarVisible(false); return }
@@ -505,7 +505,7 @@ function App() {
     isPhone ? 'phone-shell' : '',
     'claude-ui',
     motionOn ? 'motion-ui' : 'no-motion',
-    isPhone && !sidebarVisible ? 'sidebar-collapsed' : '',
+    sidebarVisible ? '' : 'sidebar-collapsed',
   ].filter(Boolean).join(' ')
 
   return (
@@ -519,7 +519,9 @@ function App() {
             <div className="brand-name">AI 积分管家</div>
             <div className="brand-sub">Credit Manager</div>
           </div>
-          {isPhone && <button className="icon-btn sidebar-toggle" onClick={() => setSidebarVisible(false)} title="关闭菜单"><X size={19} /></button>}
+          {isPhone
+            ? <button className="icon-btn sidebar-toggle" onClick={() => setSidebarVisible(false)} title="关闭菜单"><X size={19} /></button>
+            : <button className="icon-btn sidebar-toggle" onClick={toggleSidebar} title="隐藏侧边栏"><PanelLeftClose size={17} /></button>}
         </div>
         <nav className="nav">
           {(isPhone ? drawerTabs : tabs.map(t => t.id)).map((id) => {
@@ -545,8 +547,11 @@ function App() {
       <main className="main">
         {/* 手机端：悬浮玻璃菜单按钮，点击打开侧栏抽屉 */}
         {isPhone && !sidebarVisible && <button className="phone-menu-fab" aria-label="打开菜单" onClick={() => setSidebarVisible(true)}><Menu size={22} /></button>}
+        {/* 桌面/Web 端：侧栏折叠后的悬浮恢复按钮（不依赖顶栏，避免 AI 页顶栏隐藏后无法恢复） */}
+        {!isPhone && !sidebarVisible && <button className="desktop-sidebar-restore" aria-label="显示侧边栏" onClick={() => setSidebarVisible(true)} title="显示侧边栏"><PanelLeftOpen size={18} /></button>}
         <header className={`topbar ${tab === 'ai' ? 'topbar-ai' : ''}`}>
           <div className="topbar-heading">
+            {!sidebarVisible && !isPhone && <button className="icon-btn sidebar-show" onClick={toggleSidebar} title="显示侧边栏"><PanelLeftOpen size={18} /></button>}
             <div>
               <h1>{tabs.find((t) => t.id === tab)?.label}</h1>
               <div className="subtitle">本地优先存储 · 数据仅保存在此设备</div>

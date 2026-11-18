@@ -1429,6 +1429,19 @@ html, body { touch-action: manipulation; }
   .set-modal-body .set-content { padding: 16px 16px 40px; }
 }
 
+/* 侧栏折叠后的恢复按钮：固定在顶部中间，避免遮挡左上角的模块标题 */
+.sidebar-show { display: none !important; }
+.desktop-sidebar-restore {
+  position: fixed; top: 16px; left: 50%; margin-left: -19px; z-index: 50;
+  width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--panel); color: var(--text-2); cursor: pointer;
+  box-shadow: 0 4px 14px rgba(16, 24, 40, .10);
+  transition: color .15s, border-color .15s, transform .15s;
+}
+.desktop-sidebar-restore:hover { color: var(--primary); border-color: var(--primary); }
+.desktop-sidebar-restore:active { transform: scale(.94); }
+
 /* AI 自动朗读开关按钮 */
 .ai-icon-btn.auto-speak-btn.active {
   color: var(--primary);

@@ -1,6 +1,6 @@
 [package]
 name = "ai-credit-manager"
-version = "0.1.99"
+version = "0.1.100"
 description = "AI 积分管家 - 桌面端"
 authors = ["you"]
 edition = "2021"
