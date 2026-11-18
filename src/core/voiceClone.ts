@@ -245,6 +245,26 @@ export function recordVoiceSample(seconds = 12): Promise<Blob> {
 }
 
 /** 调用第三方代理克隆声音；代理需实现 POST {endpoint}/clone，返回 { voiceId } */
+/** 把云端/网络错误翻译成用户能看懂的中文，并给出可操作指引 */
+export function friendlyCloneError(raw: string): string {
+  if (/in debt|arrears|欠费|insufficient balance|balance.*low/i.test(raw)) {
+    return '你的阿里云账号已欠费或余额不足，百炼拒绝创建音色。请到阿里云「费用中心」充值（充 1~2 元即可），或确认免费额度是否过期，然后重试。'
+  }
+  if (/quota|额度|exceed|limit|too many|音色.*上限/i.test(raw)) {
+    return '音色数量或调用额度已达上限。请到百炼控制台删除不用的音色释放配额，或检查免费额度是否已用完。'
+  }
+  if (/invalidapikey|unauthorized|401|forbidden.*key|鉴权|api.?key/i.test(raw)) {
+    return '语音服务的 API Key 无效或过期。请检查云函数环境变量 DASHSCOPE_API_KEY 是否填了完整正确的 Key。'
+  }
+  if (/format|unsupported|codec|invalid.*audio|不支持.*格式/i.test(raw)) {
+    return '音频格式不被语音服务接受。请重新录一段 12 秒清晰人声，或导入 WAV / MP3 / M4A 文件。'
+  }
+  if (/load failed|failed to fetch|networkerror|timeout/i.test(raw)) {
+    return '无法连接语音服务：请确认云函数已部署、端点地址正确，且网络正常。'
+  }
+  return raw.length > 160 ? raw.slice(0, 160) + '…' : raw
+}
+
 export async function cloneVoiceFromSample(sample: VoiceSample, name?: string): Promise<CloneResult> {
   const cfg = getTtsConfig()
   if (!cfg.provider || !cfg.endpoint) {
@@ -262,18 +282,15 @@ export async function cloneVoiceFromSample(sample: VoiceSample, name?: string): 
       }),
     })
     const text = await res.text()
-    if (!res.ok) return { ok: false, error: `克隆失败（HTTP ${res.status}）：${text.slice(0, 100)}` }
+    if (!res.ok) return { ok: false, error: friendlyCloneError(`克隆失败（HTTP ${res.status}）：${text.slice(0, 200)}`) }
     let voiceId = ''
     try { voiceId = JSON.parse(text)?.voiceId ?? '' } catch { voiceId = text.trim() }
-    if (!voiceId) return { ok: false, error: '服务未返回 voiceId' }
+    if (!voiceId) return { ok: false, error: friendlyCloneError('服务未返回 voiceId：' + text.slice(0, 200)) }
     addClonedVoice(name || sample.name.replace(/\.[^.]+$/, ''), voiceId, sample.name)
     return { ok: true, voiceId }
   } catch (e) {
     const msg = (e as Error)?.message ?? String(e)
-    const hint = /load failed|failed to fetch|networkerror/i.test(msg)
-      ? '无法连接语音服务：请确认端点地址正确、云函数已部署，且已更新到支持自定义端点的桌面版本。Web/手机端请用浏览器或 App 内置网络'
-      : `克隆请求失败：${msg}`
-    return { ok: false, error: hint }
+    return { ok: false, error: friendlyCloneError(`克隆请求失败：${msg}`) }
   }
 }
 
