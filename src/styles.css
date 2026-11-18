@@ -1429,18 +1429,22 @@ html, body { touch-action: manipulation; }
   .set-modal-body .set-content { padding: 16px 16px 40px; }
 }
 
-/* 侧栏折叠后的恢复按钮：固定在顶部中间，避免遮挡左上角的模块标题 */
+/* 左上角常驻侧栏开关（仿桌面应用标题栏按钮）：位置固定，折叠/展开都用它 */
 .sidebar-show { display: none !important; }
 .desktop-sidebar-restore {
-  position: fixed; top: 16px; left: 50%; margin-left: -19px; z-index: 50;
+  position: fixed; top: 19px; left: 268px; z-index: 50;
   width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--border); border-radius: 10px;
   background: var(--panel); color: var(--text-2); cursor: pointer;
-  box-shadow: 0 4px 14px rgba(16, 24, 40, .10);
-  transition: color .15s, border-color .15s, transform .15s;
+  box-shadow: 0 2px 8px rgba(16, 24, 40, .06);
+  transition: left .22s ease, color .15s, border-color .15s, transform .15s;
 }
-.desktop-sidebar-restore:hover { color: var(--primary); border-color: var(--primary); }
+/* 折叠后按钮随内容区移到最左，始终紧挨标题左侧（与标题为一组，仿桌面应用） */
+.sidebar-collapsed .desktop-sidebar-restore { left: 16px; }
+.desktop-sidebar-restore:hover { color: var(--primary); border-color: var(--primary); background: var(--panel-2); }
 .desktop-sidebar-restore:active { transform: scale(.94); }
+/* 桌面端顶栏标题区给开关留位，标题始终在按钮右侧、不重叠 */
+.app-shell:not(.phone-shell) .topbar-heading { padding-left: 46px; }
 
 /* AI 自动朗读开关按钮 */
 .ai-icon-btn.auto-speak-btn.active {

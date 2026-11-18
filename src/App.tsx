@@ -4,7 +4,7 @@ import {
   ExternalLink, Trash2, RefreshCw, AlertTriangle, Info, Check,
   Wallet, Flame, Clock, TrendingUp, Lock, Unlock, Download, X, Copy, CircleHelp,
   Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Gift, Eye, Pencil, Fingerprint,
-  Film, Layers, Monitor, PanelLeftClose, PanelLeftOpen,
+  Film, Layers, Monitor, PanelLeftOpen,
   Cloud, Database, Volume2, HardDrive, Palette, RotateCcw, Menu,
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
@@ -519,9 +519,7 @@ function App() {
             <div className="brand-name">AI 积分管家</div>
             <div className="brand-sub">Credit Manager</div>
           </div>
-          {isPhone
-            ? <button className="icon-btn sidebar-toggle" onClick={() => setSidebarVisible(false)} title="关闭菜单"><X size={19} /></button>
-            : <button className="icon-btn sidebar-toggle" onClick={toggleSidebar} title="隐藏侧边栏"><PanelLeftClose size={17} /></button>}
+          {isPhone && <button className="icon-btn sidebar-toggle" onClick={() => setSidebarVisible(false)} title="关闭菜单"><X size={19} /></button>}
         </div>
         <nav className="nav">
           {(isPhone ? drawerTabs : tabs.map(t => t.id)).map((id) => {
@@ -547,11 +545,10 @@ function App() {
       <main className="main">
         {/* 手机端：悬浮玻璃菜单按钮，点击打开侧栏抽屉 */}
         {isPhone && !sidebarVisible && <button className="phone-menu-fab" aria-label="打开菜单" onClick={() => setSidebarVisible(true)}><Menu size={22} /></button>}
-        {/* 桌面/Web 端：侧栏折叠后的悬浮恢复按钮（不依赖顶栏，避免 AI 页顶栏隐藏后无法恢复） */}
-        {!isPhone && !sidebarVisible && <button className="desktop-sidebar-restore" aria-label="显示侧边栏" onClick={() => setSidebarVisible(true)} title="显示侧边栏"><PanelLeftOpen size={18} /></button>}
+        {/* 桌面/Web 端：左上角常驻侧栏开关（位置固定，折叠/展开都用它，不遮挡标题） */}
+        {!isPhone && <button className="desktop-sidebar-restore" aria-label="切换侧边栏" onClick={toggleSidebar} title={sidebarVisible ? '隐藏侧边栏' : '显示侧边栏'}><PanelLeftOpen size={18} /></button>}
         <header className={`topbar ${tab === 'ai' ? 'topbar-ai' : ''}`}>
           <div className="topbar-heading">
-            {!sidebarVisible && !isPhone && <button className="icon-btn sidebar-show" onClick={toggleSidebar} title="显示侧边栏"><PanelLeftOpen size={18} /></button>}
             <div>
               <h1>{tabs.find((t) => t.id === tab)?.label}</h1>
               <div className="subtitle">本地优先存储 · 数据仅保存在此设备</div>
