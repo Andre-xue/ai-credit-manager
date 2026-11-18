@@ -337,3 +337,67 @@
   .ai-layout-welcome .ai-compose,
   .ai-layout-focus .ai-compose { margin-top: 20px; }
 }
+
+/* ============================================================
+   极简留白：清除全平台装饰性标语 / 提示文字 / 次要标签
+   保留功能性数据（用户备注、错误提示、状态文案、可操作标签）
+   ============================================================ */
+/* 侧栏品牌副标题、底部合规提示卡 */
+.brand-sub,
+.sidebar-foot,
+.compliance { display: none !important; }
+/* 顶栏副标题 */
+.subtitle { display: none !important; }
+/* 设置页说明文字（section 描述、行描述、note） */
+.set-card-heading p,
+.settings-row-desc,
+.set-note,
+.set-about-note { display: none !important; }
+/* 表单/录入说明文字 */
+.form-hint,
+.desc,
+.stat-hint,
+.hint { display: none !important; }
+/* 语音配置提示（保留红色错误提示） */
+.voice-hint:not([style*="red"]),
+.voice-config-note { display: none !important; }
+/* 附件拖拽提示、引擎说明、通话提示、更新说明 */
+.ap-drop-hint,
+.engine-note,
+.call-hint,
+.upd-hint,
+.upd-notes { display: none !important; }
+/* 工具卡片描述文字（保留分类/地区/月活等可操作标签） */
+.agent-desc { display: none !important; }
+
+/* ============================================================
+   极简留白：清除全平台装饰性标语 / 提示文字 / 次要标签
+   保留功能性数据（用户备注、错误提示、状态文案、可操作标签）
+   ============================================================ */
+/* 侧栏品牌副标题、底部合规提示卡 */
+.brand-sub,
+.sidebar-foot,
+.compliance { display: none !important; }
+/* 顶栏副标题 */
+.subtitle { display: none !important; }
+/* 设置页说明文字（section 描述、行描述、note） */
+.set-card-heading p,
+.settings-row-desc,
+.set-note,
+.set-about-note { display: none !important; }
+/* 表单/录入说明文字 */
+.form-hint,
+.desc,
+.stat-hint,
+.hint { display: none !important; }
+/* 语音配置提示（保留红色错误提示） */
+.voice-hint:not([style*="red"]),
+.voice-config-note { display: none !important; }
+/* 附件拖拽提示、引擎说明、通话提示、更新说明 */
+.ap-drop-hint,
+.engine-note,
+.call-hint,
+.upd-hint,
+.upd-notes { display: none !important; }
+/* 工具卡片描述文字（保留分类/地区/月活等可操作标签） */
+.agent-desc { display: none !important; }

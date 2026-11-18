@@ -498,16 +498,12 @@ function App() {
   // 手机端侧栏：AI 主页面置顶，其后依次为 看板 / 签到 / 福利 / 密钥 / 用量 / 设置
   const drawerTabs: Tab[] = ['ai', 'dashboard', 'checkin', 'benefits', 'keys', 'usage', 'settings']
 
-  // 界面风格：全平台默认 Claude 极简风；液态玻璃/经典为用户可选项（手机端也保留切换）
-  const stylePref = state.settings.uiStyle ?? 'claude'
-  const liquidOn = stylePref === 'liquid'
-  const claudeOn = stylePref === 'claude' || stylePref === 'auto'
+  // 界面风格：全平台统一极简留白风（已移除其他风格选项，强制 claude）
   const motionOn = state.settings.uiMotion !== false
   const shellClass = [
     'app-shell',
     isPhone ? 'phone-shell' : '',
-    claudeOn ? 'claude-ui' : '',
-    liquidOn ? 'liquid-ui' : '',
+    'claude-ui',
     motionOn ? 'motion-ui' : 'no-motion',
     sidebarVisible ? '' : 'sidebar-collapsed',
   ].filter(Boolean).join(' ')
@@ -3003,7 +2999,7 @@ function SettingsRow({ title, desc, children }: { title: string; desc?: string; 
     <div className="settings-row">
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 500 }}>{title}</div>
-        {desc && <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 3, lineHeight: 1.5 }}>{desc}</div>}
+        {desc && <div className="settings-row-desc" style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 3, lineHeight: 1.5 }}>{desc}</div>}
       </div>
       <div style={{ flexShrink: 0 }}>{children}</div>
     </div>
@@ -3081,14 +3077,7 @@ function SettingsView({ state, onChange, notify, onOpenVault, onClear, onChangeP
 
       <div className="set-content" key={setTab}>
         {setTab === 'general' && <>
-          <SettingsSection title="外观设计" desc="界面风格与动态效果，全平台默认极简留白风" icon={Palette} tone="indigo">
-            <SettingsRow title="界面风格" desc="极简留白(推荐)为纯白克制风格；液态玻璃为半透明毛玻璃；经典为传统实心界面">
-              <select className="select" style={{ width: 128 }} value={s.uiStyle ?? 'claude'} onChange={e => onChange({ uiStyle: e.target.value as 'claude' | 'auto' | 'liquid' | 'classic' })}>
-                <option value="claude">极简留白（推荐）</option>
-                <option value="liquid">液态玻璃</option>
-                <option value="classic">经典</option>
-              </select>
-            </SettingsRow>
+          <SettingsSection title="外观设计" desc="界面风格与动态效果" icon={Palette} tone="indigo">
             <SettingsRow title="动态效果" desc="抽屉滑入、卡片渐入、光斑浮动等动效">
               <Toggle checked={s.uiMotion !== false} onChange={v => onChange({ uiMotion: v })} />
             </SettingsRow>
