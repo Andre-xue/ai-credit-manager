@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import {
   Sparkles, Send, Square, Plus, ChevronDown, Copy, Trash2, CornerDownLeft, Volume2, VolumeX,
-  Phone, Layers, ExternalLink, Info, Loader2, FileText, Image as ImageIcon, Video, Camera, Images, X, RotateCcw, Cpu,
+  Phone, Layers, ExternalLink, Info, Loader2, FileText, Image as ImageIcon, Video, X, RotateCcw, Cpu,
 } from 'lucide-react'
 import {
   listModels, loadHistory, saveHistory, rotateConversationId,
@@ -26,8 +26,9 @@ import type { Account } from '../core/types'
 import { decryptSecret, getBiometricPassword, verifyVault } from '../core/crypto'
 import { PROVIDER_MAP } from '../data/providers'
 import {
-  pickAttachment, currentPlatform, type AttachmentKind, type PickedAttachment,
+  isTextAttachment, decodeAttachmentText, type PickedAttachment,
 } from '../core/attachments'
+import { AttachmentPicker } from './AttachmentPicker'
 import {
   enginesFor, enginesFromRemote, hasCatalog, REASONING_LEVELS, REASONING_DESC, toReasoningEffort,
   type ReasoningLevel,
@@ -56,9 +57,8 @@ export function AIView({ notify, accounts }: {
   const [speakingId, setSpeakingId] = useState<string | null>(null)
   const [callOpen, setCallOpen] = useState(false)
   const [resolvingKey, setResolvingKey] = useState(false)
-  const [attachOpen, setAttachOpen] = useState(false)
+  const [attachPickerOpen, setAttachPickerOpen] = useState(false)
   const [attachments, setAttachments] = useState<PickedAttachment[]>([])
-  const [picking, setPicking] = useState(false)
   const [enginePanelOpen, setEnginePanelOpen] = useState(false)
   const [engineId, setEngineId] = useState<string>('')
   const [remoteEngines, setRemoteEngines] = useState<string[] | null>(null)
@@ -268,6 +268,14 @@ export function AIView({ notify, accounts }: {
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     const imageUrls = attachments.filter(a => a.mime.startsWith('image/')).map(a => a.dataUrl)
     const attachNote = attachments.length ? `\n${attachments.map(a => `[附件:${a.name}]`).join(' ')}` : ''
+    // 文本/文档附件：把真实内容解码后随消息发给 AI。
+    // 之前的版本只把文件名拼给用户气泡、AI 侧只收到有效文字，导致“AI 说看不到文件内容”。
+    const textBlocks = attachments.filter(isTextAttachment).map(a => {
+      const raw = decodeAttachmentText(a)
+      const text = raw.length > 12000 ? `${raw.slice(0, 12000)}\n…（内容过长，已截断）` : raw
+      return `----- 附件：${a.name} -----\n${text || '（该文件无可读文本内容）'}`
+    })
+    const aiText = textBlocks.length ? `${effectiveText}\n\n${textBlocks.join('\n\n')}` : effectiveText
     const userMsg: ChatMessage = { id: `${Date.now()}-u`, role: 'user', content: effectiveText + attachNote, at: Date.now() }
     setMessages(prev => [...prev, userMsg])
     setAttachments([])
@@ -276,7 +284,7 @@ export function AIView({ notify, accounts }: {
     const controller = new AbortController()
     abortRef.current = controller
     try {
-      const answer = await getReply(effectiveText, messages, controller.signal, imageUrls)
+      const answer = await getReply(aiText, messages, controller.signal, imageUrls)
       setMessages(prev => [...prev, { id: `${Date.now()}-a`, role: 'assistant', content: answer || '（无回复内容）', at: Date.now() }])
     } catch (e) {
       const need = (e as { needPwd?: boolean })?.needPwd
@@ -301,31 +309,6 @@ export function AIView({ notify, accounts }: {
   }
 
   const stop = () => { abortRef.current?.abort(); setGenerating(false) }
-
-  // 附件菜单：桌面=文件/照片/视频；手机=相机/相册/文件；Web 兜底=文件/照片/视频
-  const platform = currentPlatform()
-  const attachItems: { kind: AttachmentKind; label: string; icon: typeof FileText }[] = platform === 'mobile'
-    ? [
-        { kind: 'camera', label: '相机', icon: Camera },
-        { kind: 'album', label: '相册', icon: Images },
-        { kind: 'file', label: '文件', icon: FileText },
-      ]
-    : [
-        { kind: 'file', label: '文件', icon: FileText },
-        { kind: 'photo', label: '照片', icon: ImageIcon },
-        { kind: 'video', label: '视频', icon: Video },
-      ]
-
-  const onPickAttachment = async (kind: AttachmentKind) => {
-    setAttachOpen(false)
-    setPicking(true)
-    try {
-      const picked = await pickAttachment(kind)
-      if (picked) { setAttachments(prev => [...prev, picked]); notify(`已添加：${picked.name}`) }
-    } catch (e) {
-      notify((e as Error).message ?? '获取附件失败')
-    } finally { setPicking(false) }
-  }
 
   const toggleSpeak = (m: ChatMessage) => {
     if (speakingId === m.id) { stopSpeak(); setSpeakingId(null); return }
@@ -414,19 +397,7 @@ export function AIView({ notify, accounts }: {
             )}
             <button className="ai-icon-btn call" onClick={() => setCallOpen(true)} disabled={!callEnabled}
               title={callEnabled ? 'AI 语音通话' : '当前分类模型不支持语音通话'}><Phone size={17} /></button>
-            <div className="ai-model-wrap">
-              <button className="ai-icon-btn" onClick={() => { setAttachOpen(v => !v); setModelOpen(false); setCategoryOpen(false) }} title="添加附件"><Plus size={18} /></button>
-              {attachOpen && <div className="ai-attach-menu">
-                <div className="ai-attach-title">添加附件 · {platform === 'mobile' ? '手机' : platform === 'desktop' ? '桌面' : '网页'}</div>
-                {attachItems.map(item => {
-                  const Icon = item.icon
-                  return <button key={item.kind} onClick={() => void onPickAttachment(item.kind)} disabled={picking}>
-                    <Icon size={16} /> {item.label}
-                  </button>
-                })}
-                <div className="ai-attach-note">首次使用会请求相应权限，授权后即可选择</div>
-              </div>}
-            </div>
+            <button className="ai-icon-btn" onClick={() => setAttachPickerOpen(true)} title="添加附件（点击选择或拖拽）"><Plus size={18} /></button>
             <button className="ai-icon-btn" onClick={clear} title="新建对话"><RotateCcw size={17} /></button>
             {messages.length > 0 && <button className="ai-icon-btn ai-clear-btn" onClick={() => { setMessages([]); rotateConversationId(); notify('对话已清空') }} title="清空对话"><Trash2 size={17} /></button>}
           </div>
@@ -607,6 +578,16 @@ export function AIView({ notify, accounts }: {
           </aside>
         </>
       )}
+
+      {attachPickerOpen && <AttachmentPicker
+        onClose={() => setAttachPickerOpen(false)}
+        onConfirm={(items) => {
+          setAttachments(prev => [...prev, ...items])
+          setAttachPickerOpen(false)
+          notify(`已添加 ${items.length} 个附件`)
+        }}
+        notify={notify}
+      />}
 
       {identityOpen && <IdentityModal
         kind={identityOpen}

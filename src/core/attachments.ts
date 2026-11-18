@@ -1,7 +1,7 @@
 // 附件选择统一层：桌面（Tauri dialog）、手机（Capacitor Camera/Filesystem）、Web（input file）。
 // 权限：手机端先 checkPermissions → requestPermissions，成功后才打开相机/相册/文件；
 // 桌面端用系统对话框，用户选择即视为授权（无后台读取权限）。
-// 所有附件统一转为 data URL，便于随对话发给支持图片的模型。
+// 所有附件统一转为 data URL，便于随对话发给支持图片的模型，也便于本地预览。
 
 import { isDesktopApp } from './openExternal'
 
@@ -39,15 +39,20 @@ function fileToDataUrl(file: File): Promise<string> {
   })
 }
 
+/** 把一个 File 转为附件（预览对话框多选/拖拽时复用） */
+export async function fileToAttachment(file: File, kind: AttachmentKind = 'file'): Promise<PickedAttachment> {
+  return wrapFile(file, kind)
+}
+
 async function wrapFile(file: File, kind: AttachmentKind): Promise<PickedAttachment> {
   const dataUrl = await fileToDataUrl(file)
   return {
-    name: file.name || '附件', mime: file.type || 'application/octet-stream', size: file.size,
+    name: file.name || '附件', mime: file.type || guessMime(file.name), size: file.size,
     dataUrl, base64: dataUrl.split(',')[1] ?? '', kind,
   }
 }
 
-/** Web 端兜底：<input type=file> */
+/** Web 端兜底：<input type=file>。在 Tauri WebView 中同样可用，且无需 fs 权限。 */
 function pickWeb(kind: AttachmentKind): Promise<PickedAttachment | null> {
   return new Promise((resolve, reject) => {
     const input = document.createElement('input')
@@ -65,7 +70,7 @@ function pickWeb(kind: AttachmentKind): Promise<PickedAttachment | null> {
   })
 }
 
-/** 桌面端：Tauri dialog 系统对话框（用户选择即授权） */
+/** 桌面端：优先 Tauri dialog 系统对话框（用户选择即授权），任何读取失败都回退 Web input 兜底。 */
 async function pickDesktop(kind: AttachmentKind): Promise<PickedAttachment | null> {
   try {
     const { open } = await import('@tauri-apps/plugin-dialog')
@@ -85,11 +90,10 @@ async function pickDesktop(kind: AttachmentKind): Promise<PickedAttachment | nul
       name: (picked as string).split(/[\\/]/).pop() ?? '附件',
       mime, size: bytes.length, dataUrl: `data:${mime};base64,${b64}`, base64: b64, kind,
     }
-  } catch (e) {
-    // 插件不可用时回退 Web input（仍可选文件）
-    const msg = (e as Error).message ?? ''
-    if (/plugin|not configured|not allowed/i.test(msg)) return pickWeb(kind)
-    throw e
+  } catch {
+    // dialog/fs 读取失败（插件未配置、scope 未授权、路径读取异常等）统一回退 Web input。
+    // WebView 的 <input type=file> + FileReader 无需任何 Tauri fs 权限，最稳妥。
+    return pickWeb(kind)
   }
 }
 
@@ -138,14 +142,47 @@ export async function pickAttachment(kind: AttachmentKind): Promise<PickedAttach
   return pickWeb(kind)
 }
 
+/** 文本类附件：解码后随对话发给 AI，避免“只传了文件名、AI 看不到内容”。 */
+export function isTextAttachment(a: PickedAttachment): boolean {
+  return a.mime.startsWith('text/') || TEXT_EXTS.has(a.name.split('.').pop()?.toLowerCase() ?? '')
+}
+
+const TEXT_EXTS = new Set(['md', 'markdown', 'txt', 'json', 'csv', 'log', 'yaml', 'yml', 'toml', 'ini',
+  'js', 'jsx', 'ts', 'tsx', 'html', 'css', 'xml', 'sql', 'py', 'java', 'go', 'rs', 'sh', 'bat', 'vue', 'srt'])
+
+/** base64 → UTF-8 文本（正确支持中文，避免 atob 的 latin1 乱码） */
+export function decodeAttachmentText(a: PickedAttachment): string {
+  try {
+    const bin = atob(a.base64)
+    const bytes = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+    return new TextDecoder('utf-8').decode(bytes)
+  } catch {
+    return ''
+  }
+}
+
+/** 人类可读的文件大小 */
+export function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1048576).toFixed(1)} MB`
+}
+
 function guessMime(path: string): string {
   const ext = path.split('.').pop()?.toLowerCase()
   const map: Record<string, string> = {
-    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp',
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml',
     mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', mkv: 'video/x-matroska', avi: 'video/x-msvideo',
-    pdf: 'application/pdf', txt: 'text/plain', json: 'application/json', csv: 'text/csv',
+    mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac', ogg: 'audio/ogg',
+    pdf: 'application/pdf', txt: 'text/plain', md: 'text/markdown', markdown: 'text/markdown',
+    json: 'application/json', csv: 'text/csv', log: 'text/plain', html: 'text/html', css: 'text/css',
+    doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    zip: 'application/zip',
   }
-  return map[ext ?? ''] ?? 'application/octet-stream'
+  return map[ext ?? ''] ?? (TEXT_EXTS.has(ext ?? '') ? 'text/plain' : 'application/octet-stream')
 }
 
 function uint8ToBase64(bytes: Uint8Array): string {

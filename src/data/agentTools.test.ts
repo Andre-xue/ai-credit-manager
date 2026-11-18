@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { AGENT_TOOLS, CHECKIN_TOOLS } from './agentTools'
+import {
+  AGENT_TOOLS, CHECKIN_TOOLS, CATEGORY_TAGS, PLATFORM_TAGS,
+} from './agentTools'
 
-describe('AI Agent 工具目录一致性', () => {
+describe('AI 工具目录一致性', () => {
   it('id 唯一', () => {
     const ids = AGENT_TOOLS.map(t => t.id)
     expect(new Set(ids).size).toBe(ids.length)
@@ -39,10 +41,11 @@ describe('AI Agent 工具目录一致性', () => {
     }
   })
 
-  it('官方图标文件均存在于 public/agent-icons', () => {
+  it('官方图标文件均存在（按 t.icon 路径）', () => {
     for (const t of AGENT_TOOLS) {
-      const p = resolve(process.cwd(), 'public', 'agent-icons', `${t.id}.png`)
-      expect(existsSync(p), `缺少图标 ${t.id}.png`).toBe(true)
+      const rel = t.icon.replace(/^\//, '')
+      const p = resolve(process.cwd(), 'public', rel)
+      expect(existsSync(p), `缺少图标 ${rel}（${t.id}）`).toBe(true)
     }
   })
 
@@ -63,9 +66,44 @@ describe('AI Agent 工具目录一致性', () => {
       for (const b of t.localApp!.bundleIds) expect(b).toMatch(/^[A-Za-z0-9.\-]+$/)
       for (const e of t.localApp!.exeNames) expect(e.toLowerCase().endsWith('.exe')).toBe(true)
     }
-    // 本机常见客户端应有映射
     for (const id of ['workbuddy', 'doubao', 'kimi', 'chatgpt', 'claude', 'gemini']) {
       expect(AGENT_TOOLS.find(t => t.id === id)?.localApp).toBeDefined()
     }
+  })
+
+  describe('多级分类与使用量字段', () => {
+    it('每个工具有合法功能分类，且属于 CATEGORY_TAGS', () => {
+      const cats = new Set<string>(CATEGORY_TAGS)
+      for (const t of AGENT_TOOLS) {
+        expect(cats.has(t.category), `${t.id} 分类 ${t.category} 不在 CATEGORY_TAGS`).toBe(true)
+      }
+    })
+
+    it('每个工具有至少一种平台，且都属于 PLATFORM_TAGS', () => {
+      const plats = new Set<string>(PLATFORM_TAGS)
+      for (const t of AGENT_TOOLS) {
+        expect(t.platforms.length, `${t.id} 缺少平台`).toBeGreaterThan(0)
+        for (const p of t.platforms) expect(plats.has(p), `${t.id} 平台 ${p} 非法`).toBe(true)
+      }
+    })
+
+    it('每个工具有使用量数值与展示文案（用于排序）', () => {
+      for (const t of AGENT_TOOLS) {
+        expect(Number.isFinite(t.usage), `${t.id} usage 非法`).toBe(true)
+        expect(t.usage).toBeGreaterThan(0)
+        expect(t.usageLabel.length).toBeGreaterThan(0)
+      }
+    })
+
+    it('按使用量降序排列时头部为全球头部工具', () => {
+      const sorted = [...AGENT_TOOLS].sort((a, b) => b.usage - a.usage)
+      expect(sorted[0].id).toBe('chatgpt')
+      expect(sorted.slice(0, 3).map(t => t.id)).toContain('gemini')
+    })
+
+    it('功能与平台覆盖足够多的分类（多级筛选有意义）', () => {
+      expect(new Set(AGENT_TOOLS.map(t => t.category)).size).toBeGreaterThanOrEqual(8)
+      expect(new Set(AGENT_TOOLS.flatMap(t => t.platforms)).size).toBeGreaterThanOrEqual(6)
+    })
   })
 })

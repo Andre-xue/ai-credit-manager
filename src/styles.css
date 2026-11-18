@@ -446,6 +446,30 @@ tbody tr:hover { background: var(--panel-2); }
 .agent-card-actions .btn { flex: 1; justify-content: center; white-space: nowrap; min-width: 72px; }
 .agent-empty { padding: 30px; text-align: center; color: var(--text-3); font-size: 12.5px; border: 1px dashed var(--border); border-radius: 12px; background: var(--panel-2); }
 
+/* 使用量与平台标签 */
+.agent-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -2px 0 11px; flex-wrap: wrap; }
+.agent-usage { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--amber); background: var(--amber-soft); padding: 3px 8px; border-radius: 6px; }
+.agent-platforms { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.agent-platforms i { font-style: normal; font-size: 9.5px; color: var(--text-2); background: var(--panel-2); border: 1px solid var(--border); padding: 2px 6px; border-radius: 5px; }
+
+/* 多级筛选行 */
+.agent-filter-row { display: flex; align-items: flex-start; gap: 12px; margin: 10px 0; }
+.agent-filter-label { flex: none; width: 34px; font-size: 12px; font-weight: 600; color: var(--text-3); padding-top: 11px; }
+.agent-filter-wrap { flex-wrap: wrap; }
+.agent-filter-wrap .agent-filter-btn { padding: 6px 12px; font-size: 12px; }
+.agent-sync-time { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.agent-result-head { display: flex; align-items: center; justify-content: space-between; margin: 20px 0 12px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--text-2); }
+.agent-result-head b { color: var(--primary); font-weight: 700; }
+
+/* 分页 */
+.agent-pager { display: flex; align-items: center; justify-content: center; gap: 5px; margin: 22px 0 6px; flex-wrap: wrap; }
+.agent-pager button { min-width: 34px; height: 32px; padding: 0 10px; border: 1px solid var(--border); background: var(--panel); color: var(--text-2); border-radius: 8px; font-size: 12.5px; transition: .15s; }
+.agent-pager button:hover:not(:disabled):not(.active) { border-color: var(--primary); color: var(--primary); }
+.agent-pager button.active { background: var(--primary); color: #fff; border-color: var(--primary); font-weight: 600; }
+.agent-pager button:disabled { opacity: .45; cursor: not-allowed; }
+.agent-pager em { font-style: normal; color: var(--text-3); padding: 0 3px; }
+.agent-pager-info { margin-left: 8px; font-size: 11.5px; color: var(--text-3); }
+
 @media (max-width: 1100px) {
   .agent-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -455,6 +479,9 @@ tbody tr:hover { background: var(--panel-2); }
   .agent-hero-stats { gap: 18px; width: 100%; justify-content: space-between; }
   .agent-toolbar { flex-direction: column; align-items: stretch; }
   .agent-search { width: 100%; }
+  .agent-filter-row { gap: 8px; }
+  .agent-filter-label { width: 28px; font-size: 11px; }
+  .agent-sync-time { white-space: normal; }
 }
 
 @media (max-width: 1000px) {
@@ -1284,3 +1311,63 @@ html, body { touch-action: manipulation; }
   color: var(--red); font-size: 12px; line-height: 1.6;
 }
 .voice-clone-error span { flex: 1; word-break: break-word; }
+
+/* 附件选择对话框：点击/拖拽 + 即时预览 */
+.ap-modal { max-width: 620px; }
+.ap-x {
+  background: transparent; border: none; color: var(--text-3); padding: 4px;
+  border-radius: 6px; display: flex; align-items: center; justify-content: center;
+}
+.ap-x:hover { background: var(--panel-2); color: var(--text); }
+
+.ap-dropzone {
+  position: relative; border: 2px dashed var(--border-strong); border-radius: 14px;
+  padding: 34px 20px; text-align: center; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  color: var(--primary); background: var(--panel-2); transition: .15s;
+}
+.ap-dropzone:hover { border-color: var(--primary); background: var(--primary-soft); }
+.ap-dropzone.dragging { border-color: var(--primary); background: var(--primary-soft); box-shadow: 0 0 0 4px var(--primary-soft); }
+.ap-dropzone .ap-file-input { display: none; }
+.ap-drop-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.ap-drop-hint { font-size: 11.5px; color: var(--text-3); line-height: 1.6; }
+
+.ap-camera-row { display: flex; gap: 10px; margin-top: 12px; }
+.ap-camera-row button {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 9px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: var(--panel); color: var(--text-2); font-size: 12.5px; font-weight: 500;
+}
+.ap-camera-row button:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+.ap-camera-row button:disabled { opacity: .5; cursor: wait; }
+
+.ap-section { margin-top: 18px; }
+.ap-section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12.5px; font-weight: 600; color: var(--text-2); margin-bottom: 10px;
+}
+.ap-clear { background: transparent; border: none; color: var(--red); font-size: 12px; padding: 2px 4px; }
+.ap-clear:hover { text-decoration: underline; }
+.ap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.ap-item {
+  position: relative; border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  background: var(--panel-2); display: flex; flex-direction: column;
+}
+.ap-thumb {
+  height: 92px; display: flex; align-items: center; justify-content: center;
+  background: var(--panel); color: var(--text-3); overflow: hidden;
+}
+.ap-thumb img, .ap-thumb video { width: 100%; height: 100%; object-fit: cover; }
+.ap-item-info { padding: 8px 9px 10px; }
+.ap-item-name { font-size: 12px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-item-meta { font-size: 10.5px; color: var(--text-3); margin-top: 3px; }
+.ap-item-remove {
+  position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border-radius: 50%;
+  background: rgba(17,24,39,.6); color: #fff; border: none; display: flex; align-items: center; justify-content: center;
+}
+.ap-item-remove:hover { background: var(--red); }
+
+@media (max-width: 640px) {
+  .ap-modal { max-width: 100%; }
+  .ap-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+}

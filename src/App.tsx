@@ -16,7 +16,11 @@ import {
   importState, mergeState, addUsageEvent, updateSettings, clearAllData, markBenefit,
 } from './core/store'
 import { BENEFITS, BENEFIT_KIND_LABEL, type BenefitItem } from './data/benefits'
-import { AGENT_TOOLS, CHECKIN_TOOLS, type AgentTool, type AgentRegion } from './data/agentTools'
+import {
+  AGENT_TOOLS, CHECKIN_TOOLS, CATEGORY_TAGS, PLATFORM_TAGS,
+  type AgentTool, type AgentRegion, type AgentCategory, type AgentPlatform,
+} from './data/agentTools'
+import { currentCatalog, fetchCatalog } from './core/agentCatalog'
 import { requestWebPermission, sendNotification, inQuietHours } from './core/notify'
 import { totalPortfolioValue, monthlySpendByPlatform, DEFAULT_UNIT_PRICES } from './core/value'
 import { predictExhaustion, forecastText } from './core/forecast'
@@ -489,7 +493,7 @@ function App() {
   const tabs: Array<{ id: Tab; label: string; icon: typeof LayoutDashboard }> = [
     { id: 'ai', label: 'AI 助手', icon: Sparkles },
     { id: 'dashboard', label: '额度看板', icon: LayoutDashboard },
-    { id: 'checkin', label: 'AI Agent工具（签到）', icon: CalendarCheck2 },
+    { id: 'checkin', label: 'AI 工具大全', icon: CalendarCheck2 },
     { id: 'benefits', label: '福利中心', icon: Gift },
     { id: 'keys', label: 'API Key 管理', icon: KeyRound },
     { id: 'usage', label: '用量与费用', icon: BarChart3 },
@@ -884,15 +888,20 @@ function OutLink({ url, label, className = 'btn sm ghost', title, notify, style 
   )
 }
 
-/** 智能打开工具：桌面端优先唤醒本机客户端，未安装则打开官网 */
-function ToolLink({ tool, label, className = 'btn sm ghost', title, notify, icon: Icon = ExternalLink }: {
+/** 智能打开工具：桌面端默认优先唤醒本机客户端；forceWeb 时强制打开官网（用于「官方下载」） */
+function ToolLink({ tool, label, className = 'btn sm ghost', title, notify, icon: Icon = ExternalLink, forceWeb = false }: {
   tool: AgentTool; label: React.ReactNode; className?: string; title?: string;
-  notify: (m: string) => void; icon?: typeof ExternalLink
+  notify: (m: string) => void; icon?: typeof ExternalLink; forceWeb?: boolean
 }) {
   const url = tool.checkinUrl ?? tool.downloadUrl
   return (
     <button className={className} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }} title={title ?? `${tool.name} 官方站点`}
       onClick={async () => {
+        if (forceWeb) {
+          const ok = await openExternal(tool.downloadUrl)
+          if (!ok) notify(`打开失败，请手动访问：${tool.downloadUrl}`)
+          return
+        }
         const { opened, via } = await openTool(tool.localApp, url)
         if (!opened) notify(`打开失败，请手动访问官方站点：${url}`)
         else if (via === 'local') notify(`已唤醒本机「${tool.name}」客户端`)
@@ -928,45 +937,45 @@ const AgentToolCard = memo(function AgentToolCard({ t, done, hasLocal, notify, o
         {hasLocal && <span className="agent-chip local"><Monitor size={10} /> 本机已装</span>}
       </div>
       <p className="agent-desc">{t.desc}</p>
+      <div className="agent-card-meta">
+        <span className="agent-usage" title="按公开月访问量/月活估算，由高到低排序"><TrendingUp size={12} /> {t.usageLabel}</span>
+        <span className="agent-platforms">{t.platforms.map(p => <i key={p} title={p}>{p === '浏览器插件' ? '插件' : p}</i>)}</span>
+      </div>
       <div className={`agent-tip ${t.canCheckin ? 'checkin' : 'benefit'}`}>
         <span className="agent-tip-label">{t.canCheckin ? '签到规则' : '福利说明'}</span>
         {t.canCheckin ? t.checkinTip : t.benefitTip}
       </div>
       <div className="agent-card-actions">
-        {t.canCheckin && <>
-          <ToolLink tool={t} label={hasLocal ? '打开签到' : '前往签到'} className="btn sm primary"
-            title={hasLocal ? `唤醒本机 ${t.name} 客户端（未安装则打开官网）` : `打开 ${t.name} 官方页签到`} notify={notify} />
-          <button className="btn sm" onClick={() => onToggle(t.id)} title={done ? '标记为未签到' : '标记今日已签到'}>
-            {done ? '撤销标记' : '标记完成'}
-          </button>
-        </>}
-        <ToolLink tool={t} label={hasLocal ? '打开客户端' : t.canCheckin ? '官方下载' : '前往官网'} className="btn sm ghost"
-          title={hasLocal ? `唤醒本机 ${t.name} 客户端` : `打开 ${t.name} 官方站点`} notify={notify} />
+        <ToolLink tool={t} label={hasLocal ? '直达客户端' : '官方网站'} className={`btn sm ${hasLocal ? 'primary' : 'ghost'}`}
+          title={hasLocal ? `唤醒本机 ${t.name} 客户端（未安装则打开官网）` : `打开 ${t.name} 官方站点`} notify={notify} />
+        {/* 官方下载直达：始终打开官网下载页，不唤醒本地客户端 */}
+        <ToolLink tool={t} label="官方下载" className="btn sm ghost" icon={Download} forceWeb
+          title={`打开 ${t.name} 官方下载/主页`} notify={notify} />
+        {t.canCheckin && <button className="btn sm" onClick={() => onToggle(t.id)} title={done ? '标记为未签到' : '标记今日已签到'}>
+          {done ? '撤销标记' : '标记完成'}
+        </button>}
       </div>
     </article>
   )
 })
 
-function AgentSection({ title, hint, tools, tone, doneIds, installed, notify, onToggle }: {
-  title: string; hint: string; tools: AgentTool[]; tone: 'checkin' | 'plain';
-  doneIds: Set<string>; installed: Set<string>; notify: (m: string) => void; onToggle: (id: string) => void
-}) {
+/** 分页工具条 */
+function AgentPager({ page, pages, onChange }: { page: number; pages: number; onChange: (p: number) => void }) {
+  if (pages <= 1) return null
+  const nums = Array.from({ length: pages }, (_, i) => i + 1).filter(n =>
+    n === 1 || n === pages || Math.abs(n - page) <= 1)
   return (
-    <section className="agent-section">
-      <div className="agent-section-head">
-        <div className={`agent-section-dot ${tone}`} />
-        <h3>{title}</h3>
-        <span className="agent-section-count">{hint}</span>
-      </div>
-      {tools.length === 0 ? (
-        <div className="agent-empty">当前筛选下暂无工具</div>
-      ) : (
-        <div className="agent-grid">{tools.map(t => (
-          <AgentToolCard key={t.id} t={t} done={doneIds.has(t.id)} hasLocal={installed.has(t.id)}
-            notify={notify} onToggle={onToggle} />
-        ))}</div>
-      )}
-    </section>
+    <div className="agent-pager">
+      <button disabled={page <= 1} onClick={() => onChange(page - 1)}>上一页</button>
+      {nums.map((n, i) => (
+        <span key={n}>
+          {i > 0 && n - nums[i - 1] > 1 && <em>…</em>}
+          <button className={n === page ? 'active' : ''} onClick={() => onChange(n)}>{n}</button>
+        </span>
+      ))}
+      <button disabled={page >= pages} onClick={() => onChange(page + 1)}>下一页</button>
+      <span className="agent-pager-info">{page} / {pages}</span>
+    </div>
   )
 }
 
@@ -1084,17 +1093,50 @@ function DashboardView({ views, onAdd, onRemove, onRemoveMany, onEditQuota, noti
   )
 }
 
-/** AI Agent 工具（签到）：国内外分类 + 可签到分组 + 官方 logo 卡片墙 */
+/** AI 工具目录：地区 → 签到 → 功能 → 平台 多级筛选 + 使用量排序 + 每页 3 项分页 */
 function AgentToolsView({ checkins, notify, onToggle }: {
   checkins: AppState['checkins']; notify: (m: string) => void;
   onToggle: (pid: string, aid?: string) => void
 }) {
   const today = todayISO()
+  const initial = useMemo(() => currentCatalog(), [])
+  const [tools, setTools] = useState<AgentTool[]>(initial.tools)
+  const [updatedAt, setUpdatedAt] = useState<string | null>(initial.updatedAt)
+  const [syncing, setSyncing] = useState(false)
   const [region, setRegion] = useState<'all' | AgentRegion>('all')
+  const [checkin, setCheckin] = useState<'all' | 'yes' | 'no'>('all')
+  const [category, setCategory] = useState<'all' | AgentCategory>('all')
+  const [platform, setPlatform] = useState<'all' | AgentPlatform>('all')
   const [keyword, setKeyword] = useState('')
+  const [page, setPage] = useState(1)
   const [installed, setInstalled] = useState<Set<string>>(new Set())
+  const PAGE_SIZE = 3
 
-  // 桌面端：启动时并行检测本机已安装的客户端（每个独立 await，卸载后立即停止）
+  // 实时抓取：挂载后后台拉取最新目录（15 分钟内有缓存则不重复），成功则覆盖内置快照
+  useEffect(() => {
+    let alive = true
+    void fetchCatalog(false).then(r => {
+      if (alive && r.ok && r.snapshot) {
+        setTools(r.snapshot.tools)
+        setUpdatedAt(r.snapshot.updatedAt)
+      }
+    })
+    return () => { alive = false }
+  }, [])
+
+  const refreshCatalog = async () => {
+    setSyncing(true)
+    try {
+      const r = await fetchCatalog(true)
+      if (r.ok && r.snapshot) {
+        setTools(r.snapshot.tools)
+        setUpdatedAt(r.snapshot.updatedAt)
+        notify(`目录已更新 · ${r.snapshot.tools.length} 款工具`)
+      } else notify(`更新失败（${r.error ?? '网络不可用'}），当前显示本地数据`)
+    } finally { setSyncing(false) }
+  }
+
+  // 桌面端：启动时并行检测本机已安装的客户端
   useEffect(() => {
     if (!isDesktopApp()) return
     let alive = true
@@ -1111,30 +1153,45 @@ function AgentToolsView({ checkins, notify, onToggle }: {
   const doneIds = useMemo(() => new Set(
     checkins.filter(c => c.date === today && c.done).map(c => c.providerId),
   ), [checkins, today])
-  const doneCount = CHECKIN_TOOLS.filter(t => doneIds.has(t.id)).length
+  const doneCount = tools.filter(t => t.canCheckin && doneIds.has(t.id)).length
   const q = keyword.trim().toLowerCase()
-  const { cnTools, globalTools } = useMemo(() => {
-    const matched = AGENT_TOOLS.filter(t =>
-      (region === 'all' || t.region === region) &&
-      (!q || t.name.toLowerCase().includes(q) || t.nameEn.toLowerCase().includes(q) || t.desc.toLowerCase().includes(q)),
-    )
-    return {
-      cnTools: matched.filter(t => t.region === 'cn'),
-      globalTools: matched.filter(t => t.region === 'global'),
-    }
-  }, [region, q])
+
+  // 多级筛选：地区 → 签到 → 功能 → 平台 → 关键词；再按使用量由高到低排序
+  const filtered = useMemo(() => tools.filter(t =>
+    (region === 'all' || t.region === region) &&
+    (checkin === 'all' || (checkin === 'yes' ? t.canCheckin : !t.canCheckin)) &&
+    (category === 'all' || t.category === category) &&
+    (platform === 'all' || t.platforms.includes(platform)) &&
+    (!q || t.name.toLowerCase().includes(q) || t.nameEn.toLowerCase().includes(q) || t.desc.toLowerCase().includes(q)),
+  ).sort((a, b) => b.usage - a.usage), [tools, region, checkin, category, platform, q])
+
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const safePage = Math.min(page, pages)
+  const pageItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
+  // 任一筛选变化时回到第一页
+  const reset = <T,>(setter: (v: T) => void) => (v: T) => { setter(v); setPage(1) }
+  const setRegionP = reset(setRegion)
+  const setCheckinP = reset(setCheckin)
+  const setCategoryP = reset(setCategory)
+  const setPlatformP = reset(setPlatform)
+  const setKeywordP = (v: string) => { setKeyword(v); setPage(1) }
+
   const handleToggle = useCallback((id: string) => onToggle(id), [onToggle])
+  const updatedLabel = updatedAt
+    ? new Date(updatedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : '内置数据'
 
   return (
     <div className="agent-tools">
       <div className="agent-hero">
         <div>
-          <h1>AI Agent 工具（签到）</h1>
-          <p>国内外主流 AI Agent 一览 · 官方签到一目了然</p>
+          <h1>AI 工具大全</h1>
+          <p>国内外主流 AI 工具一站罗列 · 官方图标与下载直达 · 本机已装一键唤醒</p>
         </div>
         <div className="agent-hero-stats">
-          <div><b>{AGENT_TOOLS.length}</b><span>收录工具</span></div>
-          <div><b>{CHECKIN_TOOLS.length}</b><span>可签到</span></div>
+          <div><b>{tools.length}</b><span>收录工具</span></div>
+          <div><b>{tools.filter(t => t.canCheckin).length}</b><span>可签到</span></div>
           <div><b>{doneCount}</b><span>今日已签</span></div>
         </div>
       </div>
@@ -1142,43 +1199,78 @@ function AgentToolsView({ checkins, notify, onToggle }: {
       <div className="notice-box">
         <Info size={15} />
         <div>
-          <b>可签到</b>仅指官方确有「每日签到 / 登录领积分」机制；免费额度、试用、新用户赠金归为<b>无签到</b>。图标为各平台官方 logo（本地存储，离线可用）。<b>桌面端</b>点击跳转会优先唤醒本机已安装的客户端（卡片显示「本机已装」），未安装则打开官网；网页端直接打开官网。签到由你本人在官方端完成，本工具不模拟登录、不自动领取。规则以各平台实时页面为准。
+          <b>可签到</b>仅指官方确有「每日签到 / 登录领积分」机制；免费额度、试用、新用户赠金归为<b>无签到</b>。图标为各平台官方 logo（本地存储，离线可用）。<b>桌面端</b>会优先检测并唤醒本机已安装客户端（显示「本机已装 / 直达客户端」），未安装则打开官网。<b>实时更新</b>：启动时联网抓取最新目录（使用量/签到规则），失败自动回退本地数据。签到由你本人在官方端完成，不模拟登录、不自动领取，规则以官方实时页面为准。
         </div>
       </div>
 
       <div className="agent-toolbar">
+        <div className="agent-search">
+          <Search size={15} />
+          <input value={keyword} onChange={e => setKeywordP(e.target.value)} placeholder="搜索工具名称 / 英文名 / 简介" />
+          {keyword && <button className="icon-btn" onClick={() => setKeywordP('')} title="清除"><X size={13} /></button>}
+        </div>
+        <button className="btn sm" onClick={() => void refreshCatalog()} disabled={syncing} title="从数据源抓取最新使用量与签到规则">
+          <RefreshCw size={13} className={syncing ? 'spin' : ''} /> {syncing ? '更新中' : '更新数据'}
+        </button>
+        <span className="agent-sync-time" title="目录数据最后更新时间">更新于 {updatedLabel}</span>
+      </div>
+
+      {/* ① 地区 */}
+      <div className="agent-filter-row">
+        <span className="agent-filter-label">地区</span>
         <div className="agent-filter">
           {(['all', 'cn', 'global'] as const).map(r => (
-            <button key={r} className={`agent-filter-btn ${region === r ? 'active' : ''}`} onClick={() => setRegion(r)}>
+            <button key={r} className={`agent-filter-btn ${region === r ? 'active' : ''}`} onClick={() => setRegionP(r)}>
               {r === 'all' ? '全部' : r === 'cn' ? '🇨🇳 国内' : '🌍 海外'}
             </button>
           ))}
         </div>
-        <div className="agent-search">
-          <Search size={15} />
-          <input value={keyword} onChange={e => setKeyword(e.target.value)} placeholder="搜索工具名称 / 英文名" />
-          {keyword && <button className="icon-btn" onClick={() => setKeyword('')} title="清除"><X size={13} /></button>}
+      </div>
+      {/* ② 可签到 / 不可签到 */}
+      <div className="agent-filter-row">
+        <span className="agent-filter-label">签到</span>
+        <div className="agent-filter">
+          {([['all', '全部'], ['yes', '可签到'], ['no', '不可签到']] as const).map(([v, label]) => (
+            <button key={v} className={`agent-filter-btn ${checkin === v ? 'active' : ''}`} onClick={() => setCheckinP(v)}>{label}</button>
+          ))}
+        </div>
+      </div>
+      {/* ③ 功能分类 */}
+      <div className="agent-filter-row">
+        <span className="agent-filter-label">功能</span>
+        <div className="agent-filter agent-filter-wrap">
+          <button className={`agent-filter-btn ${category === 'all' ? 'active' : ''}`} onClick={() => setCategoryP('all')}>全部</button>
+          {CATEGORY_TAGS.map(c => (
+            <button key={c} className={`agent-filter-btn ${category === c ? 'active' : ''}`} onClick={() => setCategoryP(c)}>{c}</button>
+          ))}
+        </div>
+      </div>
+      {/* ④ 平台分类 */}
+      <div className="agent-filter-row">
+        <span className="agent-filter-label">平台</span>
+        <div className="agent-filter agent-filter-wrap">
+          <button className={`agent-filter-btn ${platform === 'all' ? 'active' : ''}`} onClick={() => setPlatformP('all')}>全部</button>
+          {PLATFORM_TAGS.map(p => (
+            <button key={p} className={`agent-filter-btn ${platform === p ? 'active' : ''}`} onClick={() => setPlatformP(p)}>{p}</button>
+          ))}
         </div>
       </div>
 
-      {(region === 'all' || region === 'cn') && cnTools.length > 0 && <>
-        <div className="agent-region-title"><span>🇨🇳</span> 国内 AI Agent 工具 <em>{cnTools.length}</em></div>
-        <AgentSection title="可签到领积分" hint={`${cnTools.filter(t => t.canCheckin).length} 款`} tone="checkin"
-          tools={cnTools.filter(t => t.canCheckin)} doneIds={doneIds} installed={installed} notify={notify} onToggle={handleToggle} />
-        <AgentSection title="暂无签到机制" hint={`${cnTools.filter(t => !t.canCheckin).length} 款 · 仅免费额度`} tone="plain"
-          tools={cnTools.filter(t => !t.canCheckin)} doneIds={doneIds} installed={installed} notify={notify} onToggle={handleToggle} />
-      </>}
+      <div className="agent-result-head">
+        <span>共 <b>{filtered.length}</b> 款 · 按使用量由高到低</span>
+        <span>每页 {PAGE_SIZE} 项</span>
+      </div>
 
-      {(region === 'all' || region === 'global') && globalTools.length > 0 && <>
-        <div className="agent-region-title"><span>🌍</span> 海外 AI Agent 工具 <em>{globalTools.length}</em></div>
-        <AgentSection title="可签到领积分" hint={`${globalTools.filter(t => t.canCheckin).length} 款`} tone="checkin"
-          tools={globalTools.filter(t => t.canCheckin)} doneIds={doneIds} installed={installed} notify={notify} onToggle={handleToggle} />
-        <AgentSection title="暂无签到机制" hint={`${globalTools.filter(t => !t.canCheckin).length} 款 · 仅免费额度`} tone="plain"
-          tools={globalTools.filter(t => !t.canCheckin)} doneIds={doneIds} installed={installed} notify={notify} onToggle={handleToggle} />
-      </>}
-
-      {cnTools.length + globalTools.length === 0 && (
-        <div className="agent-empty" style={{ padding: 56 }}>没有匹配的工具，换个关键词试试</div>
+      {pageItems.length > 0 ? (
+        <>
+          <div className="agent-grid">{pageItems.map(t => (
+            <AgentToolCard key={t.id} t={t} done={doneIds.has(t.id)} hasLocal={installed.has(t.id)}
+              notify={notify} onToggle={handleToggle} />
+          ))}</div>
+          <AgentPager page={safePage} pages={pages} onChange={setPage} />
+        </>
+      ) : (
+        <div className="agent-empty" style={{ padding: 56 }}>当前分类下暂无工具，换个筛选条件试试</div>
       )}
     </div>
   )
