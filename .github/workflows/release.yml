@@ -131,6 +131,9 @@ jobs:
           find artifacts -type f | while read f; do
             # 展平目录，文件名加平台前缀避免冲突
             base=$(basename "$f")
+            # 关键：把文件名里的空格替换成点号。GitHub Release 上传会把空格规范化为点号，
+            # 若 latest.json 里保留空格，下载 URL 会 404，导致桌面端静默更新永远失败。
+            base=${base// /\.}
             platform=$(echo "$f" | cut -d/ -f2 | sed 's/installer-//')
             cp "$f" "release-files/${platform}-${base}"
           done
