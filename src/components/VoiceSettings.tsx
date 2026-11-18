@@ -3,7 +3,7 @@
 // 系统内置音色/拟真预设/方言已从界面移除；未克隆时底层仍用系统 TTS 兜底，避免 AI 完全无声。
 
 import { useEffect, useState, useRef } from 'react'
-import { Volume2, Play, Square, Trash2, Loader2, Info, Globe2, Mic, Check, Pencil } from 'lucide-react'
+import { Volume2, Play, Square, Trash2, Loader2, Info, Globe2, Mic, Check, Pencil, ExternalLink } from 'lucide-react'
 import {
   getRate, saveRate, stopSpeak, getSpeakSource, speakAsync,
 } from '../core/tts'
@@ -37,6 +37,7 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
   const [cloneError, setCloneError] = useState('')
   const [volcConfig, setVolcConfig] = useState<VolcConfig>(() => getVolcConfig())
   const [volcOpen, setVolcOpen] = useState(false)
+  const [providersOpen, setProvidersOpen] = useState(false)
   const desktop = isDesktopApp()
   const fileRef = useRef<HTMLInputElement | null>(null)
 
@@ -265,20 +266,24 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
       )}
       <div className="voice-hint">克隆音色保存在本机；删除记录只移除本机引用，云端音色请到百炼控制台清理以释放配额。</div>
 
-      {/* 免费优先语音服务目录 */}
-      <div className="voice-section-label"><Globe2 size={14} /> 声音服务（免费优先 · 点卡片查看官方文档）</div>
-      <div className="voice-provider-grid">
+      {/* 声音服务目录：折叠式紧凑列表，全平台统一，避免大卡片占用过多空间 */}
+      <button className="voice-config-toggle voice-providers-toggle" onClick={() => setProvidersOpen(v => !v)}>
+        <Globe2 size={14} /> 声音服务目录（{VOICE_PROVIDERS.length} 家 · 免费优先）<span>{providersOpen ? '收起' : '展开'}</span>
+      </button>
+      {providersOpen && <div className="voice-provider-list">
         {VOICE_PROVIDERS.map(p => (
-          <button key={p.id} className={`voice-provider ${p.recommended ? 'recommended' : ''}`} onClick={() => {
-            setConfig({ ...config, provider: p.id === 'system' ? '' : p.id as TtsProviderConfig['provider'] }); setConfigOpen(true)
-            if (p.id !== 'system') void openExternal(p.docs)
-          }}>
-            <span className="voice-provider-head"><b>{p.name}</b>{p.recommended && <em>免费优先</em>}</span>
-            <span className="voice-provider-free">{p.free}</span>
-            <small>{p.paid}</small>
-          </button>
+          <div key={p.id} className={`voice-provider-row ${p.recommended ? 'recommended' : ''}`}>
+            <button className="voice-provider-row-main" onClick={() => {
+              setConfig({ ...config, provider: p.id === 'system' ? '' : p.id as TtsProviderConfig['provider'] }); setConfigOpen(true)
+            }}>
+              <span className="voice-provider-row-name">{p.name}</span>
+              <span className="voice-provider-row-free">{p.free}</span>
+            </button>
+            {p.id !== 'system' && <button className="voice-provider-row-doc" title={`打开 ${p.name} 官方文档`}
+              onClick={() => void openExternal(p.docs)}><ExternalLink size={13} /></button>}
+          </div>
         ))}
-      </div>
+      </div>}
 
       {/* 第三方 TTS 配置 */}
       <button className="voice-config-toggle" onClick={() => setConfigOpen(v => !v)}>

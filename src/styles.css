@@ -1295,15 +1295,17 @@ html, body { touch-action: manipulation; }
 .ai-brand-mark .ai-avatar-img { width: 20px; height: 20px; }
 .identity-upload { display: inline-flex; align-items: center; justify-content: center; background: var(--panel-2); border: 2px dashed var(--border-strong); color: var(--text-2); overflow: hidden; }
 .identity-upload img { width: 100%; height: 100%; object-fit: cover; }
-.voice-provider-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 9px; margin: 10px 0 14px; }
-.voice-provider { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 11px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); cursor: pointer; }
-.voice-provider:hover { border-color: var(--primary); }
-.voice-provider.recommended { border-color: var(--green); background: var(--green-soft); }
-.voice-provider-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.voice-provider-head b { font-size: 12.5px; }
-.voice-provider-head em { font-style: normal; font-size: 10px; color: var(--green); border: 1px solid var(--green); border-radius: 20px; padding: 1px 6px; }
-.voice-provider-free { font-size: 11.5px; color: var(--text-2); }
-.voice-provider small { font-size: 10.5px; color: var(--text-3); }
+/* 声音服务目录：默认折叠，展开为紧凑单行列表（全平台统一，省空间） */
+.voice-providers-toggle { margin-top: 10px; }
+.voice-provider-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 4px; }
+.voice-provider-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel); }
+.voice-provider-row.recommended { border-color: var(--green); background: var(--green-soft); }
+.voice-provider-row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; text-align: left; background: none; border: none; padding: 0; cursor: pointer; color: var(--text); }
+.voice-provider-row-main:hover .voice-provider-row-name { color: var(--primary); }
+.voice-provider-row-name { flex: 0 0 auto; font-size: 12px; font-weight: 600; color: var(--text); transition: color .15s; }
+.voice-provider-row-free { flex: 1; min-width: 0; font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-provider-row-doc { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel-2); color: var(--text-2); cursor: pointer; }
+.voice-provider-row-doc:hover { color: var(--primary); border-color: var(--primary); }
 
 /* 语音配置：当前朗读源标识 + 克隆音色列表 */
 .voice-source-badge {
