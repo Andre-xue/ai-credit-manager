@@ -1308,23 +1308,6 @@ html, body { touch-action: manipulation; }
 .ai-brand-mark .ai-avatar-img { width: 20px; height: 20px; }
 .identity-upload { display: inline-flex; align-items: center; justify-content: center; background: var(--panel-2); border: 2px dashed var(--border-strong); color: var(--text-2); overflow: hidden; }
 .identity-upload img { width: 100%; height: 100%; object-fit: cover; }
-/* 声音服务目录：默认折叠，展开为紧凑单行列表（全平台统一，省空间） */
-.voice-providers-toggle { margin-top: 10px; }
-.voice-provider-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 4px; }
-.voice-provider-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel); transition: border-color .18s, background .18s, box-shadow .18s; }
-/* 当前生效的服务商：主色描边 + 淡主色底 + 轻微阴影，明确表示"使用中" */
-.voice-provider-row.selected { border-color: var(--primary); background: var(--primary-soft); box-shadow: 0 0 0 1px var(--primary) inset; }
-.voice-provider-row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; text-align: left; background: none; border: none; padding: 0; cursor: pointer; color: var(--text); }
-.voice-provider-row-main:hover .voice-provider-row-name { color: var(--primary); }
-.voice-provider-row-check { flex: 0 0 auto; color: var(--primary); }
-.voice-provider-row-name { flex: 0 0 auto; font-size: 12px; font-weight: 600; color: var(--text); transition: color .15s; }
-/* 免费优先：小徽章标注，不再整行染色，避免误认为"已选中" */
-.voice-provider-row-badge { flex: 0 0 auto; font-style: normal; font-size: 9.5px; font-weight: 600; color: var(--green); border: 1px solid var(--green); border-radius: 20px; padding: 1px 6px; background: var(--green-soft); }
-.voice-provider-row-free { flex: 1; min-width: 0; font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.voice-provider-row-using { flex: 0 0 auto; font-size: 10px; font-weight: 600; color: var(--primary); }
-.voice-provider-row-doc { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel-2); color: var(--text-2); cursor: pointer; }
-.voice-provider-row-doc:hover { color: var(--primary); border-color: var(--primary); }
-
 /* 语音配置：当前朗读源标识 + 克隆音色列表 */
 .voice-source-badge {
   display: flex; align-items: center; gap: 6px; margin: 6px 0 14px; padding: 10px 12px;
