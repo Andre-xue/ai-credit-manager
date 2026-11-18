@@ -112,7 +112,8 @@
   justify-content: flex-end;   /* 品牌隐藏后按钮靠右 */
 }
 /* 手机端：为悬浮菜单按钮留位置，避免压住第一个模型下拉 */
-.claude-ui.phone-shell .ai-topbar { padding-left: 52px; }
+.claude-ui.phone-shell .ai-topbar { padding-left: 58px; }
+.claude-ui.phone-shell .phone-menu-fab { width: 38px; height: 38px; left: 10px; }
 .claude-ui .ai-brand { display: none; }
 .claude-ui .ai-top-actions { gap: 6px; }
 .claude-ui .ai-model-btn {
@@ -241,3 +242,23 @@
 .no-motion.claude-ui *,
 .no-motion.claude-ui *::before,
 .no-motion.claude-ui *::after { animation: none !important; }
+
+/* ============ 品牌/欢迎区图标统一为 App 图标 ============ */
+/* 侧栏品牌区与 AI 欢迎区都用应用自身图标 pwa-512.png，铺满容器、去底色。
+   用 !important 覆盖经典/液态/Claude 各主题的橙色渐变背景。 */
+.brand-mark,
+.ai-welcome-mark {
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0;
+  overflow: hidden;
+}
+.app-mark-img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  display: block;
+}
+/* pwa-512 图标自带圆角，容器圆角与它对齐，避免边角露出底色 */
+.brand-mark { border-radius: 9px !important; }
+.ai-welcome-mark { border-radius: 13px !important; }

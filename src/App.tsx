@@ -518,7 +518,7 @@ function App() {
       {isPhone && sidebarVisible && <button className="phone-scrim" aria-label="关闭菜单" onClick={() => setSidebarVisible(false)} />}
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark"><Sparkles size={18} /></div>
+          <div className="brand-mark"><img src="/pwa-512.png" alt="AI 积分管家" className="app-mark-img" /></div>
           <div>
             <div className="brand-name">AI 积分管家</div>
             <div className="brand-sub">Credit Manager</div>

@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import {
-  Sparkles, Send, Square, Plus, ChevronDown, Copy, Trash2, CornerDownLeft, Volume2, VolumeX,
+  Send, Square, Plus, ChevronDown, Copy, Trash2, CornerDownLeft, Volume2, VolumeX,
   Phone, Layers, ExternalLink, Info, Loader2, FileText, Image as ImageIcon, Video, X, RotateCcw, Cpu,
 } from 'lucide-react'
 import {
@@ -461,7 +461,7 @@ export function AIView({ notify, accounts }: {
         <div className="ai-messages">
           {!hasChat ? (
             <div className="ai-welcome">
-              <div className="ai-welcome-mark"><Sparkles size={34} /></div>
+              <div className="ai-welcome-mark"><img src="/pwa-512.png" alt="AI 积分管家" className="app-mark-img" /></div>
               <h2>{welcomeText(userProfile.nickname)}</h2>
               <p>关于积分、额度、签到、费用与 API Key 安全，都可以问我。</p>
               <div className="ai-quick-grid">
