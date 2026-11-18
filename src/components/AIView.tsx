@@ -213,6 +213,9 @@ export function AIView({ notify, accounts }: {
     const systemPrompt = voiceMode
       ? buildVoiceSystemPrompt(botProfile, userProfile)
       : buildIdentitySystemPrompt(botProfile, userProfile, isFirstReply)
+    // 语音模式：关闭推理、只带最近 2 条上下文，最大限度缩短首字延迟
+    const effectiveReasoning = voiceMode ? undefined : toReasoningEffort(reasoning)
+    const voiceHistory = voiceMode ? history.slice(-2) : history
     // 用户自己的账户：用其 Key 真正调用
     if (opt?.account) {
       const acct = opt.account
@@ -233,8 +236,8 @@ export function AIView({ notify, accounts }: {
         throw Object.assign(new Error(hint), { needPwd: true })
       }
       finally { setResolvingKey(false) }
-      const msgs = [{ role: 'system', content: systemPrompt }, ...history.slice(-12).map(m => ({ role: m.role, content: m.content })), { role: 'user', content }]
-      const r = await callByCategory(acct, apiKey, opt.category, msgs, engineId || undefined, toReasoningEffort(reasoning))
+      const msgs = [{ role: 'system', content: systemPrompt }, ...voiceHistory.map(m => ({ role: m.role, content: m.content })), { role: 'user', content }]
+      const r = await callByCategory(acct, apiKey, opt.category, msgs, engineId || undefined, effectiveReasoning)
       if (!r.ok) throw Object.assign(new Error(r.error ?? '调用失败'), { cors: r.cors })
       if (r.images?.length) {
         return `${r.text}\n${r.images.map(u => u.startsWith('data:') ? '[已生成图片]' : u).join('\n')}`
@@ -242,7 +245,7 @@ export function AIView({ notify, accounts }: {
       return r.text
     }
     // 平台免费模型：流式输出（图片附件随多模态消息发送）
-    return streamChat(model || 'auto', history, content, delta => setStreamingText(prev => prev + delta), signal, images, toReasoningEffort(reasoning), systemPrompt)
+    return streamChat(model || 'auto', voiceHistory, content, delta => setStreamingText(prev => prev + delta), signal, images, effectiveReasoning, systemPrompt)
   }
 
   const send = async (text?: string) => {

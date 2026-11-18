@@ -33,6 +33,14 @@ describe('cleanForSpeech 朗读文本清洗', () => {
     expect(cleanForSpeech('您好！请问需要帮忙吗')).toBe('请问需要帮忙吗')
   })
 
+  it('把常见英文缩写转成口语，避免逐字母念', () => {
+    const out = cleanForSpeech('这个 API Key 放在 App 里，AI 会处理')
+    expect(out).toContain('密钥')
+    expect(out).toContain('应用')
+    expect(out).toContain('人工智能')
+    expect(out).not.toMatch(/\bAPI\b|\bAI\b|\bApp\b/)
+  })
+
   it('保留正常中文标点与句子', () => {
     const s = '这个方案不错。你觉得呢？'
     expect(cleanForSpeech(s)).toBe(s)

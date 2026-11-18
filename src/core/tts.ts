@@ -147,6 +147,13 @@ export function cleanForSpeech(text: string): string {
     .replace(/\n+/g, '，')
     .replace(/，{2,}/g, '，')
     .replace(/[ \t]{2,}/g, ' ')
+    // 常见缩写转成口语，避免 TTS 逐字母念出 AI 感
+    .replace(/\bAPI\s*Key\b/gi, '密钥')
+    .replace(/\bAPI\b/gi, '接口')
+    .replace(/\bAI\b/gi, '人工智能')
+    .replace(/\bApp\b/gi, '应用')
+    .replace(/\bURL\b/gi, '网址')
+    .replace(/\bCPU\b/gi, '处理器')
     // 兜底：去掉模型偶尔带出的固定寒暄开头，避免每次都"你好/哈哈"
     .replace(/^(?:您好|你好|嗨|哈喽|嗨喽)[，,、！!\s]*/, '')
     .replace(/^哈哈+[，,、！!\s]*/, '')
