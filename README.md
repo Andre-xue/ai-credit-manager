@@ -3,7 +3,7 @@
 统一管理你在各家 AI 平台的**积分、额度、用量与 API Key** 的合规工具。
 
 > **仓库**：https://github.com/Andre-xue/ai-credit-manager
-> **线上演示**（启用 Pages 后）：https://andre-xue.github.io/ai-credit-manager/
+> **线上演示**：https://andre-xue.github.io/ai-credit-manager/
 > **Docker 镜像**：`docker compose up -d` → http://localhost:8081
 
 ## Docker 版（容器运行）
@@ -31,7 +31,7 @@ docker run -d --name ai-credit-manager -p 8081:80 --restart unless-stopped ai-cr
 1. 运行 62 个单元测试 + 构建 + Docker 冒烟测试（CI）
 2. 构建 Web 版并部署到 GitHub Pages（免费静态托管）
 
-在仓库 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions** 即可启用 Pages 自动部署。此后每次 push 都会实时更新线上版本。
+仓库已在 **Settings → Pages → Build and deployment → Source** 选择 **GitHub Actions** 启用 Pages 自动部署。此后每次 push 都会实时更新线上版本。
 
 ## 一、在我的电脑上运行（最简单）
 
