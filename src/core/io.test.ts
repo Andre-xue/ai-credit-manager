@@ -18,8 +18,7 @@ function sampleState(): AppState {
     version: 1, accounts: [], quotas: [], checkins: [], usage: [], benefitMarks: [],
     settings: {
       vaultInitialized: false, monthlyBudget: 200, checkinReminder: true, checkinProviders: [], alertDays: 7,
-      defaultUnit: 'credit', backupReminder: true, systemNotify: false,
-      quietStart: '', quietEnd: '', unlockMethod: 'password', unitPrices: {},
+      defaultUnit: 'credit', backupReminder: true, unlockMethod: 'password', unitPrices: {},
     },
   }
   const acc: Account = {

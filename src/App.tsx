@@ -5,7 +5,7 @@ import {
   Wallet, Flame, Clock, TrendingUp, Lock, Unlock, Download, X, Copy, CircleHelp,
   Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Gift, Eye, Pencil, Fingerprint,
   Film, Layers, Monitor, PanelLeftClose, PanelLeftOpen,
-  Cloud, Bell, Database, Volume2, HardDrive, Palette, RotateCcw, Menu,
+  Cloud, Database, Volume2, HardDrive, Palette, RotateCcw, Menu,
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { isLocalProvider } from './core/types'
@@ -21,7 +21,6 @@ import {
   type AgentTool, type AgentRegion, type AgentCategory, type AgentPlatform,
 } from './data/agentTools'
 import { currentCatalog, fetchCatalog } from './core/agentCatalog'
-import { requestWebPermission, sendNotification, inQuietHours } from './core/notify'
 import { totalPortfolioValue, monthlySpendByPlatform, DEFAULT_UNIT_PRICES } from './core/value'
 import { predictExhaustion, forecastText } from './core/forecast'
 import { todayISO } from './core/store'
@@ -428,46 +427,7 @@ function App() {
     if (format === 'json') setState(prev => updateSettings(prev, { lastExportAt: new Date().toISOString() }))
   }, [notify])
 
-  /** 检查并发送提醒通知（签到 + 额度告警），每天每类最多一次 */
-  const checkAndNotify = useCallback(async (force = false) => {
-    const s = stateRef.current
-    const st = s.settings
-    if (!st.systemNotify) return
-    if (!force && st.quietStart && st.quietEnd && inQuietHours(st.quietStart, st.quietEnd)) return
-    const today = todayISO()
-    const dayKey = `acm.notified.${today}`
-
-    let sent: Record<string, boolean> = {}
-    try { sent = JSON.parse(sessionStorage.getItem(dayKey) ?? '{}') } catch { sent = {} }
-
-    const notices: Array<{ key: string; title: string; body: string }> = []
-    if (st.checkinReminder) {
-      const pending = CHECKIN_TOOLS.filter(t =>
-        !s.checkins.some(c => c.providerId === t.id && c.date === today && c.done))
-      if (pending.length > 0 && (force || !sent.checkin)) {
-        notices.push({ key: 'checkin', title: '今日待签到', body: `${pending.length} 个工具待签到：${pending.slice(0, 3).map(t => t.name).join('、')}${pending.length > 3 ? ' 等' : ''}` })
-      }
-    }
-    const urgent: string[] = []
-    for (const a of s.accounts) {
-      const f = predictExhaustion(s, a.id)
-      if (f.level === 'exhausted' || f.level === 'critical' ||
-          (f.level === 'warning' && (f.daysLeft ?? 99) <= st.alertDays)) {
-        urgent.push(`${PROVIDER_MAP[a.providerId]?.shortName ?? a.providerId}(${f.level === 'exhausted' ? '已用尽' : `${Math.ceil(f.daysLeft ?? 0)}天`})`)
-      }
-    }
-    if (urgent.length > 0 && (force || !sent.quota)) {
-      notices.push({ key: 'quota', title: '额度即将耗尽', body: urgent.slice(0, 4).join('、') })
-    }
-
-    for (const n of notices) {
-      const ok = await sendNotification({ title: n.title, body: n.body })
-      if (ok) sent[n.key] = true
-    }
-    if (notices.length > 0) sessionStorage.setItem(dayKey, JSON.stringify(sent))
-  }, [])
-
-  /** 备份提醒：独立于系统通知，全平台通用的界面横幅。超过阈值天数未备份即提示。 */
+  /** 备份提醒：全平台通用的界面横幅。超过阈值天数未备份即提示。 */
   const checkBackupDue = useCallback(() => {
     const st = stateRef.current.settings
     if (!st.backupReminder) { setBackupDue(false); return }
@@ -482,14 +442,6 @@ function App() {
     const t = window.setInterval(checkBackupDue, 60 * 60 * 1000)
     return () => window.clearInterval(t)
   }, [checkBackupDue, state.settings.backupReminder, state.settings.backupReminderDays, state.settings.lastExportAt])
-
-  // 启动后延迟检查一次；每 10 分钟复查。回调从 ref 读取最新 state，不依赖具体数据变化。
-  useEffect(() => {
-    if (!state.settings.systemNotify) return
-    const t = window.setTimeout(() => { void checkAndNotify() }, 3000)
-    const interval = window.setInterval(() => { void checkAndNotify() }, 600_000)
-    return () => { window.clearTimeout(t); window.clearInterval(interval) }
-  }, [state.settings.systemNotify, checkAndNotify])
 
   const views: AccountView[] = useMemo(() => state.accounts.map((account) => {
     const provider = PROVIDER_MAP[account.providerId]
@@ -718,15 +670,6 @@ function App() {
             bioLabel={bioLabel}
             sessionPwd={sessionPwd}
             onCheckUpdate={() => setUpdateOpen(true)}
-            onTestNotify={async () => {
-              if (!state.settings.systemNotify) { notify('请先开启系统通知'); return }
-              const ok = await sendNotification({ title: 'AI 积分管家', body: '通知测试：这是一条本地提醒，不会领取任何福利。' })
-              notify(ok ? '测试通知已发送' : '通知发送失败，请检查权限')
-            }}
-            onEnableNotify={async () => {
-              const r = await requestWebPermission()
-              notify(r === 'granted' ? '通知权限已就绪' : r === 'denied' ? '通知被拒绝，请在浏览器设置中允许' : '当前环境不支持通知权限申请')
-            }}
             onClear={() => {
               requestBackup(state.accounts.map(a => a.id), '清空前必须备份', '确认清空', () => {
                 // 不可逆清除：先尝试系统指纹/人脸验证；设备不支持时要求已解锁的主密码凭据
@@ -3047,13 +2990,11 @@ function SettingsRow({ title, desc, children }: { title: string; desc?: string; 
 }
 
 /** 设置中心 */
-function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEnableNotify, onClear, onChangePassword, onResetVault, onBioAvailable, onBioUnlock, bioLabel, sessionPwd, cloudUser, syncing, lastSyncAt, onLogin, onLogout, onSync, onCheckUpdate }: {
+function SettingsView({ state, onChange, notify, onOpenVault, onClear, onChangePassword, onResetVault, onBioAvailable, onBioUnlock, bioLabel, sessionPwd, cloudUser, syncing, lastSyncAt, onLogin, onLogout, onSync, onCheckUpdate }: {
   state: AppState
   onChange: (patch: Partial<AppState['settings']>) => void
   notify: (m: string) => void
   onOpenVault: () => void
-  onTestNotify: () => void
-  onEnableNotify: () => void
   onClear: () => void
   onChangePassword: (oldPwd: string, newPwd: string) => Promise<void>
   onResetVault: () => void
@@ -3150,22 +3091,6 @@ function SettingsView({ state, onChange, notify, onOpenVault, onTestNotify, onEn
               <input className="input" type="number" min="0" step="10" value={s.monthlyBudget}
                      onChange={e => onChange({ monthlyBudget: Math.max(0, Number(e.target.value)) })}
                      style={{ width: 100 }} />
-            </SettingsRow>
-          </SettingsSection>
-
-          <SettingsSection title="系统通知" desc="签到与额度告警主动提醒，每日每类最多一次" icon={Bell} tone="amber">
-            <SettingsRow title="启用通知" desc="桌面端为系统通知；Web 端需授予浏览器权限">
-              <Toggle checked={s.systemNotify} onChange={v => { onChange({ systemNotify: v }); if (v) onEnableNotify() }} />
-            </SettingsRow>
-            <SettingsRow title="免打扰时段" desc="此区间内不发送通知，留空表示全天可通知">
-              <span style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                <input className="input" type="time" value={s.quietStart} onChange={e => onChange({ quietStart: e.target.value })} style={{ width: 92 }} />
-                <span style={{ color: 'var(--text-3)', fontSize: 12 }}>—</span>
-                <input className="input" type="time" value={s.quietEnd} onChange={e => onChange({ quietEnd: e.target.value })} style={{ width: 92 }} />
-              </span>
-            </SettingsRow>
-            <SettingsRow title="测试通知" desc="发送一条本地测试提醒，验证权限与显示">
-              <button className="btn sm" onClick={onTestNotify}>发送测试</button>
             </SettingsRow>
           </SettingsSection>
         </>}

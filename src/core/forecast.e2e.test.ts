@@ -9,7 +9,7 @@ describe('真实使用轨迹端到端', () => {
     version: 1,
     accounts: [{ id: 'a1', providerId: 'cursor', label: 'Cursor 订阅', mode: 'manual', createdAt: '', updatedAt: '' }],
     quotas: [], checkins: [], benefitMarks: [], usage: [],
-    settings: { vaultInitialized: false, monthlyBudget: 200, checkinReminder: true, checkinProviders: [], alertDays: 7, defaultUnit: 'credit', backupReminder: true, systemNotify: false, quietStart: '', quietEnd: '', unlockMethod: 'password', unitPrices: {} },
+    settings: { vaultInitialized: false, monthlyBudget: 200, checkinReminder: true, checkinProviders: [], alertDays: 7, defaultUnit: 'credit', backupReminder: true, unlockMethod: 'password', unitPrices: {} },
   })
 
   it('每天消耗约 10 单位，总额度 100：预测逐步收敛', () => {

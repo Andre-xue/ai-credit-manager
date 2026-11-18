@@ -6,7 +6,7 @@ const NOW = new Date('2026-06-30T00:00:00Z').getTime()
 const DAY = 86_400_000
 
 function stateWith(quotas: QuotaSnapshot[], usage: AppState['usage'] = []): AppState {
-  return { version: 1, accounts: [], quotas, checkins: [], benefitMarks: [], usage, settings: { vaultInitialized: false, monthlyBudget: 200, checkinReminder: true, checkinProviders: [], alertDays: 7, defaultUnit: 'credit', backupReminder: true, systemNotify: false, quietStart: '', quietEnd: '', unlockMethod: 'password', unitPrices: {} } }
+  return { version: 1, accounts: [], quotas, checkins: [], benefitMarks: [], usage, settings: { vaultInitialized: false, monthlyBudget: 200, checkinReminder: true, checkinProviders: [], alertDays: 7, defaultUnit: 'credit', backupReminder: true, unlockMethod: 'password', unitPrices: {} } }
 }
 
 function q(daysAgo: number, used: number, total = 100, unit: QuotaSnapshot['unit'] = 'credit'): QuotaSnapshot {

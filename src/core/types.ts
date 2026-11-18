@@ -138,11 +138,6 @@ export interface AppSettings {
   backupReminder: boolean
   /** 备份提醒阈值天数（3/7/15），缺省按 7 天 */
   backupReminderDays?: 3 | 7 | 15
-  /** 系统通知开关（签到与额度告警） */
-  systemNotify: boolean
-  /** 免打扰开始/结束 "HH:mm"，空表示关闭 */
-  quietStart: string
-  quietEnd: string
   /** 解锁方式：系统生物识别（指纹/Face ID/Touch ID）或密码 */
   unlockMethod: 'biometric' | 'password'
   /** 各平台每单位额度价值（元），key 为 providerId，'default' 为兜底；用户可自行校准 */

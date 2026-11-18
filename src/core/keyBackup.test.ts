@@ -30,8 +30,7 @@ function makeState(): AppState {
     benefitMarks: [],
     settings: {
       vaultInitialized: true, monthlyBudget: 200, checkinReminder: true, checkinProviders: [],
-      alertDays: 7, defaultUnit: 'credit', backupReminder: true, systemNotify: false,
-      quietStart: '', quietEnd: '', unlockMethod: 'password', unitPrices: {},
+      alertDays: 7, defaultUnit: 'credit', backupReminder: true, unlockMethod: 'password', unitPrices: {},
     },
   }
 }

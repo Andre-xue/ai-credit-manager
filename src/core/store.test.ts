@@ -18,7 +18,7 @@ class MemStorage {
 
 const fresh = (): AppState => ({
   version: 1, accounts: [], quotas: [], checkins: [], benefitMarks: [], usage: [],
-  settings: { vaultInitialized: false, monthlyBudget: 200, checkinReminder: true, checkinProviders: [], alertDays: 7, defaultUnit: 'credit', backupReminder: true, systemNotify: false, quietStart: '', quietEnd: '', unlockMethod: 'password', unitPrices: {} },
+  settings: { vaultInitialized: false, monthlyBudget: 200, checkinReminder: true, checkinProviders: [], alertDays: 7, defaultUnit: 'credit', backupReminder: true, unlockMethod: 'password', unitPrices: {} },
 })
 
 describe('store 持久化与基础操作', () => {
