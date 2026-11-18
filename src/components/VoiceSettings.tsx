@@ -135,6 +135,14 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
     notify('音频样本已保存，可点击「克隆为 AI 发音」')
   }
 
+  /** 克隆音色增删改后：刷新本页列表 + 通知 AI 助手设置弹窗同步音色下拉 */
+  const syncClonedVoices = () => {
+    const list = listClonedVoices()
+    setClonedVoices(list)
+    setClonedId(getClonedVoiceId())
+    window.dispatchEvent(new CustomEvent('acm:cloned-voices-changed', { detail: list }))
+  }
+
   const doClone = async () => {
     if (!sample) { notify('请先录音或选择音频文件'); return }
     setCloning(true)
@@ -148,7 +156,7 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
         return
       }
       setClonedId(r.voiceId ?? null)
-      setClonedVoices(listClonedVoices())
+      syncClonedVoices()
       notify('克隆成功，AI 回复将优先使用该音色')
     } finally { setCloning(false) }
   }
@@ -162,20 +170,20 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
   const pickCloned = (v: ClonedVoice) => {
     setActiveClonedVoice(v.voiceId)
     setClonedId(v.voiceId)
+    syncClonedVoices()
     notify(`已切换克隆音色：${v.name}`)
   }
 
   const dropCloned = (v: ClonedVoice) => {
     removeClonedVoice(v.id)
-    setClonedVoices(listClonedVoices())
-    setClonedId(getClonedVoiceId())
+    syncClonedVoices()
     notify(`已删除「${v.name}」；云端音色需到百炼控制台单独清理`)
   }
 
   const commitRename = (v: ClonedVoice) => {
     if (!renameText.trim()) { setRenaming(null); return }
     renameClonedVoice(v.id, renameText)
-    setClonedVoices(listClonedVoices())
+    syncClonedVoices()
     setRenaming(null)
     notify('已重命名')
   }

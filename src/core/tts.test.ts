@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { cleanForSpeech } from './tts'
+import { cleanForSpeech, resolveCloneVoiceId } from './tts'
+
+describe('resolveCloneVoiceId AI 朗读音色选择', () => {
+  const voices = [
+    { id: 'cv-1', voiceId: 'cosyvoice-aaa' },
+    { id: 'cv-2', voiceId: 'cosyvoice-bbb' },
+  ]
+  it('指定的 voiceURI 命中克隆音色时用该音色', () => {
+    expect(resolveCloneVoiceId('cosyvoice-bbb', voices, 'cosyvoice-aaa')).toBe('cosyvoice-bbb')
+    expect(resolveCloneVoiceId('cv-2', voices, null)).toBe('cosyvoice-bbb')
+  })
+  it('未指定或不匹配时用全局克隆音色', () => {
+    expect(resolveCloneVoiceId(null, voices, 'cosyvoice-aaa')).toBe('cosyvoice-aaa')
+    expect(resolveCloneVoiceId('Tingting', voices, 'cosyvoice-aaa')).toBe('cosyvoice-aaa')
+  })
+  it('无指定且无全局克隆音色时返回 null（走系统音）', () => {
+    expect(resolveCloneVoiceId(null, voices, null)).toBeNull()
+  })
+})
 
 describe('cleanForSpeech 朗读文本清洗', () => {
   it('去掉 markdown 加粗/行内代码/标题/列表符号', () => {

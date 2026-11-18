@@ -201,7 +201,7 @@ export function unlockTts(): void {
 }
 
 import { getTtsConfig } from './voice-download'
-import { getClonedVoiceId } from './voiceClone'
+import { getClonedVoiceId, listClonedVoices } from './voiceClone'
 
 let activeCallback: ((state: 'start' | 'end' | 'error') => void) | null = null
 
@@ -242,6 +242,19 @@ export function speak(text: string, voiceURI: string | null, onState?: (s: 'star
   return true
 }
 
+/** 供测试与 UI 复用：根据指定的 voiceURI 与克隆音色列表，解析本次朗读要用的克隆音色 ID。 */
+export function resolveCloneVoiceId(
+  voiceURI: string | null,
+  clonedVoices: { id: string; voiceId: string }[],
+  globalCloneId: string | null,
+): string | null {
+  if (voiceURI) {
+    const hit = clonedVoices.find(v => v.voiceId === voiceURI || v.id === voiceURI)
+    if (hit) return hit.voiceId
+  }
+  return globalCloneId
+}
+
 /**
  * 异步朗读：若已克隆声音且配置了第三方代理，优先走代理合成；失败回退系统 TTS。
  * 克隆声音只有代理端实现 /synthesize 后才会真正生效，系统音色不应伪装成克隆效果。
@@ -252,9 +265,15 @@ export async function speakAsync(
   onState?: (s: 'start' | 'end' | 'error') => void,
   onFallback?: (reason: string) => void,
 ): Promise<boolean> {
-  if (getSpeakSource() === 'clone') {
-    const cloned = getClonedVoiceId()!
-    const cfg = getTtsConfig()
+  // 判断本次朗读要用哪个克隆音色：
+  // 1) 若 voiceURI 命中用户保存的某个克隆音色 → 用它（AI 助手"说话音色"可独立指定）
+  // 2) 否则若全局音源是 clone → 用全局激活的克隆音色
+  const clonedVoices = listClonedVoices()
+  const cloned = resolveCloneVoiceId(
+    voiceURI, clonedVoices, getSpeakSource() === 'clone' ? getClonedVoiceId() : null,
+  )
+  const cfg = getTtsConfig()
+  if (cloned && cfg.endpoint) {
     let lastErr = ''
     try {
       stopSpeak()

@@ -11,7 +11,8 @@ import {
   loadModel, saveModel, streamChat, friendlyAiError,
   type ChatMessage, type AiModel,
 } from '../core/ai'
-import { speakAsync, stopSpeak, getSavedVoice, listSystemVoices } from '../core/tts'
+import { speakAsync, stopSpeak, getSavedVoice } from '../core/tts'
+import { listClonedVoices, type ClonedVoice } from '../core/voiceClone'
 import {
   loadBotProfile, saveBotProfile, loadUserProfile, saveUserProfile,
   getAvatar, buildIdentitySystemPrompt, buildVoiceSystemPrompt, resizeAvatarImage, AVATAR_PRESETS,
@@ -92,6 +93,14 @@ export function AIView({ notify, accounts }: {
   const [identityOpen, setIdentityOpen] = useState<'bot' | 'user' | null>(null)
   const [botProfile, setBotProfile] = useState<BotProfile>(() => loadBotProfile())
   const [userProfile, setUserProfile] = useState<UserProfile>(() => loadUserProfile())
+  // 克隆音色列表：语音配置页增删改时通过事件实时同步
+  const [clonedVoices, setClonedVoices] = useState<ClonedVoice[]>(() => listClonedVoices())
+  useEffect(() => {
+    const refresh = () => setClonedVoices(listClonedVoices())
+    window.addEventListener('acm:cloned-voices-changed', refresh)
+    // 弹窗打开时也刷新一次，确保跨页面/跨标签的改动也能拿到
+    return () => window.removeEventListener('acm:cloned-voices-changed', refresh)
+  }, [])
   // 自有模型的解密凭据：优先用指纹/人脸模式保存的密码自动解密；纯密码模式则本次会话内输入一次
   const [aiPwd, setAiPwd] = useState('')
   const [aiPwdInput, setAiPwdInput] = useState('')
@@ -369,7 +378,7 @@ export function AIView({ notify, accounts }: {
       <div className="ai-shell">
         {/* 顶部栏 */}
         <div className="ai-topbar">
-          <div className="ai-brand" onClick={() => setIdentityOpen('bot')} title="点击更换 AI 头像、名字与音色" style={{ cursor: 'pointer' }}>
+          <div className="ai-brand" onClick={() => { setClonedVoices(listClonedVoices()); setIdentityOpen('bot') }} title="点击更换 AI 头像、名字与音色" style={{ cursor: 'pointer' }}>
             <div className="ai-brand-mark" style={{ background: avatarBg(botProfile) }}>{avatarContent(botProfile)}</div>
             <div>
               <div className="ai-brand-title">{botProfile.name}</div>
@@ -481,7 +490,7 @@ export function AIView({ notify, accounts }: {
                 return (
                 <div key={m.id} className={`ai-msg ${m.role}`}>
                   <div className="ai-avatar avatar-click" title={m.role === 'assistant' ? '点击更换 AI 头像/名字/音色' : '点击更换我的头像/昵称/前缀'}
-                    style={{ background: avatarBg(profile) }} onClick={() => setIdentityOpen(m.role === 'assistant' ? 'bot' : 'user')}>{avatarContent(profile)}</div>
+                    style={{ background: avatarBg(profile) }} onClick={() => { setClonedVoices(listClonedVoices()); setIdentityOpen(m.role === 'assistant' ? 'bot' : 'user') }}>{avatarContent(profile)}</div>
                   <div className="ai-msg-body">
                     <div className="ai-bubble" onTouchStart={() => startLongPress(m.content)} onTouchEnd={endLongPress} onTouchMove={endLongPress}>{m.content}</div>
                     {m.content && (
@@ -618,7 +627,7 @@ export function AIView({ notify, accounts }: {
         kind={identityOpen}
         bot={botProfile}
         user={userProfile}
-        voices={listSystemVoices()}
+        voices={clonedVoices.map(v => ({ id: v.id, name: v.name, voiceId: v.voiceId }))}
         onClose={() => setIdentityOpen(null)}
         onSaveBot={(p) => { saveBotProfile(p); setBotProfile(p); setIdentityOpen(null); notify('AI 身份已保存，切换模型也不会重置') }}
         onSaveUser={(p) => { saveUserProfile(p); setUserProfile(p); setIdentityOpen(null); notify('我的身份与回答前缀已保存') }}
@@ -650,7 +659,7 @@ function IdentityModal({ kind, bot, user, voices, onClose, onSaveBot, onSaveUser
   kind: 'bot' | 'user'
   bot: BotProfile
   user: UserProfile
-  voices: { uri: string; name: string; lang: string }[]
+  voices: { id: string; name: string; voiceId: string }[]
   onClose: () => void
   onSaveBot: (p: BotProfile) => void
   onSaveUser: (p: UserProfile) => void
@@ -688,11 +697,16 @@ function IdentityModal({ kind, bot, user, voices, onClose, onSaveBot, onSaveUser
           </label>
           {isBot ? (
             <label className="form-label" style={{ marginTop: 12 }}>
-              说话音色
+              说话音色（AI 复刻音色）
               <select className="select" value={voiceURI ?? ''} onChange={e => setVoiceURI(e.target.value || null)}>
                 <option value="">跟随全局音色设置</option>
-                {voices.map(v => <option key={v.uri} value={v.uri}>{v.name}（{v.lang}）</option>)}
+                {voices.map(v => <option key={v.id} value={v.voiceId}>{v.name}</option>)}
               </select>
+              <span style={{ display: 'block', fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
+                {voices.length === 0
+                  ? '还没有克隆音色，请到「语音配置 → 声音克隆」创建一个。'
+                  : '选择后 AI 朗读会用这个克隆音色；在「语音配置」里增删改音色会自动同步到这里。'}
+              </span>
             </label>
           ) : (
             <label className="form-label" style={{ marginTop: 12 }}>
