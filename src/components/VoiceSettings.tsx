@@ -18,6 +18,9 @@ import {
   hasTtsConfig, getTtsConfig, saveTtsConfig, clearTtsConfig,
   type TtsProviderConfig,
 } from '../core/voice-download'
+import {
+  getVolcConfig, saveVolcConfig, clearVolcConfig, type VolcConfig,
+} from '../core/volcConfig'
 
 export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
   const [rate, setRate] = useState(getRate())
@@ -32,6 +35,8 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
   const [renameText, setRenameText] = useState('')
   const [cloning, setCloning] = useState(false)
   const [cloneError, setCloneError] = useState('')
+  const [volcConfig, setVolcConfig] = useState<VolcConfig>(() => getVolcConfig())
+  const [volcOpen, setVolcOpen] = useState(false)
   const desktop = isDesktopApp()
   const fileRef = useState(() => ({ current: null as HTMLInputElement | null }))[0]
 
@@ -274,6 +279,30 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
         <div className="voice-config-actions">
           <button className="btn sm primary" onClick={saveConfig}>保存配置</button>
           {ttsConfigured && <button className="btn sm ghost" onClick={() => { clearTtsConfig(); setConfig({ provider: '', endpoint: '' }); setTtsConfigured(false); notify('已清除配置') }}>清除</button>}
+        </div>
+      </div>}
+
+      {/* 火山引擎：声音复刻 + 端到端实时语音 共用凭据 */}
+      <button className="voice-config-toggle" style={{ marginTop: 10 }} onClick={() => setVolcOpen(v => !v)}>
+        <Globe2 size={14} /> 火山引擎 · 豆包语音（声音复刻 / 实时语音） <span>{volcOpen ? '收起' : '展开'}</span>
+      </button>
+      {volcOpen && <div className="voice-config">
+        <label className="form-label">APP ID
+          <input className="input" value={volcConfig.appId} onChange={e => setVolcConfig({ ...volcConfig, appId: e.target.value })} placeholder="火山控制台的 APP ID" />
+        </label>
+        <label className="form-label">Access Token
+          <input className="input" type="password" value={volcConfig.accessToken} onChange={e => setVolcConfig({ ...volcConfig, accessToken: e.target.value })} placeholder="火山控制台的 Access Token" />
+        </label>
+        <label className="form-label">实时语音音色（可选）
+          <input className="input" value={volcConfig.realtimeVoice} onChange={e => setVolcConfig({ ...volcConfig, realtimeVoice: e.target.value })} placeholder="如 zh_female_vv_jupiter_bigtts，留空用默认" />
+        </label>
+        <div className="voice-config-note">
+          声音复刻：在上方「第三方语音服务配置」选「火山引擎 / 豆包声音复刻」并填代理端点（密钥配在云函数）。
+          端到端实时语音：需桌面端原生桥接，当前为骨架、未启用联调。凭据仅存本机、不进云同步。
+        </div>
+        <div className="voice-config-actions">
+          <button className="btn sm primary" onClick={() => { saveVolcConfig(volcConfig); notify('火山引擎配置已保存') }}>保存</button>
+          <button className="btn sm ghost" onClick={() => { clearVolcConfig(); const d = getVolcConfig(); setVolcConfig(d); notify('已清除火山配置') }}>清除</button>
         </div>
       </div>}
     </div>

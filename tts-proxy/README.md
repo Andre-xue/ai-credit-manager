@@ -64,3 +64,31 @@
 
 - API Key 只作为函数环境变量，App 不持有，聊天与备份都不包含它。
 - 函数 URL 是公开的（CORS `*`）。若担心被他人盗用产生费用，可在 FC 上给 HTTP 触发器加访问鉴权（如自定义 header token），并在 App 端配置里加一个可填 token 的字段——当前版本未内置该字段，需要的话可后续补。
+
+---
+
+## 火山引擎声音复刻（provider=volcengine，v0.1.87+）
+
+同一份 `app.py` 已支持火山引擎，通过请求里的 `provider` 字段自动分派：
+- `provider=aliyun` 或留空 → 阿里云百炼（原逻辑，需 `DASHSCOPE_API_KEY`）
+- `provider=volcengine` → 火山引擎（需 `VOLC_APP_ID` + `VOLC_ACCESS_TOKEN`）
+
+App 端在「语音配置 → 第三方语音服务配置」里把 **provider 选 volcengine**、端点填这个函数的地址即可，克隆/合成链路与百炼完全一致。
+
+### 火山开通与配置
+
+1. 火山引擎控制台开通 **豆包语音 → 声音复刻 2.0** 服务（新用户有免费额度：15 次训练 + 20000 字合成）。
+2. 在「API Key 管理」拿到 **APP ID** 和 **Access Token**。
+3. 给云函数追加环境变量（原有百炼变量可保留，互不影响）：
+
+   | 变量名 | 值 | 说明 |
+   |---|---|---|
+   | `VOLC_APP_ID` | 你的 APP ID | 必填 |
+   | `VOLC_ACCESS_TOKEN` | 你的 Access Token | 必填 |
+   | `VOLC_CLONE_ENDPOINT` | `https://openspeech.bytedance.com/api/v1/vc/submit` | 可选；音色训练端点，火山接口调整时改这里 |
+   | `VOLC_TTS_ENDPOINT` | `https://openspeech.bytedance.com/api/v1/tts` | 可选；语音合成端点 |
+   | `VOLC_TTS_CLUSTER` | `volcano_icl` | 可选；合成集群，按你开通的服务填 |
+
+4. 重新部署函数，App 端 provider 选 `volcengine` 即可克隆与合成。
+
+> 注意：火山声音复刻有多个产品形态（豆包语音 HTTP API / RTC TrainTTSVoiceType 等），端点与请求体各不相同。本实现采用豆包语音 `vc/submit` + `tts` 的通用结构，并通过上面两个 `*_ENDPOINT` 环境变量做成可配置——若你的控制台给出的端点/字段不同，改环境变量或按文档调整 `app.py` 里 `_volc_create_voice` / `_volc_synthesize` 的 payload 即可，无需改 App。**本分支无密钥环境，未做真实 API 联调，请开通后按实际返回校准。**
