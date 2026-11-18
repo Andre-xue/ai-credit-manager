@@ -51,8 +51,6 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock, 
   const [callPwd, setCallPwd] = useState('')
   const [callPwdBusy, setCallPwdBusy] = useState(false)
   const [status, setStatus] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle')
-  const [liveText, setLiveText] = useState('')
-  const [lastReply, setLastReply] = useState('')
   const [callError, setCallError] = useState('')
   const [permCode, setPermCode] = useState('')
   const [seconds, setSeconds] = useState(0)
@@ -148,13 +146,11 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock, 
     setStatus('thinking')
     try {
       const reply = await onSendRef.current(clean)
-      setLastReply(reply)
       setStatus('speaking')
       speakingRef.current = true
       const ok = await speakAsync(reply, voiceURI ?? getSavedVoice(), (s) => {
         if (s === 'end' || s === 'error') {
           setStatus('idle')
-          setLiveText('')
           speakingRef.current = false
           // 实时通话：说完自动回到聆听，无需再次点麦克风
           if (s === 'end' && sessionActive.current) {
@@ -193,7 +189,6 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock, 
 
     if (engine === 'capacitor' && capRecRef.current) {
       setStatus('listening')
-      setLiveText('')
       setCallError('')
       wantListen.current = true
       clearCapTimer()
@@ -204,7 +199,6 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock, 
           const text = data.matches?.[0]?.trim() ?? ''
           if (!text || speakingRef.current || busyRef.current || !sessionActive.current) return
           // 只更新文字，等用户停顿后再作为完整一句发送，避免把"你"当成整句
-          setLiveText(text)
           capTextRef.current = text
           clearCapTimer()
           capTimerRef.current = window.setTimeout(() => {
@@ -226,7 +220,6 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock, 
     if (engine === 'web' && recRef.current) {
       wantListen.current = true
       setStatus('listening')
-      setLiveText('')
       setCallError('')
       try { recRef.current.start() } catch { /* 已在运行 */ }
       return
@@ -267,7 +260,7 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock, 
         recRef.current = r
         r.onresult = (e: any) => {
           const text = Array.from(e.results).map((res: any) => res[0]?.transcript ?? '').join('').trim()
-          if (text) { setLiveText(text); void handleTextRef.current(text) }
+          if (text) { void handleTextRef.current(text) }
         }
         r.onerror = (e: any) => {
           if (e?.error === 'no-speech' || e?.error === 'aborted') { setStatus('idle'); return }
@@ -324,7 +317,6 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock, 
     const text = fallbackText.trim()
     if (!text || busyRef.current) return
     setFallbackText('')
-    setLiveText(text)
     void handleTextRef.current(text)
   }
 
@@ -412,8 +404,7 @@ export function VoiceCall({ onSend, onClose, notify, needPwd = false, onUnlock, 
         )}
 
         {callError && <div className="call-error">{callError}</div>}
-        {liveText && <div className="call-live">“{liveText}”</div>}
-        {lastReply && status !== 'listening' && <div className="call-reply">{lastReply}</div>}
+        {/* 语音通话全程不展示文字：你说的话与 AI 的回复都只朗读，不落文字 */}
 
         <div className="call-controls">
           {voiceAvailable && (

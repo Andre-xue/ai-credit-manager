@@ -14,7 +14,7 @@ describe('cleanForSpeech 朗读文本清洗', () => {
   })
 
   it('去掉 emoji 与链接语法，保留链接文字', () => {
-    expect(cleanForSpeech('你好😀 [官网](https://example.com)')).toBe('你好 官网')
+    expect(cleanForSpeech('请问😀 [官网](https://example.com)')).toBe('请问 官网')
   })
 
   it('把换行合并为中文逗号，避免逐行停顿', () => {
@@ -27,8 +27,14 @@ describe('cleanForSpeech 朗读文本清洗', () => {
     expect(cleanForSpeech('**')).toBe('')
   })
 
+  it('去掉固定寒暄开头，避免每次都你好/哈哈', () => {
+    expect(cleanForSpeech('你好，小明，今天天气不错')).toBe('小明，今天天气不错')
+    expect(cleanForSpeech('哈哈，这个很简单')).toBe('这个很简单')
+    expect(cleanForSpeech('您好！请问需要帮忙吗')).toBe('请问需要帮忙吗')
+  })
+
   it('保留正常中文标点与句子', () => {
-    const s = '你好，我是AI助手。请问需要什么帮助？'
+    const s = '这个方案不错。你觉得呢？'
     expect(cleanForSpeech(s)).toBe(s)
   })
 })

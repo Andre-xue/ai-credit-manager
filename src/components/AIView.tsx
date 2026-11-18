@@ -14,7 +14,7 @@ import {
 import { speakAsync, stopSpeak, getSavedVoice, listSystemVoices } from '../core/tts'
 import {
   loadBotProfile, saveBotProfile, loadUserProfile, saveUserProfile,
-  getAvatar, buildIdentitySystemPrompt, resizeAvatarImage, AVATAR_PRESETS,
+  getAvatar, buildIdentitySystemPrompt, buildVoiceSystemPrompt, resizeAvatarImage, AVATAR_PRESETS,
   type BotProfile, type UserProfile,
 } from '../core/aiIdentity'
 import { VoiceCall } from './VoiceCall'
@@ -207,10 +207,12 @@ export function AIView({ notify, accounts }: {
   }, [currentAccount, engines])
 
   /** 统一取回复：用户自己的账户走其 API，否则走平台免费模型 */
-  const getReply = async (content: string, history: ChatMessage[], signal?: AbortSignal, images?: string[]): Promise<string> => {
+  const getReply = async (content: string, history: ChatMessage[], signal?: AbortSignal, images?: string[], voiceMode = false): Promise<string> => {
     const opt = allOptions.find(o => o.key === model)
     const isFirstReply = !history.some(m => m.role === 'assistant')
-    const systemPrompt = buildIdentitySystemPrompt(botProfile, userProfile, isFirstReply)
+    const systemPrompt = voiceMode
+      ? buildVoiceSystemPrompt(botProfile, userProfile)
+      : buildIdentitySystemPrompt(botProfile, userProfile, isFirstReply)
     // 用户自己的账户：用其 Key 真正调用
     if (opt?.account) {
       const acct = opt.account
@@ -616,12 +618,8 @@ export function AIView({ notify, accounts }: {
       {callOpen && <VoiceCall
         voiceURI={botProfile.voiceURI}
         onSend={async (text) => {
-          const r = await getReply(text, messages)
-          setMessages(prev => [...prev,
-            { id: `${Date.now()}-u`, role: 'user', content: text, at: Date.now() },
-            { id: `${Date.now()}-a`, role: 'assistant', content: r, at: Date.now() },
-          ])
-          return r
+          // 语音通话：用口语化提示，回复简短自然；不写入文字对话记录，全程只朗读
+          return getReply(text, messages, undefined, undefined, true)
         }}
         onClose={() => setCallOpen(false)}
         notify={notify}

@@ -147,6 +147,10 @@ export function cleanForSpeech(text: string): string {
     .replace(/\n+/g, '，')
     .replace(/，{2,}/g, '，')
     .replace(/[ \t]{2,}/g, ' ')
+    // 兜底：去掉模型偶尔带出的固定寒暄开头，避免每次都"你好/哈哈"
+    .replace(/^(?:您好|你好|嗨|哈喽|嗨喽)[，,、！!\s]*/, '')
+    .replace(/^哈哈+[，,、！!\s]*/, '')
+    .replace(/^(?:嗯+|好的呀?|没问题)[，,、！!\s]*/, '')
     .trim()
 }
 

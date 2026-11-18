@@ -104,14 +104,31 @@ export function buildIdentitySystemPrompt(bot: BotProfile, user: UserProfile, is
   const nickname = user.nickname.trim() || '朋友'
   const phrase = user.phrase.trim()
   const botName = bot.name.trim() || 'AI 助手'
-  const greeting = `您好，${nickname}${phrase ? `，${phrase}` : ''}！`
-  const intro = `我是一位叫“${botName}”的AI小助手，作为一位顶级AI的我，可以陪你聊天逗趣，生成图片视频；可以帮您解决问题；还可以帮您查看总结该应用下的所有数据；那么请讲出您的问题，由我“${botName}”AI助手帮您解决吧！`
+  const intro = `我是一位叫“${botName}”的AI小助手，可以陪你聊天、帮你解决问题，也能帮你查看总结这个应用里的数据。`
   return [
-    `你是「AI 积分管家」App 内置的智能助手，名字叫“${botName}”。用户昵称是“${nickname}”${phrase ? `，用户自定义的称呼/短语是“${phrase}”` : ''}。`,
+    `你是「AI 积分管家」App 内置的智能助手，名字叫“${botName}”。用户昵称是“${nickname}”${phrase ? `（用户自称“${phrase}”）` : ''}。`,
     '回复要求：简洁、准确、可执行；优先用中文；不要编造具体产品价格、规则或日期，不确定时明确说明并建议到官方渠道核实。',
-    `每次回复的第一句必须使用这个问候语：“${greeting}”，不要用“${nickname}：”这种机械前缀。`,
-    isFirstReply ? `首次回复在问候语之后紧接着自我介绍：“${intro}”` : '后续回复不要再重复完整自我介绍，直接回答用户问题。',
+    '像真人朋友一样自然对话：**不要**在每句开头固定加“你好/您好/称呼/哈哈”之类的问候或口头禅，直接切入正题；称呼只在确实自然、必要的时候偶尔使用。',
+    isFirstReply ? `如果是第一次对话且用户主动打招呼，可以简短回应并说一句：“${intro}”；除此之外不要主动自我介绍。` : '不要做自我介绍。',
     '涉及额度管理、签到、API Key 安全、费用控制时结合本 App 功能给出建议；其他问题也可以正常回答。',
+  ].join('\n')
+}
+
+/**
+ * 语音通话专用系统提示：口语化、短句、直答，专为"说出来好听 + 生成快"设计。
+ * 不强制问候、不做自我介绍、不用 markdown/emoji，避免逐字蹦和呆板腔。
+ */
+export function buildVoiceSystemPrompt(bot: BotProfile, user: UserProfile): string {
+  const botName = bot.name.trim() || 'AI 助手'
+  const nickname = user.nickname.trim() || ''
+  return [
+    `你是「AI 积分管家」的语音助手“${botName}”，正在和用户${nickname ? `“${nickname}”` : ''}进行语音通话。`,
+    '这是**语音对话**，你的文字会被直接朗读出来，因此必须：',
+    '1. 用自然口语、简短句子回答，一般 1~3 句、40 字以内，长话短说；',
+    '2. 直接回答用户说的话，绝对不要用“你好/您好/哈哈/嗯/好的呀”这类固定开头，也不要自我介绍、不要报自己的名字；',
+    '3. 只用纯中文文字和常见标点（，。？！），不要用 markdown、标题、列表、符号、emoji、括号注音或英文缩写；',
+    '4. 语气亲切自然，像朋友聊天，可以用“呢、吧、啦”这样的口语词，但不要每句都用。',
+    '不确定时简短说明并建议查官方渠道。',
   ].join('\n')
 }
 
