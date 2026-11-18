@@ -164,10 +164,10 @@ export function UpdateModal({ onClose, notify }: { onClose: () => void; notify: 
               )}
               {platform === 'desktop' && (
                 <>
-                  {autoErr && <div className="upd-hint" style={{ color: 'var(--amber)' }}>自动更新检查未通过：{autoErr.slice(0, 160)}。已为你提供手动下载方式。</div>}
+                  {autoErr && <div className="upd-hint" style={{ color: 'var(--amber)' }}>⚠️ 自动更新暂时不可用：{autoErr.slice(0, 120)}。安装包通常已就绪，可点下方按钮手动下载，或稍后重试检查更新（会自动重试网络抖动）。</div>}
                   <div className="upd-hint">{fallback
-                    ? '检测到一个更新的版本，但其桌面安装包还在构建中。下面提供的是最近一个可直接安装的稳定版本，下载覆盖安装即可，数据不会丢失。等新版本构建完成后，再检查更新即可继续升级。'
-                    : '当前安装包未配置签名更新通道，无法静默升级。请到 GitHub 下载页获取最新安装包，下载后覆盖安装即可，数据不会丢失。'}</div>
+                    ? '检查瞬间新版本的安装包可能尚未上传完。下面提供最近一个可直接安装的稳定版本；稍等几分钟再检查更新，即可升级到最新版。下载覆盖安装不会丢失数据。'
+                    : '可到 GitHub 下载页获取最新安装包，下载后覆盖安装即可，数据不会丢失。'}</div>
                   <button className="btn primary" style={{ width: '100%' }} onClick={() => void openExternal(releaseUrl || 'https://github.com/Andre-xue/ai-credit-manager/releases/latest')}>
                     <ExternalLink size={16} /> {fallback ? `前往下载 ${versionText}` : '前往下载页'}
                   </button>
