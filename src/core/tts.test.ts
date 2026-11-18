@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { cleanForSpeech, resolveCloneVoiceId } from './tts'
+import { cleanForSpeech, cleanForAutoSpeech, resolveCloneVoiceId } from './tts'
+
+describe('cleanForAutoSpeech 自动朗读清洗（只读文字）', () => {
+  it('去掉标点符号与表情，只保留文字', () => {
+    const out = cleanForAutoSpeech('你好！这是😀测试，包含。标点？还有**重点**')
+    expect(out).not.toMatch(/[！!，,。？?]/)
+    expect(out).not.toContain('😀')
+    expect(out).toContain('这是测试')
+    expect(out).toContain('重点')
+  })
+  it('保留中文与字母数字', () => {
+    expect(cleanForAutoSpeech('第1步打开 App')).toBe('第1步打开 应用')
+  })
+})
 
 describe('resolveCloneVoiceId AI 朗读音色选择', () => {
   const voices = [

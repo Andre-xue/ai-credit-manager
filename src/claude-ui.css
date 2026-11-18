@@ -39,24 +39,17 @@
   border-right: 1px solid #ececea !important;
   box-shadow: none !important;
 }
-.claude-ui .brand { border-bottom-color: #ececea; padding: 20px 20px 18px; }
+/* 侧栏布局尺寸与基础风格完全一致（宽度/间距/logo/字号），切换风格不跳变；仅保留配色差异 */
+.claude-ui .brand { border-bottom-color: #ececea; }
 .claude-ui .brand-mark {
-  background: #c15f3c !important;
+  background: transparent !important;   /* 用 App 图标，去橙色底 */
   box-shadow: none !important;
-  border-radius: 9px;
-  width: 32px; height: 32px;
 }
-.claude-ui .brand-mark svg { width: 18px; height: 18px; }
-.claude-ui .brand-name { font-size: 14px; font-weight: 600; }
-.claude-ui .nav { padding: 12px 12px; }
-.claude-ui .nav-item {
-  padding: 9px 12px; margin-bottom: 2px; border-radius: 8px;
-  font-size: 13.5px; color: #55565a; gap: 11px;
-}
-.claude-ui .nav-item svg { width: 17px; height: 17px; }
+.claude-ui .brand-name { color: var(--text); }
+.claude-ui .nav-item { color: var(--text-2); }
 .claude-ui .nav-item:hover { background: #efefed; color: #1f2023; }
-.claude-ui .nav-item.active { background: #ebebe8; color: #1f2023; font-weight: 600; }
-.claude-ui .nav-item.active::before { display: none; }  /* 去掉指示条，Claude 无此元素 */
+.claude-ui .nav-item.active { background: #ebebe8; color: #1f2023; }
+.claude-ui .nav-item.active::before { display: none; }  /* Claude 无指示条，仅此视觉差异 */
 .claude-ui .compliance {
   background: #fffdf5; border-color: #f0e6c8; border-radius: 8px;
 }
@@ -90,9 +83,7 @@
   border-radius: 12px;
 }
 .claude-ui.liquid-ui .stat-card { background: #ffffff !important; }
-/* 机器人头像 */
-.claude-ui .ai-welcome-mark,
-.claude-ui .brand-mark { background: #c15f3c !important; }
+/* 品牌/欢迎区图标已改用 App 图标图片，底色统一在文件末尾处理 */
 
 /* ---------- AI 页：Claude 式极简居中布局 ---------- */
 .claude-ui .content-ai { padding: 0 !important; }
@@ -127,10 +118,8 @@
 .claude-ui .ai-welcome { max-width: 720px; margin: 12vh auto 0; text-align: center; }
 .claude-ui .ai-welcome-mark {
   width: 44px; height: 44px; border-radius: 12px; margin: 0 auto 22px;
-  background: #c15f3c !important;
   box-shadow: none !important;
 }
-.claude-ui .ai-welcome-mark svg { width: 24px; height: 24px; color: #fff; }
 .claude-ui .ai-welcome h2 {
   font-size: 30px; font-weight: 400; letter-spacing: -.6px;
   color: #1f2023; margin: 0 0 10px;

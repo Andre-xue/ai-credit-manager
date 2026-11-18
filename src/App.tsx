@@ -536,7 +536,6 @@ function App() {
                 onClick={() => openTab(t.id)} title={t.label}>
                 <Icon size={17} />
                 <span>{t.label}</span>
-                {t.id === 'ai' && <span className="nav-pill">主页</span>}
               </button>
             )
           })}
@@ -552,9 +551,11 @@ function App() {
       <main className="main">
         {/* 手机端：悬浮玻璃菜单按钮，点击打开侧栏抽屉 */}
         {isPhone && !sidebarVisible && <button className="phone-menu-fab" aria-label="打开菜单" onClick={() => setSidebarVisible(true)}><Menu size={22} /></button>}
+        {/* 桌面/Web 端：侧栏折叠后的悬浮恢复按钮（不依赖顶栏，避免 AI 页顶栏隐藏后无法恢复） */}
+        {!isPhone && !sidebarVisible && <button className="desktop-sidebar-restore" aria-label="显示侧边栏" onClick={() => setSidebarVisible(true)} title="显示侧边栏"><PanelLeftOpen size={18} /></button>}
         <header className={`topbar ${tab === 'ai' ? 'topbar-ai' : ''}`}>
           <div className="topbar-heading">
-            {!sidebarVisible && <button className="icon-btn sidebar-show" onClick={toggleSidebar} title="显示侧边栏"><PanelLeftOpen size={18} /></button>}
+            {!sidebarVisible && !isPhone && <button className="icon-btn sidebar-show" onClick={toggleSidebar} title="显示侧边栏"><PanelLeftOpen size={18} /></button>}
             <div>
               <h1>{tabs.find((t) => t.id === tab)?.label}</h1>
               <div className="subtitle">本地优先存储 · 数据仅保存在此设备</div>

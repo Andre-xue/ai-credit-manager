@@ -85,6 +85,18 @@ export function listPresetVoices(): PresetVoice[] {
   ]
 }
 
+/**
+ * 自动朗读专用清洗：在 cleanForSpeech 基础上再去掉所有标点/符号，只保留文字与空白，
+ * 避免 TTS 把表情、标点、项目符号念出来（用户要求"只读文字信息"）。
+ */
+export function cleanForAutoSpeech(text: string): string {
+  return cleanForSpeech(text)
+    // 去掉中英文标点、数学/货币/装饰符号，替换为空格
+    .replace(/[，。！？；：、,，.!?;:()（）\[\]【】{}〈〉《》"'‘’“”\-—_/\\|~·•※→←↑↓$=+*#%&@^`<>]/g, ' ')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim()
+}
+
 /** 音色就绪监听（部分浏览器 voices 异步加载） */
 export function onVoicesReady(cb: () => void): () => void {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) return () => {}

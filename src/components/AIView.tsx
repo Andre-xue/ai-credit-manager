@@ -11,7 +11,7 @@ import {
   loadModel, saveModel, streamChat, friendlyAiError,
   type ChatMessage, type AiModel,
 } from '../core/ai'
-import { speakAsync, stopSpeak, getSavedVoice } from '../core/tts'
+import { speakAsync, stopSpeak, getSavedVoice, cleanForAutoSpeech } from '../core/tts'
 import { listClonedVoices, type ClonedVoice } from '../core/voiceClone'
 import {
   loadBotProfile, saveBotProfile, loadUserProfile, saveUserProfile,
@@ -79,6 +79,16 @@ export function AIView({ notify, accounts }: {
   const [categoryOpen, setCategoryOpen] = useState(false)
   const [streamingText, setStreamingText] = useState('')
   const [speakingId, setSpeakingId] = useState<string | null>(null)
+  // 自动朗读：AI 回复完成后自动朗读（只读文字，去表情/标点），开关持久化
+  const [autoSpeak, setAutoSpeak] = useState(() => {
+    try { return localStorage.getItem('acm.ai.autoSpeak') === '1' } catch { return false }
+  })
+  const toggleAutoSpeak = () => setAutoSpeak(v => {
+    const next = !v
+    try { localStorage.setItem('acm.ai.autoSpeak', next ? '1' : '0') } catch { /* 忽略 */ }
+    if (!next) stopSpeak()
+    return next
+  })
   const [callOpen, setCallOpen] = useState(false)
   const [resolvingKey, setResolvingKey] = useState(false)
   const [attachPickerOpen, setAttachPickerOpen] = useState(false)
@@ -318,6 +328,15 @@ export function AIView({ notify, accounts }: {
     try {
       const answer = await getReply(aiText, messages, controller.signal, imageUrls)
       setMessages(prev => [...prev, { id: `${Date.now()}-a`, role: 'assistant', content: answer || '（无回复内容）', at: Date.now() }])
+      // 自动朗读：AI 回复完成且未被中止时，朗读清洗后的纯文字
+      if (autoSpeak && answer && !controller.signal.aborted) {
+        const spoken = cleanForAutoSpeech(answer)
+        if (spoken) {
+          void speakAsync(spoken, botProfile.voiceURI ?? getSavedVoice(), (s) => {
+            setSpeakingId(s === 'start' ? 'auto' : null)
+          })
+        }
+      }
     } catch (e) {
       const need = (e as { needPwd?: boolean })?.needPwd
       const msg = friendlyAiError(e)
@@ -427,6 +446,10 @@ export function AIView({ notify, accounts }: {
                 <Cpu size={13} /> 引擎 <ChevronDown size={13} />
               </button>
             )}
+            <button className={`ai-icon-btn auto-speak-btn ${autoSpeak ? 'active' : ''}`} onClick={toggleAutoSpeak}
+              title={autoSpeak ? '自动朗读已开启：AI 回复后自动朗读纯文字，点击关闭' : '开启自动朗读：AI 回复后自动朗读纯文字'}>
+              <Volume2 size={17} />
+            </button>
             <button className="ai-icon-btn call" onClick={() => setCallOpen(true)} disabled={!callEnabled}
               title={callEnabled ? 'AI 语音通话' : '当前分类模型不支持语音通话'}><Phone size={17} /></button>
             <button className="ai-icon-btn" onClick={() => setAttachPickerOpen(true)} title="添加附件（点击选择或拖拽）"><Plus size={18} /></button>
