@@ -109,6 +109,46 @@ export function saveRate(r: number): void {
 
 let ttsUnlocked = false
 let nativeSpeaking = false
+let audioCtx: AudioContext | null = null
+
+/** 获取（并按需恢复）Web Audio 上下文。用 AudioContext 播放克隆音可绕开 HTMLAudio 的自动播放限制。 */
+function getAudioCtx(): AudioContext | null {
+  try {
+    if (!audioCtx) audioCtx = new AudioContext()
+    if (audioCtx.state === 'suspended') void audioCtx.resume()
+    return audioCtx
+  } catch { return null }
+}
+
+/** 在用户手势里调用：解锁 Web Audio，确保后续 AI 回复的克隆音能自动播放 */
+export function unlockAudio(): void {
+  if (isNativeApp()) return
+  getAudioCtx()
+}
+
+/**
+ * 朗读前清洗文本：去掉 markdown 标记、emoji、代码块等，
+ * 把长段落切成带标点的短句，让 TTS（尤其 CosyVoice）读得更自然、不呆板。
+ */
+export function cleanForSpeech(text: string): string {
+  return text
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/(^|\s)\*([^*]+)\*/g, '$1$2')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+[.)]\s+/gm, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
+    .replace(/[|>—~_]/g, ' ')
+    .replace(/\*+/g, '')
+    .replace(/\r/g, '')
+    .replace(/\n+/g, '，')
+    .replace(/，{2,}/g, '，')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim()
+}
 
 /** 手机原生平台：调用系统 TTS 引擎。返回是否成功发起（是否真正出声取决于系统语音包）。 */
 async function nativeSpeak(text: string, onState?: (s: 'start' | 'end' | 'error') => void): Promise<boolean> {
@@ -137,6 +177,8 @@ export function unlockTts(): void {
   if (ttsUnlocked || typeof window === 'undefined') return
   // 原生平台走系统 TTS，无需 WebView 的手势解锁
   if (isNativeApp()) { ttsUnlocked = true; return }
+  // 解锁 Web Audio：克隆音用 AudioContext 播放，必须在用户手势里先 resume
+  getAudioCtx()
   if (!('speechSynthesis' in window)) return
   try {
     const u = new SpeechSynthesisUtterance(' ')
@@ -174,7 +216,7 @@ export function speak(text: string, voiceURI: string | null, onState?: (s: 'star
   synth.cancel()
   activeCallback = onState ?? null
 
-  const u = new SpeechSynthesisUtterance(text)
+  const u = new SpeechSynthesisUtterance(cleanForSpeech(text))
   const voices = synth.getVoices()
   const picked = voiceURI ? voices.find(v => v.voiceURI === voiceURI) : undefined
   // 未指定或找不到时优先中文音色
@@ -205,7 +247,9 @@ export async function speakAsync(
     let lastErr = ''
     try {
       stopSpeak()
-      const url = `${cfg.endpoint.replace(/\/$/, '')}/synthesize?provider=${encodeURIComponent(cfg.provider)}&voice=${encodeURIComponent(cloned)}&text=${encodeURIComponent(text)}`
+      const speakText = cleanForSpeech(text)
+      if (!speakText) throw new Error('朗读内容为空')
+      const url = `${cfg.endpoint.replace(/\/$/, '')}/synthesize?provider=${encodeURIComponent(cfg.provider)}&voice=${encodeURIComponent(cloned)}&text=${encodeURIComponent(speakText)}`
       const res = await fetch(url)
       if (!res.ok) {
         const detail = await res.text().catch(() => '')
@@ -213,13 +257,26 @@ export async function speakAsync(
       }
       const blob = await res.blob()
       if (!blob.size) throw new Error('合成音频为空')
-      const objUrl = URL.createObjectURL(blob)
-      const audio = new Audio(objUrl)
+      const ctx = getAudioCtx()
+      if (!ctx) throw new Error('当前环境不支持音频解码')
+      const arrayBuf = await blob.arrayBuffer()
+      const decoded = await ctx.decodeAudioData(arrayBuf)
+      // 先停掉上一段，避免多段重叠导致"一个字一个字蹦"
+      try { (window as any).__acmCloneSrc?.stop() } catch { /* ignore */ }
+      const src = ctx.createBufferSource()
+      src.buffer = decoded
+      src.connect(ctx.destination)
+      ;(window as any).__acmCloneSrc = src
       activeCallback = onState ?? null
-      audio.onplay = () => activeCallback?.('start')
-      audio.onended = () => { activeCallback?.('end'); activeCallback = null; URL.revokeObjectURL(objUrl) }
-      audio.onerror = () => { activeCallback?.('error'); activeCallback = null; URL.revokeObjectURL(objUrl) }
-      await audio.play()
+      let ended = false
+      src.onended = () => {
+        if (ended) return
+        ended = true
+        activeCallback?.('end'); activeCallback = null
+        if ((window as any).__acmCloneSrc === src) (window as any).__acmCloneSrc = null
+      }
+      src.start()
+      activeCallback?.('start')
       return true
     } catch (e) {
       lastErr = (e as Error)?.message ?? String(e)
@@ -232,6 +289,9 @@ export async function speakAsync(
 
 export function stopSpeak(): void {
   activeCallback = null
+  // 停止正在播放的克隆音（AudioContext），避免与新朗读重叠
+  try { (window as any).__acmCloneSrc?.stop() } catch { /* ignore */ }
+  if ((window as any).__acmCloneSrc) (window as any).__acmCloneSrc = null
   if (isNativeApp()) {
     nativeSpeaking = false
     void import('@capacitor-community/text-to-speech').then(({ TextToSpeech }) => TextToSpeech.stop()).catch(() => {})

@@ -23,8 +23,8 @@ interface RecognitionLike {
   stop: () => void
 }
 
-/** 一句说完的静默判定：900ms 没有新的识别片段就当作说完 */
-const UTTERANCE_SILENCE_MS = 900
+/** 一句说完的静默判定：650ms 没有新的识别片段就当作说完（越快越跟手，太短会误断句） */
+const UTTERANCE_SILENCE_MS = 650
 
 function createWebRecognition(): RecognitionLike | null {
   const w = window as unknown as { SpeechRecognition?: new () => RecognitionLike; webkitSpeechRecognition?: new () => RecognitionLike }
