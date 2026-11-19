@@ -398,20 +398,11 @@ tbody tr:hover { background: var(--panel-2); }
 }
 
 /* ============ AI Agent 工具（签到） ============ */
-.agent-hero {
-  display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap;
-  padding: 22px 26px; border-radius: 16px; margin-bottom: 16px;
-  background: linear-gradient(120deg, #eef2ff 0%, #f5f3ff 55%, #ecfeff 100%);
-  border: 1px solid #e6e8f5;
-}
-.agent-hero h1 { font-size: 21px; margin: 0 0 5px; font-weight: 650; letter-spacing: -.4px; color: #1f2540; }
-.agent-hero p { margin: 0; font-size: 12.5px; color: var(--text-2); }
-.agent-hero-stats { display: flex; gap: 30px; }
-.agent-hero-stats div { display: flex; flex-direction: column; align-items: center; min-width: 54px; }
-.agent-hero-stats b { font-size: 24px; font-weight: 700; color: var(--primary); line-height: 1.1; letter-spacing: -.5px; }
-.agent-hero-stats span { font-size: 11px; color: var(--text-3); margin-top: 4px; }
-
-.agent-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 4px 0 6px; flex-wrap: wrap; }
+.agent-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 4px 0 16px; flex-wrap: wrap; }
+.agent-toolbar-meta { display: inline-flex; align-items: center; gap: 14px; margin-left: auto; }
+.agent-quick-stat { font-size: 12px; color: var(--text-2); white-space: nowrap; }
+.agent-quick-stat b { font-size: 15px; font-weight: 700; color: var(--primary); }
+.agent-quick-stat.checkin b { color: var(--green, #1d9e75); }
 .agent-filter { display: inline-flex; gap: 3px; padding: 3px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; }
 .agent-filter-btn { border: none; background: transparent; color: var(--text-2); font-size: 12.5px; font-weight: 500; padding: 7px 15px; border-radius: 7px; transition: .15s; }
 .agent-filter-btn:hover { color: var(--text); }
@@ -495,9 +486,8 @@ tbody tr:hover { background: var(--panel-2); }
 }
 @media (max-width: 680px) {
   .agent-grid { grid-template-columns: 1fr; }
-  .agent-hero { padding: 18px; }
-  .agent-hero-stats { gap: 18px; width: 100%; justify-content: space-between; }
   .agent-toolbar { flex-direction: column; align-items: stretch; }
+  .agent-toolbar-meta { margin-left: 0; justify-content: space-between; width: 100%; }
   .agent-search { width: 100%; }
   .agent-filter-row { gap: 8px; }
   .agent-filter-label { width: 28px; font-size: 11px; }
@@ -528,7 +518,10 @@ tbody tr:hover { background: var(--panel-2); }
   .sidebar { display: none; }
   .content { padding: 18px 16px 90px; }
   .topbar { padding: 0 16px; }
-  .stats-grid, .account-grid { grid-template-columns: 1fr; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stats-grid .stat-card { padding: 13px 14px; }
+  .stats-grid .stat-value { font-size: 22px; }
+  .account-grid { grid-template-columns: 1fr; }
   .bottom-nav {
     display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
     background: var(--panel); border-top: 1px solid var(--border);

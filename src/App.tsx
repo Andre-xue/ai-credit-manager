@@ -1282,23 +1282,15 @@ function AgentToolsView({ checkins, notify, onToggle }: {
 
   return (
     <div className="agent-tools">
-      <div className="agent-hero">
-        <div>
-          <h1>AI 工具大全</h1>
-          <p>国内外主流 AI 工具一站罗列 · 官方图标与下载直达 · 本机已装一键唤醒</p>
-        </div>
-        <div className="agent-hero-stats">
-          <div><b>{tools.length}</b><span>收录工具</span></div>
-          <div><b>{tools.filter(t => t.canCheckin).length}</b><span>可签到</span></div>
-          <div><b>{doneCount}</b><span>今日已签</span></div>
-        </div>
-      </div>
-
       <div className="agent-toolbar">
         <div className="agent-search">
           <Search size={15} />
           <input value={keyword} onChange={e => setKeywordP(e.target.value)} placeholder="搜索工具名称 / 英文名 / 简介" />
           {keyword && <button className="icon-btn" onClick={() => setKeywordP('')} title="清除"><X size={13} /></button>}
+        </div>
+        <div className="agent-toolbar-meta">
+          <span className="agent-quick-stat" title="已收录工具总数"><b>{tools.length}</b> 款</span>
+          <span className="agent-quick-stat checkin" title="今日已签到 / 可签到"><b>{doneCount}</b>/{tools.filter(t => t.canCheckin).length} 已签</span>
         </div>
         <button className="btn sm" onClick={() => void refreshCatalog()} disabled={syncing} title="从数据源抓取最新使用量与签到规则">
           <RefreshCw size={13} className={syncing ? 'spin' : ''} /> {syncing ? '更新中' : '更新数据'}
@@ -3036,14 +3028,18 @@ function BenefitsView({ state, notify, onMark }: {
     m => m.benefitId === b.id && (b.kind === 'daily' ? m.date === today : true),
   )
   const markedCount = items.filter(isMarked).length
+  const pendingCount = items.length - markedCount
+  const freeTierCount = BENEFITS.filter(b => b.kind === 'free-tier').length
+  const trialCount = BENEFITS.filter(b => b.kind === 'trial').length
+  const coveredPlatforms = new Set(BENEFITS.map(b => b.providerId)).size
 
   return (
     <>
       <div className="stats-grid">
-        <StatCard icon={<Gift size={17} />} color="blue" label="收录福利" value={String(BENEFITS.length)} hint={`覆盖 ${new Set(BENEFITS.map(b => b.providerId)).size} 个平台`} />
-        <StatCard icon={<Check size={17} />} color="green" label="已处理" value={String(markedCount)} hint={filter === 'owned' ? '我的平台范围内' : '全部平台'} />
-        <StatCard icon={<Wallet size={17} />} color="amber" label="我的平台" value={String(ownedIds.size)} hint="在看板中已添加的账户" />
-        <StatCard icon={<Info size={17} />} color="blue" label="数据核对" value="2026-11-17" hint="政策以官方实时公告为准" />
+        <StatCard icon={<Gift size={17} />} color="blue" label="收录福利" value={String(BENEFITS.length)} hint={`覆盖 ${coveredPlatforms} 个平台`} />
+        <StatCard icon={<Sparkles size={17} />} color="green" label="长期免费" value={String(freeTierCount)} hint="永久免费层，无需付费" />
+        <StatCard icon={<Clock size={17} />} color="amber" label="限时试用" value={String(trialCount)} hint="新用户试用额度" />
+        <StatCard icon={<Check size={17} />} color="blue" label={pendingCount > 0 ? '待处理' : '已处理'} value={String(pendingCount > 0 ? pendingCount : markedCount)} hint={pendingCount > 0 ? `还有 ${pendingCount} 项未标记` : '全部已标记'} />
       </div>
 
       <div className="section-head">
