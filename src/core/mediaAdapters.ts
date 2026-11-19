@@ -56,7 +56,7 @@ export function buildVideoRequest(style: ProviderStyle, model: string, prompt: s
     const body: Record<string, unknown> = {
       model, prompt,
       duration: Math.min(15, Math.max(5, opts?.duration ?? 5)),
-      resolution: '768p',
+      resolution: opts?.resolution ?? '768p',
       ratio: opts?.ratio ?? '16:9',
     }
     if (opts?.image) body.images = [{ url: opts.image, role: 'first_frame' }]

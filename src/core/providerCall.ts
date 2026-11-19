@@ -188,13 +188,32 @@ export interface ImageOptions {
   quality?: string        // 'standard' | 'hd'（部分平台支持）
   style?: string          // 'vivid' | 'natural'（部分平台支持）
   model?: string          // 显式指定模型 ID（从平台拉取并筛选后选择；不传则从账户备注提取）
+  // SD / ComfyUI 风格扩展参数（本地服务支持则生效）
+  negativePrompt?: string
+  steps?: number
+  cfgScale?: number
+  seed?: number
+  sampler?: string
+  width?: number
+  height?: number
+  sourceImage?: string    // img2img 源图（data URL）
+  strength?: number       // img2img 重绘幅度 0-1
 }
 /** 生视频可选参数（AI 视频模块用） */
 export interface VideoOptions {
   duration?: number       // 秒
   ratio?: string          // '16:9' | '9:16' | '1:1'
+  resolution?: string     // '480p' | '768p' 等（硅基/ComfyUI 风格）
   image?: string          // 图生视频的首帧图（URL 或 data URL）
   model?: string          // 显式指定模型 ID（从平台拉取并筛选后选择）
+  // SD / ComfyUI 风格扩展参数（本地服务支持则生效）
+  negativePrompt?: string
+  steps?: number
+  cfgScale?: number
+  seed?: number
+  fps?: number
+  motionStrength?: number
+  lastFrame?: string      // 尾帧图（首尾帧生视频）
 }
 
 /** 生图：按服务商协议风格自动生成请求（OpenAI 标准 / 硅基 image_size 等） */
@@ -347,6 +366,15 @@ export async function callLocalImage(base: string, model: string, prompt: string
     }
     if (opts?.quality) body.quality = opts.quality
     if (opts?.style) body.style = opts.style
+    // SD / ComfyUI 风格参数：本地服务支持则生效
+    if (opts?.negativePrompt) body.negative_prompt = opts.negativePrompt
+    if (opts?.steps !== undefined) body.steps = opts.steps
+    if (opts?.cfgScale !== undefined) body.cfg_scale = opts.cfgScale
+    if (opts?.seed !== undefined) body.seed = opts.seed
+    if (opts?.sampler) body.sampler = opts.sampler
+    if (opts?.width !== undefined) body.width = opts.width
+    if (opts?.height !== undefined) body.height = opts.height
+    if (opts?.sourceImage) { body.image = opts.sourceImage; body.strength = opts.strength ?? 0.7 }
     const raw = isDesktopApp() ? await invokeApi(url, 'local', body) : await directFetch(url, 'local', body)
     const json = JSON.parse(raw)
     const images: string[] = (json.data ?? []).map((d: { url?: string; b64_json?: string }) => d.url ?? (d.b64_json ? `data:image/png;base64,${d.b64_json}` : '')).filter(Boolean)
@@ -361,7 +389,21 @@ export async function callLocalVideo(base: string, model: string, prompt: string
     const url = `${localBase(base)}/videos/generations`
     const body: Record<string, unknown> = { model, prompt, duration: opts?.duration ?? 5 }
     if (opts?.ratio) body.ratio = opts.ratio
-    if (opts?.image) body.image = opts.image
+    if (opts?.resolution) body.resolution = opts.resolution
+    if (opts?.image) {
+      body.image = opts.image
+      // 兼容硅基风格 images[] 数组（首帧/尾帧）
+      const frames: { url: string; role: string }[] = [{ url: opts.image, role: 'first_frame' }]
+      if (opts.lastFrame) frames.push({ url: opts.lastFrame, role: 'last_frame' })
+      body.images = frames
+    }
+    // SD / ComfyUI 风格参数
+    if (opts?.negativePrompt) body.negative_prompt = opts.negativePrompt
+    if (opts?.steps !== undefined) body.steps = opts.steps
+    if (opts?.cfgScale !== undefined) body.cfg_scale = opts.cfgScale
+    if (opts?.seed !== undefined) body.seed = opts.seed
+    if (opts?.fps !== undefined) body.fps = opts.fps
+    if (opts?.motionStrength !== undefined) body.motion_strength = opts.motionStrength
     const raw = isDesktopApp() ? await invokeApi(url, 'local', body) : await directFetch(url, 'local', body)
     const json = JSON.parse(raw)
     const videoUrl = json.url ?? json.data?.url ?? json.output?.url ?? json.data?.[0]?.url

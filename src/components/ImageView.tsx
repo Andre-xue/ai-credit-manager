@@ -10,10 +10,12 @@ import { callImage, callLocalImage, extractModelId, fetchLocalMediaModels, fetch
 import { decryptSecret, getBiometricPassword } from '../core/crypto'
 import { isDesktopApp } from '../core/openExternal'
 import { ModelInfoCard } from './ModelInfoCard'
+import { GenProgressBar, useGenProgress } from './GenProgressBar'
+import { SafeThumb } from './SafeThumb'
 import { PROVIDER_MAP } from '../data/providers'
 import { categoryFromNote } from '../core/modelCategories'
 import {
-  addHistory, clearHistory, loadHistory, newMediaId, removeHistory, saveMedia, errTextSafe,
+  addHistory, clearHistory, loadHistory, newMediaId, removeHistory, saveMedia, errTextSafe, urlsToThumbs,
   type MediaHistoryItem,
 } from '../core/mediaGeneration'
 import { HoldToConfirm } from './HoldToConfirm'
@@ -23,17 +25,12 @@ const SIZES = ['1024x1024', '1536x1024', '1024x1536', '1792x1024', '512x512']
 const QUALITIES = ['', 'standard', 'hd']
 const STYLES = ['', 'vivid', 'natural']
 
-export function ImageView({ accounts, sessionPwd, onUnlock, notify }: {
-  accounts: Account[]; sessionPwd: string; onUnlock: (pwd: string) => void; notify: (m: string) => void; settings?: AppSettings
+export function ImageView({ accounts, sessionPwd, onUnlock, notify, onOpenLocal }: {
+  accounts: Account[]; sessionPwd: string; onUnlock: (pwd: string) => void; notify: (m: string) => void; settings?: AppSettings; onOpenLocal?: () => void
 }) {
-  // 可用于生图的账户：有 Key；生图型备注优先，其余账户也列出（OpenAI 兼容接口通用）
+  // 可用于生图的账户：严格按「备注/用途」分类筛选——只列出标记为「生图型」的账户
   const usable = useMemo(() => accounts
-    .filter(a => !!a.encryptedKey && a.apiUrl)
-    .sort((a, b) => {
-      const ag = categoryFromNote(a.note) === '生图型' ? 0 : 1
-      const bg = categoryFromNote(b.note) === '生图型' ? 0 : 1
-      return ag - bg
-    }), [accounts])
+    .filter(a => !!a.encryptedKey && a.apiUrl && categoryFromNote(a.note) === '生图型'), [accounts])
   const [accountId, setAccountId] = useState('')
   const account = usable.find(a => a.id === accountId) ?? usable[0]
 
@@ -86,6 +83,7 @@ export function ImageView({ accounts, sessionPwd, onUnlock, notify }: {
   const [pwdInput, setPwdInput] = useState('')
   const [history, setHistory] = useState<MediaHistoryItem[]>(() => loadHistory('image'))
   const [showHistory, setShowHistory] = useState(false)
+  const { progress, start: startProgress, advance: advanceProgress, done: doneProgress, fail: failProgress } = useGenProgress()
 
   useEffect(() => { setHistory(loadHistory('image')) }, [])
 
@@ -101,25 +99,32 @@ export function ImageView({ accounts, sessionPwd, onUnlock, notify }: {
     const pwd = getBiometricPassword() || sessionPwd
     if (!isLocal && !pwd) { notify('请先解锁密钥库（本页下方输入主密码）'); return }
     setBusy(true); setResults([]); setLastNote('')
+    const startedAt = Date.now()
+    startProgress(isLocal ? '正在连接本地服务…' : '正在提交生成请求…')
     try {
       const opts = { size, n: count, quality: quality || undefined, style: style || undefined, model: cloudModel || undefined }
+      advanceProgress(30, isLocal ? '本地模型正在绘制…' : '服务商正在生成图片…')
       const r = isLocal
         ? await callLocalImage(localBase, localModel, prompt.trim(), opts)
         : await callImage(account!, await decryptSecret(account!.encryptedKey!, pwd), prompt.trim(), opts)
-      if (!r.ok) { setLastNote(r.error ?? '生成失败'); notify(r.error ?? '生成失败'); return }
+      if (!r.ok) { setLastNote(r.error ?? '生成失败'); failProgress('生成失败'); notify(r.error ?? '生成失败'); return }
+      const secs = ((Date.now() - startedAt) / 1000).toFixed(1)
+      doneProgress(`生成完成 · 耗时 ${secs}s`)
       const imgs = r.images ?? []
-      setResults(imgs)
+      const thumbs = await urlsToThumbs(imgs)
+      // 抓取成功用本地副本预览（不依赖可能过期的远程链接），失败则回退原 URL
+      setResults(imgs.map((u, i) => thumbs[i] || u))
       setLastNote(r.text)
       const params = [size, quality || '', style || '', `${count}张`].filter(Boolean).join(' · ')
       setHistory(addHistory('image', {
         id: newMediaId(), kind: 'image', prompt: prompt.trim(),
         accountLabel: isLocal ? `本地 · ${localModel}` : account!.label,
-        model: activeModel, createdAt: Date.now(), results: imgs, params,
+        model: activeModel, createdAt: Date.now(), results: imgs, thumbs, params,
       }))
       notify(imgs.length ? `已生成 ${imgs.length} 张图片` : r.text)
     } catch (e) {
       const msg = errTextSafe(e)
-      setLastNote(msg); notify(msg)
+      setLastNote(msg); failProgress('生成失败'); notify(msg)
     } finally { setBusy(false) }
   }
 
@@ -137,7 +142,9 @@ export function ImageView({ accounts, sessionPwd, onUnlock, notify }: {
       <div className="gen-layout">
         {/* 左：生成控制 */}
         <section className="gen-panel">
-          <div className="gen-panel-head"><span className="gen-head-icon"><ImageIcon size={18} /></span><div><h3>AI 图像生成</h3><p>输入画面描述，用你自己的生图账户生成图片</p></div></div>
+          <div className="gen-panel-head"><span className="gen-head-icon"><ImageIcon size={18} /></span><div><h3>AI 图像生成</h3><p>输入画面描述，用你自己的生图账户生成图片</p></div>
+            {onOpenLocal && <button className="btn sm ghost gen-local-entry" onClick={onOpenLocal} title="打开 SD 风格的本地生成页面"><HardDrive size={14} /> 本地生成</button>}
+          </div>
           <div className="gen-body">
             <div className="gen-source-tabs">
               <button className={source === 'cloud' ? 'active' : ''} onClick={() => setSource('cloud')}><KeyRound size={14} /> 云端账户</button>
@@ -147,7 +154,7 @@ export function ImageView({ accounts, sessionPwd, onUnlock, notify }: {
               <>
                 <label className="gen-label">生图账户</label>
                 {usable.length === 0 ? (
-                  <div className="gen-empty-hint"><KeyRound size={16} /> 还没有可用的生图账户。请到「API Key 管理」添加账户并填写 OpenAI 兼容的 API 地址；模型 ID 写在账户备注里即可。</div>
+                  <div className="gen-empty-hint"><KeyRound size={16} /> 没有「生图型」账户。请到「API Key 管理」把对应账户的备注/用途分类设为生图型（备注以 [生图型] 开头），并确保已填 API 地址与密钥。</div>
                 ) : (
                   <div className="gen-select-wrap">
                     <select className="input" value={account?.id ?? ''} onChange={e => { setAccountId(e.target.value); setCloudModels([]); setCloudModel('') }}>
@@ -241,6 +248,7 @@ export function ImageView({ accounts, sessionPwd, onUnlock, notify }: {
             <button className="btn primary gen-generate" onClick={() => void generate()} disabled={busy || !prompt.trim() || (!isLocal && !account) || (isLocal && !localModel)}>
               {busy ? <><Loader2 size={16} className="spin" /> 正在生成…</> : <><Sparkles size={16} /> 生成图片</>}
             </button>
+            <GenProgressBar progress={progress} />
             {!isLocal && <div className="gen-tip"><Info size={13} /> <span>生图走账户 API 地址对应的 OpenAI 兼容 images/generations 接口；若平台为私有协议会返回错误提示，请改用官方页面生成。</span></div>}
           </div>
         </section>
@@ -265,7 +273,7 @@ export function ImageView({ accounts, sessionPwd, onUnlock, notify }: {
                     <div className="gen-hist-prompt">{h.prompt}</div>
                     <div className="gen-hist-meta">{h.accountLabel} · {h.params}</div>
                     <div className="gen-thumbs">
-                      {h.results.map((u, i) => <img key={i} src={u} alt="历史图片" className="gen-thumb" onClick={() => window.open(u, '_blank', 'noopener')} />)}
+                      {h.results.map((u, i) => <SafeThumb key={i} src={h.thumbs?.[i] || u} fallbackSrc={u} className="gen-thumb" onClick={() => window.open(u, '_blank', 'noopener')} />)}
                     </div>
                   </div>
                 ))}

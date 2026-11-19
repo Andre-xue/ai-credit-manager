@@ -11,6 +11,7 @@ import { callVideo, callLocalVideo, extractModelId, queryVideoTask, queryLocalVi
 import { decryptSecret, getBiometricPassword } from '../core/crypto'
 import { isDesktopApp } from '../core/openExternal'
 import { ModelInfoCard } from './ModelInfoCard'
+import { GenProgressBar, useGenProgress } from './GenProgressBar'
 import { PROVIDER_MAP } from '../data/providers'
 import { categoryFromNote } from '../core/modelCategories'
 import {
@@ -23,16 +24,12 @@ import type { Account, AppSettings } from '../core/types'
 const DURATIONS = [5, 10, 15]
 const RATIOS = ['16:9', '9:16', '1:1']
 
-export function VideoView({ accounts, sessionPwd, onUnlock, notify }: {
-  accounts: Account[]; sessionPwd: string; onUnlock: (pwd: string) => void; notify: (m: string) => void; settings?: AppSettings
+export function VideoView({ accounts, sessionPwd, onUnlock, notify, onOpenLocal }: {
+  accounts: Account[]; sessionPwd: string; onUnlock: (pwd: string) => void; notify: (m: string) => void; settings?: AppSettings; onOpenLocal?: () => void
 }) {
+  // 可用于生视频的账户：严格按「备注/用途」分类筛选——只列出标记为「视频型」的账户
   const usable = useMemo(() => accounts
-    .filter(a => !!a.encryptedKey && a.apiUrl)
-    .sort((a, b) => {
-      const ag = categoryFromNote(a.note) === '视频型' ? 0 : 1
-      const bg = categoryFromNote(b.note) === '视频型' ? 0 : 1
-      return ag - bg
-    }), [accounts])
+    .filter(a => !!a.encryptedKey && a.apiUrl && categoryFromNote(a.note) === '视频型'), [accounts])
   const [accountId, setAccountId] = useState('')
   const account = usable.find(a => a.id === accountId) ?? usable[0]
 
@@ -83,6 +80,7 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify }: {
   const [pwdInput, setPwdInput] = useState('')
   const [history, setHistory] = useState<MediaHistoryItem[]>(() => loadHistory('video'))
   const [showHistory, setShowHistory] = useState(false)
+  const { progress, start: startProgress, advance: advanceProgress, done: doneProgress, fail: failProgress } = useGenProgress()
   const fileRef = useRef<HTMLInputElement>(null)
   const aliveRef = useRef(true)
   useEffect(() => { aliveRef.current = true; setHistory(loadHistory('video')); return () => { aliveRef.current = false } }, [])
@@ -107,14 +105,17 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify }: {
     const pwd = getBiometricPassword() || sessionPwd
     if (!isLocal && !pwd) { notify('请先解锁密钥库（本页下方输入主密码）'); return }
     setBusy(true); setResults([]); setTaskText('正在提交生成任务…')
+    const startedAt = Date.now()
+    startProgress('正在提交视频任务…')
     try {
       const opts = { duration, ratio, image: firstFrame || undefined, model: cloudModel || undefined }
+      advanceProgress(25, '等待服务商响应…', 'queued')
       const useAccount = account!
       const apiKey = isLocal ? '' : await decryptSecret(useAccount.encryptedKey!, pwd)
       const r = isLocal
         ? await callLocalVideo(localBase, localModel, prompt.trim(), opts)
         : await callVideo(useAccount, apiKey, prompt.trim(), opts)
-      if (!r.ok) { setTaskText(r.error ?? '提交失败'); notify(r.error ?? '提交失败'); return }
+      if (!r.ok) { setTaskText(r.error ?? '提交失败'); failProgress('提交失败'); notify(r.error ?? '提交失败'); return }
 
       let imgs = r.images ?? []
       // 直接返回视频 URL：立即展示
@@ -126,6 +127,7 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify }: {
         const taskId = idMatch?.[1]
         if (taskId) {
           setTaskText(`任务已提交（${String(taskId).slice(0, 16)}…），正在查询进度…`)
+          advanceProgress(35, '任务排队中…', 'queued')
           for (let i = 0; i < 12 && aliveRef.current; i++) {
             await new Promise(res => setTimeout(res, 5000))
             if (!aliveRef.current) return
@@ -133,8 +135,11 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify }: {
               ? await queryLocalVideoTask(localBase, taskId)
               : await queryVideoTask(useAccount, apiKey, taskId)
             if (q.ok && q.images?.length) { imgs = q.images; break }
-            if (!q.ok && q.error) { setTaskText(q.error); break }
-            if (q.ok) setTaskText(q.text || '任务处理中…')
+            if (!q.ok && q.error) { setTaskText(q.error); failProgress(q.error); break }
+            if (q.ok) {
+              setTaskText(q.text || '任务处理中…')
+              advanceProgress(Math.min(85, 35 + (i + 1) * 4), q.text || '视频生成中…', 'generating')
+            }
           }
           if (imgs.length > 0) { setResults(imgs); setTaskText('视频已生成') }
           else if (aliveRef.current && !taskText.startsWith('视频生成失败')) setTaskText(prev => prev.includes('失败') ? prev : `${r.text}（未自动拿到视频地址，可到官方平台查看）`)
@@ -142,6 +147,8 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify }: {
           setTaskText(r.text)
         }
       }
+      const secs = ((Date.now() - startedAt) / 1000).toFixed(1)
+      doneProgress(imgs.length ? `生成完成 · 耗时 ${secs}s` : `任务已提交 · 耗时 ${secs}s`)
       const params = `${duration}秒 · ${ratio}${firstFrame ? ' · 图生视频' : ''}`
       setHistory(addHistory('video', {
         id: newMediaId(), kind: 'video', prompt: prompt.trim(),
@@ -151,7 +158,7 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify }: {
       notify(imgs.length ? '视频已生成' : '视频任务已提交')
     } catch (e) {
       const msg = errTextSafe(e)
-      setTaskText(msg); notify(msg)
+      setTaskText(msg); failProgress('生成失败'); notify(msg)
     } finally { setBusy(false) }
   }
 
@@ -166,7 +173,9 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify }: {
     <div className="set-content">
       <div className="gen-layout">
         <section className="gen-panel">
-          <div className="gen-panel-head"><span className="gen-head-icon"><Film size={18} /></span><div><h3>AI 视频生成</h3><p>输入画面描述，用你自己的视频账户生成短片</p></div></div>
+          <div className="gen-panel-head"><span className="gen-head-icon"><Film size={18} /></span><div><h3>AI 视频生成</h3><p>输入画面描述，用你自己的视频账户生成短片</p></div>
+            {onOpenLocal && <button className="btn sm ghost gen-local-entry" onClick={onOpenLocal} title="打开 ComfyUI 风格的本地生成页面"><HardDrive size={14} /> 本地生成</button>}
+          </div>
           <div className="gen-body">
             <div className="gen-source-tabs">
               <button className={source === 'cloud' ? 'active' : ''} onClick={() => setSource('cloud')}><KeyRound size={14} /> 云端账户</button>
@@ -176,7 +185,7 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify }: {
               <>
                 <label className="gen-label">视频账户</label>
                 {usable.length === 0 ? (
-                  <div className="gen-empty-hint"><KeyRound size={16} /> 还没有可用的视频账户。请到「API Key 管理」添加账户并填写 OpenAI 兼容的 API 地址；模型 ID 写在账户备注里即可。</div>
+                  <div className="gen-empty-hint"><KeyRound size={16} /> 没有「视频型」账户。请到「API Key 管理」把对应账户的备注/用途分类设为视频型（备注以 [视频型] 开头），并确保已填 API 地址与密钥。</div>
                 ) : (
                   <div className="gen-select-wrap">
                     <select className="input" value={account?.id ?? ''} onChange={e => { setAccountId(e.target.value); setCloudModels([]); setCloudModel('') }}>
@@ -267,6 +276,7 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify }: {
             <button className="btn primary gen-generate" onClick={() => void generate()} disabled={busy || !prompt.trim() || (!isLocal && !account) || (isLocal && !localModel)}>
               {busy ? <><Loader2 size={16} className="spin" /> 生成中…</> : <><Sparkles size={16} /> 生成视频</>}
             </button>
+            <GenProgressBar progress={progress} />
             {!isLocal && <div className="gen-tip"><Info size={13} /> 视频多为异步任务制，提交后会尝试自动查询进度；若平台为私有协议无法自动拿到结果，界面会给出引导，可到官方平台查看。</div>}
           </div>
         </section>

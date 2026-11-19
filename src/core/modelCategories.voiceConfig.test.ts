@@ -22,3 +22,22 @@ describe('语音配置(APP)账户识别', () => {
     expect(categoryFromNote('[生图型] 绘图')).toBe('生图型')
   })
 })
+
+describe('AI 图像/视频账户按备注分类筛选', () => {
+  const accounts = [
+    { id: 'img', label: '硅基流动-生图', note: '[生图型] 硅基', providerId: 'siliconflow' },
+    { id: 'vid', label: '硅基流动-视频', note: '[视频型] 硅基', providerId: 'siliconflow' },
+    { id: 'chat', label: '硅基流动-对话', note: '[对话型] 硅基', providerId: 'siliconflow' },
+  ]
+  it('生图页只保留生图型账户，视频页只保留视频型账户', () => {
+    const imageAccounts = accounts.filter(a => categoryFromNote(a.note) === '生图型')
+    const videoAccounts = accounts.filter(a => categoryFromNote(a.note) === '视频型')
+    expect(imageAccounts.map(a => a.id)).toEqual(['img'])
+    expect(videoAccounts.map(a => a.id)).toEqual(['vid'])
+  })
+  it('无分类的账户不会混入任一页面', () => {
+    const noCategory = [{ id: 'x', label: '硅基流动', note: '' }]
+    expect(noCategory.filter(a => categoryFromNote(a.note) === '生图型')).toEqual([])
+    expect(noCategory.filter(a => categoryFromNote(a.note) === '视频型')).toEqual([])
+  })
+})

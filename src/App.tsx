@@ -14,6 +14,8 @@ import { DocQAView } from './components/DocQAView'
 import { TranslationView } from './components/TranslationView'
 import { ImageView } from './components/ImageView'
 import { VideoView } from './components/VideoView'
+import { LocalImageView } from './components/LocalImageView'
+import { LocalVideoView } from './components/LocalVideoView'
 import { syncVoiceAccounts, setVoiceSessionPwd } from './core/voiceKey'
 import { saveTtsConfig } from './core/voice-download'
 import { detectModelCapability, shouldHideFromChat } from './core/modelCapability'
@@ -68,7 +70,7 @@ type CsvImportPreview =
   | { kind: 'quotas'; quotas: ReturnType<typeof parseQuotasCsv> }
   | { kind: 'usage'; events: UsageEventInput[] }
 
-type Tab = 'ai' | 'dashboard' | 'checkin' | 'benefits' | 'image' | 'video' | 'keys' | 'usage' | 'voice' | 'docs' | 'settings'
+type Tab = 'ai' | 'dashboard' | 'checkin' | 'benefits' | 'image' | 'video' | 'local-image' | 'local-video' | 'keys' | 'usage' | 'voice' | 'docs' | 'settings'
 
 const UNIT_LABEL: Record<CreditUnit, string> = {
   credit: '积分', token: 'Tokens', request: '次', currency: '元', day: '天',
@@ -112,7 +114,7 @@ function App() {
   const isPhone = isNativeApp() || phonePreview
   const [tab, setTab] = useState<Tab>(() => {
     const t = new URLSearchParams(location.search).get('tab')
-    if (t && ['ai', 'dashboard', 'checkin', 'benefits', 'image', 'video', 'keys', 'usage', 'voice', 'docs', 'settings'].includes(t)) return t as Tab
+    if (t && ['ai', 'dashboard', 'checkin', 'benefits', 'image', 'video', 'local-image', 'local-video', 'keys', 'usage', 'voice', 'docs', 'settings'].includes(t)) return t as Tab
     return isPhone ? 'ai' : 'dashboard'
   })
   const [sidebarVisible, setSidebarVisible] = useState<boolean>(() => {
@@ -529,6 +531,7 @@ function App() {
   const bottomTabs: Tab[] = ['dashboard', 'checkin', 'benefits', 'ai', 'image', 'video', 'keys', 'usage', 'voice', 'settings']
   const shortLabel: Record<Tab, string> = {
     ai: 'AI', dashboard: '看板', checkin: '签到', benefits: '翻译', image: '图像', video: '视频',
+    'local-image': '本地图像', 'local-video': '本地视频',
     keys: '密钥', usage: '用量', voice: '语音', docs: '文档', settings: '设置',
   }
 
@@ -638,9 +641,13 @@ function App() {
 
           {tab === 'benefits' && <TranslationView accounts={state.accounts} notify={notify} settings={state.settings} />}
 
-          {tab === 'image' && <ImageView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} settings={state.settings} />}
+          {tab === 'image' && <ImageView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} settings={state.settings} onOpenLocal={() => openTab('local-image')} />}
 
-          {tab === 'video' && <VideoView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} settings={state.settings} />}
+          {tab === 'video' && <VideoView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} settings={state.settings} onOpenLocal={() => openTab('local-video')} />}
+
+          {tab === 'local-image' && <div className="set-content"><button className="btn sm ghost sd-back" onClick={() => openTab('image')}><X size={15} /> 返回 AI 图像</button><LocalImageView notify={notify} /></div>}
+
+          {tab === 'local-video' && <div className="set-content"><button className="btn sm ghost sd-back" onClick={() => openTab('video')}><X size={15} /> 返回 AI 视频</button><LocalVideoView notify={notify} /></div>}
 
           {tab === 'keys' && <KeysView
             state={state} notify={notify}

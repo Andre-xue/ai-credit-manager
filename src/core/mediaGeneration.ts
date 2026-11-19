@@ -14,6 +14,8 @@ export interface MediaHistoryItem {
   createdAt: number
   /** 结果 URL（http(s) 或 data URL）列表 */
   results: string[]
+  /** 本地缩略图（data URL），避免远程临时链接过期导致历史看不到图 */
+  thumbs?: string[]
   /** 生成参数摘要，如 "1024x1024 · HD · 2张" / "5秒 · 16:9" */
   params: string
   /** 任务说明/状态文本（视频异步提交时可能只有文本） */
@@ -146,4 +148,35 @@ export function errTextSafe(e: unknown): string {
   if (typeof e === 'string') return e
   if (typeof e === 'object' && e && typeof (e as { message?: unknown }).message === 'string') return String((e as { message: string }).message)
   try { return JSON.stringify(e) ?? String(e) } catch { return String(e) }
+}
+
+/**
+ * 把结果 URL 转成本地缩略图 data URL（240px，JPEG 0.72），用于历史持久显示。
+ * 生图接口常返回临时签名 URL，直接存 URL 会过期变破图；抓成 data URL 后永久可见。
+ * 桌面端走 Tauri 代理抓取（绕 CORS），Web 端直接 fetch；失败则返回空串由调用方回退原 URL。
+ */
+export async function urlToThumb(url: string): Promise<string> {
+  if (!url || url.startsWith('data:')) return url
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return ''
+    const blob = await res.blob()
+    // 缩放到 240px 以内并压成 JPEG
+    const bitmap = await createImageBitmap(blob)
+    const scale = Math.min(1, 240 / Math.max(bitmap.width, bitmap.height))
+    const w = Math.max(1, Math.round(bitmap.width * scale))
+    const h = Math.max(1, Math.round(bitmap.height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = w; canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return ''
+    ctx.drawImage(bitmap, 0, 0, w, h)
+    bitmap.close()
+    return canvas.toDataURL('image/jpeg', 0.72)
+  } catch { return '' }
+}
+
+/** 批量转缩略图，忽略单个失败 */
+export async function urlsToThumbs(urls: string[]): Promise<string[]> {
+  return Promise.all(urls.map(u => urlToThumb(u)))
 }
