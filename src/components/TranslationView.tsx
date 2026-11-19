@@ -8,18 +8,22 @@ import {
   buildHtml, buildPlain, layoutName, TARGET_LANGUAGES,
   type TranslateFile, type TranslateEngine, type BilingualLayout, type ExportFormat,
 } from '../core/translate'
-import type { Account } from '../core/types'
+import { detectModelCapability, capabilityChatCapable } from '../core/modelCapability'
+import { isVoiceConfigAccount } from '../core/modelCategories'
+import { isAccountServiceEnabled } from '../core/localServicesSettings'
+import type { Account, AppSettings } from '../core/types'
 
 interface Props {
   accounts: Account[]
   notify: (m: string) => void
+  settings?: AppSettings
 }
 
 const LAYOUTS: BilingualLayout[] = ['side-by-side', 'interleaved', 'stacked']
 const CATEGORY_ICON = { document: FileText, image: ImageIcon, archive: Archive, other: FileText }
 const CATEGORY_LABEL = { document: '文档', image: '图片', archive: '压缩包', other: '其他' }
 
-export function TranslationView({ accounts, notify }: Props) {
+export function TranslationView({ accounts, notify, settings }: Props) {
   const [files, setFiles] = useState<TranslateFile[]>([])
   const [engine, setEngine] = useState<TranslateEngine>('free')
   const [accountId, setAccountId] = useState('')
@@ -33,9 +37,19 @@ export function TranslationView({ accounts, notify }: Props) {
   const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // 可用于翻译的账户（有 Key）
-  const usableAccounts = useMemo(() => accounts.filter(a => a.encryptedKey), [accounts])
-  useEffect(() => { if (!accountId && usableAccounts.length) setAccountId(usableAccounts[0].id) }, [usableAccounts, accountId])
+  // 可用于翻译的账户：与 AI 助手同一套标准——排除语音配置账户、非文本模型（嵌入/图像/音频）、服务已关闭的本地账户
+  const usableAccounts = useMemo(() => accounts
+    .filter(a => !!a.encryptedKey)
+    .filter(a => !isVoiceConfigAccount(a.providerId, a.note))
+    .filter(a => {
+      const stored = a.modelCapability
+      const live = detectModelCapability(a.label).capability
+      return capabilityChatCapable(live) && (stored === undefined || capabilityChatCapable(stored))
+    })
+    .filter(a => isAccountServiceEnabled(settings, a.providerId)), [accounts, settings])
+  useEffect(() => {
+    if (usableAccounts.length && !usableAccounts.some(a => a.id === accountId)) setAccountId(usableAccounts[0].id)
+  }, [usableAccounts, accountId])
 
   const addFiles = async (fileList: FileList | File[]) => {
     const added: TranslateFile[] = []

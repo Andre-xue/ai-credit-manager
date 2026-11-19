@@ -631,7 +631,7 @@ function App() {
             onToggle={(pid, aid) => setState(s => toggleCheckin(s, pid, aid))}
           />}
 
-          {tab === 'benefits' && <TranslationView accounts={state.accounts} notify={notify} />}
+          {tab === 'benefits' && <TranslationView accounts={state.accounts} notify={notify} settings={state.settings} />}
 
           {tab === 'keys' && <KeysView
             state={state} notify={notify}
