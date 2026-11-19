@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { chunkText, cosineSimilarity, buildContextPrompt } from './docQA'
+import { chunkText, cosineSimilarity, buildContextPrompt, filterEmbeddingModels, shouldWarnEmbed } from './docQA'
 import type { DocChunk } from './docQA'
 
 describe('文档问答核心逻辑', () => {
@@ -27,5 +27,22 @@ describe('文档问答核心逻辑', () => {
     expect(prompt).toContain('重置密码请点这里')
     expect(prompt).toContain('不要编造')
     expect(prompt).toContain('怎么重置密码?')
+  })
+})
+
+describe('文档问答嵌入模型选择与检测', () => {
+  it('从已装模型筛出嵌入类', () => {
+    expect(filterEmbeddingModels(['llama3.2:3b', 'nomic-embed-text:latest', 'qwen2.5:3b', 'bge-m3']))
+      .toEqual(['nomic-embed-text:latest', 'bge-m3'])
+  })
+  it('去重后保留嵌入模型', () => {
+    expect(filterEmbeddingModels(['nomic-embed-text', 'nomic-embed-text'])).toEqual(['nomic-embed-text'])
+  })
+  it('所选模型不在已装列表时提示', () => {
+    expect(shouldWarnEmbed(true, ['nomic-embed-text'], 'bge-m3')).toBe(true)
+    expect(shouldWarnEmbed(true, ['nomic-embed-text'], 'nomic-embed-text')).toBe(false)
+  })
+  it('未拉取过列表不误报', () => {
+    expect(shouldWarnEmbed(false, [], 'nomic-embed-text')).toBe(false)
   })
 })

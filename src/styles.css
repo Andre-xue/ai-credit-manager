@@ -1510,6 +1510,14 @@ html, body { touch-action: manipulation; }
 .docqa-intro { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: var(--text-2); background: var(--panel-2); border-radius: 8px; padding: 10px 12px; line-height: 1.6; }
 .docqa-intro svg { flex-shrink: 0; margin-top: 2px; }
 .docqa-warn { font-size: 12px; color: #92400e; background: #fef3c7; border-radius: 8px; padding: 10px 12px; line-height: 1.6; }
+.docqa-warn code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: rgba(146,64,14,.1); padding: 1px 5px; border-radius: 4px; word-break: break-all; }
+.docqa-model-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.docqa-model-row label { color: var(--text-2); flex-shrink: 0; }
+.docqa-model-row .select, .docqa-model-row .input { flex: 1; min-width: 0; font-size: 12px; padding: 7px 10px; }
+@media (max-width: 680px) {
+  .docqa-model-row { flex-wrap: wrap; }
+  .docqa-model-row .select, .docqa-model-row .input { flex-basis: 100%; }
+}
 .docqa-section { border-top: 1px solid var(--border); padding-top: 12px; }
 .docqa-section-title { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 10px; }
 .docqa-section-title .hint { font-weight: 400; color: var(--text-3); }

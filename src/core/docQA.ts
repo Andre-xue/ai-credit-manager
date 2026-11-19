@@ -2,6 +2,7 @@
 // 全程本地：文档与向量只存本机 IndexedDB，不上传；嵌入走本机 Ollama，回答走已配置的对话模型。
 
 import { isDesktopApp } from './openExternal'
+import { detectModelCapability } from './modelCapability'
 
 const DB_NAME = 'acm-docqa-db'
 const STORE = 'chunks'
@@ -181,4 +182,15 @@ export function buildContextPrompt(question: string, hits: { chunk: DocChunk; sc
     `[资料${i + 1}｜${h.chunk.docName}]\n${h.chunk.text}`
   ).join('\n\n')
   return `请仅根据以下参考资料回答问题。如果资料中没有答案，请明确说明"资料中未提及"，不要编造。\n\n${context}\n\n问题：${question}`
+}
+
+/** 从本机已装模型里筛出嵌入类（供文档问答下拉与检测用） */
+export function filterEmbeddingModels(models: string[]): string[] {
+  return Array.from(new Set(models.filter(m => detectModelCapability(m).capability === 'embedding')))
+}
+/**
+ * 嵌入模型选择警告：成功拉取过列表(checked) 且所选模型不在已装嵌入列表里时提示。
+ */
+export function shouldWarnEmbed(checked: boolean, embedModels: string[], chosen: string): boolean {
+  return checked && !embedModels.includes(chosen)
 }
