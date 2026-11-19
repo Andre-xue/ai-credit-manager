@@ -46,10 +46,57 @@
   box-shadow: none !important;
 }
 .claude-ui .brand-name { color: var(--text); }
-.claude-ui .nav-item { color: var(--text-2); }
-.claude-ui .nav-item:hover { background: #efefed; color: #1f2023; }
-.claude-ui .nav-item.active { background: #ebebe8; color: #1f2023; }
-.claude-ui .nav-item.active::before { display: none; }  /* Claude 无指示条，仅此视觉差异 */
+/* 新拟物键帽菜单项：凸起外阴影 → 悬停浮起 → 按下内阴影下沉 → 当前项保持按下 + 蓝色指示灯 */
+.claude-ui .nav { gap: 8px; } /* 键帽之间留缝，立体阴影才可见 */
+.claude-ui .nav-item {
+  margin-bottom: 0;
+  color: var(--text-2);
+  background: #f6f6f4;
+  border: 1px solid rgba(0,0,0,.02);
+  border-radius: 12px;
+  box-shadow: 4px 4px 9px #dcdcd8, -4px -4px 9px #ffffff;
+  transform: translateY(0);
+  transition: transform .18s cubic-bezier(.2,.8,.3,1), box-shadow .18s ease, background .18s ease, color .18s ease;
+}
+.claude-ui .nav-item:hover {
+  background: #f8f8f6;
+  color: #1f2023;
+  transform: translateY(-2px);
+  box-shadow: 6px 6px 13px #d8d8d4, -6px -6px 13px #ffffff;
+}
+.claude-ui .nav-item:active {
+  transform: translateY(2px);
+  box-shadow: inset 3px 3px 6px #d9d9d5, inset -3px -3px 6px #ffffff;
+  background: #f2f2f0;
+  transition-duration: .09s; /* 按下更快，松手回弹用上面的 .18s */
+}
+/* 当前项：保持按下态 + 蓝色指示灯 */
+.claude-ui .nav-item.active {
+  color: #1f2023;
+  font-weight: 600;
+  background: #f2f2f0;
+  transform: translateY(2px);
+  box-shadow: inset 3px 3px 6px #d9d9d5, inset -3px -3px 6px #ffffff;
+}
+.claude-ui .nav-item.active::before { display: none; }
+/* 蓝色指示灯：右侧发光圆点 */
+.claude-ui .nav-item::after {
+  content: ''; position: absolute; right: 14px; top: 50%;
+  width: 7px; height: 7px; border-radius: 50%;
+  transform: translateY(-50%) scale(0);
+  background: #3b82f6;
+  box-shadow: 0 0 0 0 rgba(59,130,246,.45);
+  transition: transform .2s cubic-bezier(.34,1.56,.64,1), box-shadow .2s ease;
+}
+.claude-ui .nav-item.active::after {
+  transform: translateY(-50%) scale(1);
+  box-shadow: 0 0 8px 2px rgba(59,130,246,.55), 0 0 0 3px rgba(59,130,246,.14);
+  animation: nav-led-pulse 2.2s ease-in-out infinite;
+}
+@keyframes nav-led-pulse {
+  0%,100% { box-shadow: 0 0 8px 2px rgba(59,130,246,.55), 0 0 0 3px rgba(59,130,246,.14); }
+  50%     { box-shadow: 0 0 11px 3px rgba(59,130,246,.7), 0 0 0 4px rgba(59,130,246,.18); }
+}
 .claude-ui .compliance {
   background: #fffdf5; border-color: #f0e6c8; border-radius: 8px;
 }
