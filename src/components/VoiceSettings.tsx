@@ -4,6 +4,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { Volume2, Play, Square, Trash2, Loader2, Info, Globe2, Mic, Check, Pencil } from 'lucide-react'
+import { HoldToConfirm } from './HoldToConfirm'
 import {
   getRate, saveRate, stopSpeak, getSpeakSource, speakAsync,
 } from '../core/tts'
@@ -326,7 +327,7 @@ export function VoiceSettings({ notify, accounts, sessionPwd, onUnlock }: {
                   ) : (
                     <button className="icon-btn" title="重命名" onClick={() => { setRenaming(v.id); setRenameText(v.name) }}><Pencil size={14} /></button>
                   )}
-                  <button className="icon-btn" title="删除此记录" onClick={() => dropCloned(v)}><Trash2 size={14} /></button>
+                  <HoldToConfirm title="删除此记录" onConfirm={() => dropCloned(v)} />
                 </div>
               </div>
             )

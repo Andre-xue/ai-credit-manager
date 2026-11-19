@@ -2,12 +2,13 @@
 // 双语布局（3 种，可多选）→ 导出（TXT / MD / HTML / PDF打印）。全平台适用。
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Languages, Upload, FileText, Image as ImageIcon, Archive, Trash2, Loader2, Download, Printer, Check, Info } from 'lucide-react'
+import { Languages, Upload, FileText, Image as ImageIcon, Archive, Loader2, Download, Printer, Check, Info } from 'lucide-react'
 import {
   categorizeFile, translateText, alignPairs,
   buildHtml, buildPlain, buildPrintHtml, layoutName, layoutSuffix, TARGET_LANGUAGES, SOURCE_LANGUAGES, FREE_ENGINES,
   type TranslateFile, type TranslateEngine, type FreeEngine, type BilingualLayout, type ExportFormat,
 } from '../core/translate'
+import { HoldToConfirm } from './HoldToConfirm'
 import { chooseBackupFolder } from '../core/keyBackup'
 import { isDesktopApp } from '../core/openExternal'
 import {
@@ -341,7 +342,7 @@ export function TranslationView({ accounts, notify, settings }: Props) {
                   <Icon size={15} />
                   <span className="tf-name" title={f.name}>{f.name}</span>
                   <span className="tag gray">{CATEGORY_LABEL[f.category]}</span>
-                  <button className="icon-btn" title="移除" onClick={() => setFiles(prev => prev.filter(x => x.id !== f.id))}><Trash2 size={13} /></button>
+                  <HoldToConfirm title="移除文件" onConfirm={() => setFiles(prev => prev.filter(x => x.id !== f.id))} />
                 </div>
               )
             })}

@@ -2,7 +2,8 @@
 // 全程本地：文档只存本机 IndexedDB，嵌入走本机 Ollama，回答走用户已添加的本地对话模型。
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { FileText, Upload, Trash2, Loader2, Info, Search } from 'lucide-react'
+import { FileText, Upload, Loader2, Info, Search } from 'lucide-react'
+import { HoldToConfirm } from './HoldToConfirm'
 import {
   isDocQAAvailable, addDocument, listDocuments, deleteDocument,
   embedText, searchChunks, buildContextPrompt, filterEmbeddingModels, shouldWarnEmbed, type DocInfo,
@@ -162,7 +163,7 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
             {docs.map(d => (
               <div className="docqa-doc" key={d.docId}>
                 <FileText size={14} /><span className="doc-name">{d.name}</span><span className="doc-meta">{d.chunkCount} 块</span>
-                <button className="icon-btn" title="删除" onClick={async () => { await deleteDocument(d.docId); await refreshDocs(); notify('已删除文档') }}><Trash2 size={13} /></button>
+                <HoldToConfirm title="删除文档" onConfirm={() => void (async () => { await deleteDocument(d.docId); await refreshDocs(); notify('已删除文档') })()} />
               </div>
             ))}
           </div>

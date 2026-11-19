@@ -27,6 +27,7 @@ import {
   importState, mergeState, addUsageEvent, updateSettings, clearAllData,
 } from './core/store'
 import { initSubmitMorph } from './core/submitMorph'
+import { HoldToConfirm } from './components/HoldToConfirm'
 import {
   AGENT_TOOLS, CHECKIN_TOOLS, CATEGORY_TAGS, PLATFORM_TAGS,
   type AgentTool, type AgentRegion, type AgentCategory, type AgentPlatform,
@@ -1145,7 +1146,7 @@ function DashboardView({ views, onAdd, onRemove, onRemoveMany, onEditQuota, noti
                 <div className="ac-menu">
                   <div className="dots">
                     <button className="icon-btn" title="录入/更新额度" onClick={() => onEditQuota(v.account.id)}><RefreshCw size={14} /></button>
-                    <button className="icon-btn danger" title="移除账户" onClick={() => onRemove(v.account.id)}><Trash2 size={14} /></button>
+                    <HoldToConfirm title="移除账户" onConfirm={() => onRemove(v.account.id)} />
                   </div>
                 </div>
               </div>
@@ -1567,11 +1568,11 @@ function KeysView({ state, notify, onOpenVault, onRemoveKeys, onRequestBackup, o
                           notify(`查询成功：已用 ${r.used.toLocaleString()} ${r.unit}`)
                         } catch (e: any) { notify(e.message ?? '查询失败') }
                       }}><RefreshCw size={13} /> 查询</button>}
-                      <button className="key-action danger" title={isLocalProvider(a.providerId) ? '删除本地模型' : '删除前必须先备份'} onClick={() => onRequestBackup([a.id], '删除前必须备份', '确认删除', () => {
+                      <HoldToConfirm title={isLocalProvider(a.providerId) ? '删除本地模型' : '删除前必须先备份'} onConfirm={() => onRequestBackup([a.id], '删除前必须备份', '确认删除', () => {
                         onRemoveKeys([a.id])
                         setSelectedKeys(prev => { const n = new Set(prev); n.delete(a.id); return n })
                         setRevealed(prev => { const n = { ...prev }; delete n[a.id]; return n })
-                      })}><Trash2 size={13} /> 删除</button>
+                      })} />
                     </div>
                   </td>
                 </tr>

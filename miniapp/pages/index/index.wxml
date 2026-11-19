@@ -46,7 +46,7 @@
           <view class="hint" style="margin-top:6rpx">{{item.providerName}}</view>
         </view>
       </view>
-      <view class="btn ghost" data-id="{{item.id}}" bindtap="removeAccount" style="color:#dc2626;font-size:24rpx">移除</view>
+      <hold-btn data-id="{{item.id}}" title="移除账户" bindconfirm="removeAccount" />
     </view>
 
     <block wx:if="{{item.hasQuota}}">
