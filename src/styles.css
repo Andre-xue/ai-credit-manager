@@ -1576,8 +1576,8 @@ html, body { touch-action: manipulation; }
 }
 
 /* ============ Submit Morph：主操作按钮提交变形动画 ============ */
-/* 收缩：宽度→圆形高度，圆角50%，内容绝对定位便于叠放。300ms ease-in-out */
-.btn.primary.submit-morph {
+/* 用 data-morph 驱动，不改 React 管理的 DOM。收缩：宽度→圆形高度，圆角50%，300ms ease-in-out */
+.btn.primary[data-morph] {
   position: relative;
   width: var(--morph-size) !important;
   min-width: var(--morph-size) !important;
@@ -1590,15 +1590,15 @@ html, body { touch-action: manipulation; }
               height .3s ease-in-out, padding .3s ease-in-out, border-radius .3s ease-in-out,
               background-color .25s ease, border-color .25s ease;
 }
-.btn.primary.submit-morph .morph-label {
-  position: absolute; inset: 0;
-  display: inline-flex; align-items: center; justify-content: center; gap: inherit;
+/* 原内容淡出（排除我们注入的覆盖层）——不动节点本身，React 可正常更新 */
+.btn.primary[data-morph] > *:not(.morph-overlay) {
   opacity: 0; transform: scale(.85);
   transition: opacity .18s ease, transform .18s ease;
-  white-space: nowrap;
 }
-/* 加载环：默认隐藏，morph-loading 时显示并旋转 */
-.btn.primary.submit-morph .morph-spinner {
+/* 独立覆盖层：绝对定位，不参与 React diff */
+.morph-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+/* 加载环：loading 阶段显示并旋转 */
+.morph-spinner {
   position: absolute; inset: 0; margin: auto;
   width: 55%; height: 55%;
   border-radius: 50%;
@@ -1607,29 +1607,15 @@ html, body { touch-action: manipulation; }
   opacity: 0;
   box-sizing: border-box;
 }
-.btn.primary.submit-morph.morph-loading .morph-spinner {
-  opacity: 1;
-  animation: submit-morph-spin .7s linear infinite;
-}
+.btn.primary[data-morph="loading"] .morph-spinner { opacity: 1; animation: submit-morph-spin .7s linear infinite; }
 @keyframes submit-morph-spin { to { transform: rotate(360deg) } }
-/* 对勾：默认隐藏，success 时背景变绿、对勾沿路径画出 */
-.btn.primary.submit-morph .morph-check {
-  position: absolute; inset: 0;
-  display: flex; align-items: center; justify-content: center;
-  opacity: 0; color: #fff;
-}
-.btn.primary.submit-morph .morph-check svg path {
-  stroke-dasharray: 32; stroke-dashoffset: 32;
-}
-.btn.primary.submit-morph.morph-success {
-  background: #16a34a !important;
-  border-color: #16a34a !important;
-}
-.btn.primary.submit-morph.morph-success .morph-spinner { opacity: 0; animation: none; }
-.btn.primary.submit-morph.morph-success .morph-check { opacity: 1; }
-.btn.primary.submit-morph.morph-success .morph-check svg path {
-  animation: submit-morph-draw .32s ease-out forwards;
-}
+/* 对勾：success 阶段背景变绿、对勾沿路径画出 */
+.morph-check { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; opacity: 0; color: #fff; }
+.morph-check svg path { stroke-dasharray: 32; stroke-dashoffset: 32; }
+.btn.primary[data-morph="success"] { background: #16a34a !important; border-color: #16a34a !important; }
+.btn.primary[data-morph="success"] .morph-spinner { opacity: 0; animation: none; }
+.btn.primary[data-morph="success"] .morph-check { opacity: 1; }
+.btn.primary[data-morph="success"] .morph-check svg path { animation: submit-morph-draw .32s ease-out forwards; }
 @keyframes submit-morph-draw { to { stroke-dashoffset: 0 } }
 
 /* ============ Jelly Toggle：果冻开关 ============ */

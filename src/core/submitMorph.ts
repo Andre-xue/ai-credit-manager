@@ -4,7 +4,10 @@
 //   t=300  圆形中央出现旋转加载环
 //   t=1200 按钮变绿并画出对勾
 //   t=2200 恢复原状
-// 不改任何组件 JSX：点击时动态包裹原内容、注入加载环/对勾，动画结束还原。
+//
+// ⚠️ 关键：绝不改动 React 管理的 DOM 节点（不移动/删除/包裹原内容）。
+// 只额外 append 一个独立覆盖层 + 用 data-morph 属性驱动 CSS。
+// 否则 React 更新按钮内容（如 <Languages>→<LoaderCircle>）时找不到原节点会崩溃白屏。
 
 const SHRINK_MS = 300
 const SUCCESS_MS = 1200
@@ -13,77 +16,44 @@ const RESTORE_MS = 2200
 let inited = false
 const active = new WeakSet<HTMLElement>()
 
-/** 动画期间临时注入的结构，用 WeakMap 保存以便还原 */
-interface MorphState {
-  btn: HTMLButtonElement
-  label: HTMLSpanElement
-  spinner: HTMLSpanElement
-  check: HTMLSpanElement
-  originalWidth: string
-  originalHeight: string
-  circleSize: number
-  originalHtml: string
-}
-const states = new WeakMap<HTMLButtonElement, MorphState>()
-
 function playMorph(btn: HTMLButtonElement) {
   if (active.has(btn)) return
   active.add(btn)
 
-  // 1) 记录原始宽度与内容，把原内容包进 morph-label
-  const originalWidth = btn.style.width
-  const originalHeight = btn.style.height
-  const originalHtml = btn.innerHTML
   const rect = btn.getBoundingClientRect()
-  const circleSize = Math.round(rect.height)
+  const circleSize = Math.max(1, Math.round(rect.height))
+  // 用内联尺寸固定当前宽高（动画收缩到圆形）；不动任何子元素
   btn.style.width = `${rect.width}px`
   btn.style.height = `${circleSize}px`
   btn.style.setProperty('--morph-size', `${circleSize}px`)
 
-  const label = document.createElement('span')
-  label.className = 'morph-label'
-  label.innerHTML = originalHtml
+  // 独立覆盖层：只 append，不触碰 React 的子节点
+  const overlay = document.createElement('span')
+  overlay.className = 'morph-overlay'
+  overlay.setAttribute('aria-hidden', 'true')
+  overlay.innerHTML =
+    '<span class="morph-spinner"></span>' +
+    '<span class="morph-check"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'
+  btn.appendChild(overlay)
 
-  const spinner = document.createElement('span')
-  spinner.className = 'morph-spinner'
-  const check = document.createElement('span')
-  check.className = 'morph-check'
-  check.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+  // data 属性驱动动画：React 不管理此属性，re-render 不会覆盖
+  void btn.offsetWidth // 强制 reflow
+  btn.dataset.morph = 'shrink'
 
-  btn.innerHTML = ''
-  btn.appendChild(label)
-  btn.appendChild(spinner)
-  btn.appendChild(check)
-  states.set(btn, { btn, label, spinner, check, originalWidth, originalHeight, circleSize, originalHtml })
-
-  // 2) 触发收缩（文字淡出 + 宽度→圆形），强制 reflow 保证过渡生效
-  void btn.offsetWidth
-  btn.classList.add('submit-morph')
-
-  // 3) 300ms：显示加载环
-  window.setTimeout(() => { if (active.has(btn)) btn.classList.add('morph-loading') }, SHRINK_MS)
-  // 4) 1200ms：变绿 + 画对勾
-  window.setTimeout(() => { if (active.has(btn)) btn.classList.add('morph-success') }, SUCCESS_MS)
-  // 5) 2200ms：还原
+  window.setTimeout(() => { if (active.has(btn)) btn.dataset.morph = 'loading' }, SHRINK_MS)
+  window.setTimeout(() => { if (active.has(btn)) btn.dataset.morph = 'success' }, SUCCESS_MS)
   window.setTimeout(() => restore(btn), RESTORE_MS)
 }
 
 function restore(btn: HTMLButtonElement) {
-  const s = states.get(btn)
-  if (!s) return
-  btn.classList.remove('submit-morph', 'morph-loading', 'morph-success')
-  btn.innerHTML = s.originalHtml
-  btn.style.width = s.originalWidth
-  btn.style.height = s.originalHeight
+  delete btn.dataset.morph
+  // 只移除我们自己加的覆盖层
+  const overlay = btn.querySelector(':scope > .morph-overlay')
+  if (overlay) overlay.remove()
+  btn.style.width = ''
+  btn.style.height = ''
   btn.style.removeProperty('--morph-size')
-  states.delete(btn)
   active.delete(btn)
-  // 清空固定尺寸后再让浏览器回流，避免残留影响响应式
-  window.setTimeout(() => {
-    if (active.has(btn)) return
-    btn.style.width = ''
-    btn.style.height = ''
-  }, 350)
 }
 
 /** 初始化全局监听（幂等，只注册一次） */
@@ -94,7 +64,6 @@ export function initSubmitMorph(): void {
     const target = event.target as HTMLElement
     const btn = target.closest('.btn.primary') as HTMLButtonElement | null
     if (!btn || btn.disabled) return
-    // 跳过明确标记不参与变形的按钮
     if (btn.classList.contains('no-morph')) return
     playMorph(btn)
   }, true)
