@@ -40,19 +40,29 @@ const KNOWN_MODELS: Record<string, ModelCapability> = {
   'hy-mt2': 'translation',
   'hy-mt2:1.8b': 'translation',
   'hy-mt1.5': 'translation',
-  // 图像/音频
+  // 图像/音频（对话型多模态）
   'llava': 'image',
   'bakllava': 'image',
   'llava-phi3': 'image',
   'whisper': 'audio',
   'whisper-large-v3': 'audio',
+  // ComfyUI / Stable Diffusion 绘图模型（精确名，去掉目录前缀后的文件名）
+  'mm_sd_v15_v2.ckpt': 'image',
+  'anythingv5v3_v5prtre.safetensors': 'image',
+  'realistic_vision_v6.0_nv_b1.safetensors': 'image',
+  'v1-5-pruned-emaonly-fp16.safetensors': 'image',
 }
 
-/** 关键词回退规则：按顺序匹配，命中即返回 */
+/** 关键词回退规则：按顺序匹配，命中即返回（嵌入/翻译优先于绘图，避免误判） */
 const KEYWORD_RULES: { pattern: RegExp; capability: ModelCapability }[] = [
   { pattern: /embed|embedding|bge-|e5-|gte-|minilm/i, capability: 'embedding' },
   { pattern: /translate|translation|\bmt[2-9]?\b|hy-mt|nllb|opus-mt/i, capability: 'translation' },
-  { pattern: /llava|vision|vl\b|image|pixtral/i, capability: 'image' },
+  // 图像：对话型多模态 + ComfyUI/SD 绘图模型特征。
+  // 目录特征（checkpoints/ 等）与绘图扩展名强相关；绘图模型名关键词兜底。
+  {
+    pattern: /llava|vision|vl\b|image|pixtral|checkpoints\/|animatediff|loras\/|vae\/|controlnet\/|mm_sd_|\.safetensors$|\.ckpt$|(^|\/)v1[-_]?5|anything|realistic|dreamshaper|chilloutmix|majicmix|sd[_ -]?xl|sd[_ -]?1[._-]?5|flux/i,
+    capability: 'image',
+  },
   { pattern: /whisper|asr|speech|tts|audio/i, capability: 'audio' },
   // 通用对话模型关键词（明确标注，便于识别）
   { pattern: /llama|qwen|deepseek|chatgpt|gpt-|claude|gemini|mistral|phi|gemma|kimi|glm|yi:|\byi\b|command|dolphin|vicuna|orca|stablelm|falcon/i, capability: 'chat' },
@@ -65,15 +75,16 @@ const KEYWORD_RULES: { pattern: RegExp; capability: ModelCapability }[] = [
 export function detectModelCapability(modelName: string): CapabilityInfo {
   const raw = (modelName || '').trim()
   const lower = raw.toLowerCase()
-  const base = lower.split(':')[0]
+  const base = lower.split(':')[0]                       // 去掉 :tag 标签
+  const baseName = base.split(/[\\/]/).pop() ?? base     // 去掉目录前缀，取文件名
 
   if (KNOWN_MODELS[lower]) {
     const cap = KNOWN_MODELS[lower]
     return { capability: cap, label: CAPABILITY_LABEL[cap], reason: '已知模型', chatCapable: cap === 'chat' || cap === 'translation' }
   }
-  if (KNOWN_MODELS[base]) {
-    const cap = KNOWN_MODELS[base]
-    return { capability: cap, label: CAPABILITY_LABEL[cap], reason: '已知模型（含标签）', chatCapable: cap === 'chat' || cap === 'translation' }
+  if (KNOWN_MODELS[base] || KNOWN_MODELS[baseName]) {
+    const cap = KNOWN_MODELS[base] ?? KNOWN_MODELS[baseName]
+    return { capability: cap, label: CAPABILITY_LABEL[cap], reason: '已知模型（含标签/目录）', chatCapable: cap === 'chat' || cap === 'translation' }
   }
   for (const rule of KEYWORD_RULES) {
     if (rule.pattern.test(lower) || rule.pattern.test(base)) {

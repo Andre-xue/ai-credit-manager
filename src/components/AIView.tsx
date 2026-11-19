@@ -191,10 +191,12 @@ export function AIView({ notify, accounts }: {
   const ownOptions = useMemo(() => accounts
     // 语音配置(APP)账户只服务语音模块，不在 AI 聊天列表展示、不参与调用
     .filter(a => !isVoiceConfigAccount(a.providerId, a.note))
-    // 嵌入/图像/音频模型不能聊天，自动隐藏（老账户无字段时按名称实时识别兜底）
+    // 嵌入/图像/音频模型不能聊天，自动隐藏。
+    // 存储值与实时识别取「更保守」者：规则增强后，老账户即使标着旧值也会被正确隐藏。
     .filter(a => {
-      const cap = a.modelCapability ?? detectModelCapability(a.label).capability
-      return capabilityChatCapable(cap)
+      const stored = a.modelCapability
+      const live = detectModelCapability(a.label).capability
+      return capabilityChatCapable(live) && (stored === undefined || capabilityChatCapable(stored))
     })
     // 本地账户只要在 API Key 管理页存在，就在 AI 页可见；服务开关只影响系统服务启停，
     // 不再隐藏已保存账户（否则用户会遇到"Key 页有、AI 页却没有"的困惑）

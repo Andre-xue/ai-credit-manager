@@ -26,6 +26,26 @@ describe('模型能力识别', () => {
     expect(detectModelCapability('whisper-large-v3').capability).toBe('audio')
     expect(shouldHideFromChat(detectModelCapability('llava'))).toBe(true)
   })
+  it('识别 ComfyUI/SD 绘图模型（带目录前缀）', () => {
+    const comfyModels = [
+      'animatediff_models/mm_sd_v15_v2.ckpt',
+      'checkpoints/AnythingV5V3_v5PrtRE.safetensors',
+      'checkpoints/Realistic_Vision_V6.0_NV_B1.safetensors',
+      'checkpoints/v1-5-pruned-emaonly-fp16.safetensors',
+      'checkpoints/dreamshaper_8.safetensors',   // 通用名兜底
+      'loras/some_lora.safetensors',             // LoRA 也算图像类
+    ]
+    for (const name of comfyModels) {
+      const r = detectModelCapability(name)
+      expect(r.capability, name).toBe('image')
+      expect(shouldHideFromChat(r), name).toBe(true)
+    }
+  })
+  it('绘图规则不误伤对话模型', () => {
+    for (const name of ['llama3.2:3b', 'qwen2.5:3b', 'deepseek-v4-pro-4b-uncensored:latest']) {
+      expect(detectModelCapability(name).capability, name).toBe('chat')
+    }
+  })
   it('未知模型默认可聊天（保守，避免误杀）', () => {
     const r = detectModelCapability('my-custom-model')
     expect(r.capability).toBe('unknown')
