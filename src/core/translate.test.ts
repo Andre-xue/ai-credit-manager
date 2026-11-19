@@ -217,3 +217,13 @@ describe('本地翻译模型筛选', () => {
     nonText.forEach(m => expect(isChatCapableLocalModel(m), m).toBe(false))
   })
 })
+
+describe('AI助手本地模型筛选（保留视觉模型）', () => {
+  it('保留文本与视觉模型，排除嵌入/生图/视频/语音', async () => {
+    const { isAssistantCapableLocalModel } = await import('./providerCall')
+    const ok = ['gemma3:4b', 'qwen2.5:3b', 'llama3.2:3b', 'gemma3:4b-vision', 'qwen2.5-vl:7b']
+    const no = ['nomic-embed-text:latest', 'bge-reranker', 'stable-diffusion-xl', 'flux1', 'whisper-large', 'video-llama']
+    ok.forEach(m => expect(isAssistantCapableLocalModel(m), m).toBe(true))
+    no.forEach(m => expect(isAssistantCapableLocalModel(m), m).toBe(false))
+  })
+})

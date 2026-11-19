@@ -23,7 +23,7 @@ import {
   CATEGORY_META, categoryForModel, isVoiceConfigAccount, type ModelCategory,
 } from '../core/modelCategories'
 import { detectModelCapability, capabilityChatCapable } from '../core/modelCapability'
-import { callByCategory, fetchProviderModels } from '../core/providerCall'
+import { callByCategory, fetchProviderModels, callLocalChat, fetchLocalAssistantModels } from '../core/providerCall'
 import type { Account } from '../core/types'
 import { LOCAL_SERVICE_CHANGED_EVENT, isAccountServiceEnabled, shouldShowLocalCategory } from '../core/localServicesSettings'
 import { decryptSecret, getBiometricPassword, verifyVault } from '../core/crypto'
@@ -200,8 +200,46 @@ export function AIView({ notify, accounts, settings, serviceController }: {
   useEffect(() => { saveHistory(messages) }, [messages])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, streamingText])
 
+  // 本地型：Ollama 服务开启时自动拉取本机可用模型（文本+视觉，排除嵌入/生图/视频/语音）
+  const [localModels, setLocalModels] = useState<string[]>([])
+  const localAutoSwitched = useRef(false)
+  const ollamaEnabled = useMemo(() => {
+    const svc = (settings?.localServices as Record<string, boolean> | undefined)
+    return svc?.ollama !== false
+  }, [settings])
+  useEffect(() => {
+    let alive = true
+    if (!ollamaEnabled) {
+      setLocalModels([]); localAutoSwitched.current = false
+      // 服务关闭时若停在「本地型」，切回有模型的分类
+      setCategory(prev => {
+        if (prev !== '本地型') return prev
+        return '免费模型'
+      })
+      setModel('')
+      return
+    }
+    // 服务刚启动需短暂就绪时间，延迟拉取；超时保护避免慢服务卡住 UI
+    const timer = window.setTimeout(() => {
+      void Promise.race([
+        fetchLocalAssistantModels('http://127.0.0.1:11434'),
+        new Promise<string[]>((_, rej) => window.setTimeout(() => rej(new Error('timeout')), 15000)),
+      ]).then(ids => {
+        if (!alive) return
+        setLocalModels(ids)
+        // 开启开关后首次拉到模型，自动切到本地型并选中第一个
+        if (ids.length && !localAutoSwitched.current) {
+          localAutoSwitched.current = true
+          setCategory('本地型')
+          setModel(`local:${ids[0]}`)
+        }
+      }).catch(() => { if (alive) setLocalModels([]) })
+    }, 1200)
+    return () => { alive = false; window.clearTimeout(timer) }
+  }, [ollamaEnabled])
+
   // 免费模型 + 用户自己的账户模型，按分类联动过滤
-  const freeOptions = useMemo(() => models.map(m => ({ key: m.id, label: m.name, account: null as Account | null, category: '免费模型' as ModelCategory, free: true })), [models])
+  const freeOptions = useMemo(() => models.map(m => ({ key: m.id, label: m.name, account: null as Account | null, category: '免费模型' as ModelCategory, free: true, localModel: undefined as string | undefined })), [models])
   const ownOptions = useMemo(() => accounts
     // 语音配置(APP)账户只服务语音模块，不在 AI 聊天列表展示、不参与调用
     .filter(a => !isVoiceConfigAccount(a.providerId, a.note))
@@ -220,8 +258,18 @@ export function AIView({ notify, accounts, settings, serviceController }: {
       account: a,
       category: categoryForModel(a.note) as ModelCategory,
       free: false,
+      localModel: undefined as string | undefined,
     })), [accounts, settings])
-  const allOptions = useMemo(() => [...freeOptions, ...ownOptions], [freeOptions, ownOptions])
+  // 本机 Ollama 模型作为「本地型」选项（无账户、无 Key，直接调本机服务）
+  const localOptions = useMemo(() => localModels.map(m => ({
+    key: `local:${m}`,
+    label: m,
+    account: null as Account | null,
+    category: '本地型' as ModelCategory,
+    free: false,
+    localModel: m,
+  })), [localModels])
+  const allOptions = useMemo(() => [...freeOptions, ...ownOptions, ...localOptions], [freeOptions, ownOptions, localOptions])
   const visibleOptions = useMemo(() => allOptions.filter(o => o.category === category), [category, allOptions])
   const selectedOption = allOptions.find(o => o.key === model) ?? null
   const canChat = !selectedOption || selectedOption.free || CATEGORY_META[selectedOption.category].canChat
@@ -355,6 +403,17 @@ export function AIView({ notify, accounts, settings, serviceController }: {
       if (r.images?.length) {
         return `${r.text}\n${r.images.map(u => u.startsWith('data:') ? '[已生成图片]' : u).join('\n')}`
       }
+      return r.text
+    }
+    // 本机 Ollama 模型：无需账户 Key，直接调本机服务（图片附件随多模态消息发送）
+    if (opt?.localModel) {
+      const msgs = [
+        { role: 'system', content: systemPrompt },
+        ...voiceHistory.map(m => ({ role: m.role, content: m.content })),
+        { role: 'user', content },
+      ]
+      const r = await callLocalChat('http://127.0.0.1:11434', opt.localModel, msgs, images)
+      if (!r.ok) throw new Error(r.error ?? '本地模型调用失败')
       return r.text
     }
     // 平台免费模型：流式输出（图片附件随多模态消息发送）
@@ -501,8 +560,8 @@ export function AIView({ notify, accounts, settings, serviceController }: {
       {visibleOptions.map(o => (
         <button key={o.key} className={`ai-model-option ${o.key === model ? 'active' : ''}`}
           onClick={() => { setModel(o.key); saveModel(o.key); setModelOpen(false) }}>
-          <span>{o.free ? '⚡ ' : '🔑 '}{o.label}</span>
-          {!o.free && <small>{o.category}</small>}
+          <span>{o.free ? '⚡ ' : o.localModel ? '🖥️ ' : '🔑 '}{o.label}</span>
+          {!o.free && !o.localModel && <small>{o.category}</small>}
         </button>
       ))}
     </div>}

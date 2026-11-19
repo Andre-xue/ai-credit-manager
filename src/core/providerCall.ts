@@ -357,9 +357,15 @@ export async function fetchLocalMediaModels(base: string): Promise<string[]> {
   return ids
 }
 
-/** 本地模型名是否「看起来」像文本对话模型（无能力信息时的兜底：排除常见视觉/嵌入/生图/视频/语音系列） */
+/** 本地模型名是否「看起来」像纯文本对话模型（翻译用：排除视觉/嵌入/生图/视频/语音系列） */
 export function isChatCapableLocalModel(id: string): boolean {
   const exclude = /(embed|vision|\bvl[-_]?|image|draw|diffusion|sd[-_]|flux|tts|whisper|asr|audio|video|ocr|rerank|clip|gemma3|gemma4|llava|bakllava|moondream|pixtral|smolvlm|internvl|llama4|paligemma|qwen3\.5)/i
+  return !exclude.test(id.replace(/\s/g, ''))
+}
+
+/** 本地模型名是否「看起来」可用于 AI 助手对话（保留视觉模型，只排除嵌入/生图/视频/语音/重排） */
+export function isAssistantCapableLocalModel(id: string): boolean {
+  const exclude = /(embed|embedding|image|draw|diffusion|sd[-_]|flux|tts|whisper|asr|audio|video|rerank|clip|nomic-embed|bge-)/i
   return !exclude.test(id.replace(/\s/g, ''))
 }
 
@@ -405,13 +411,45 @@ export async function fetchLocalChatModels(base: string): Promise<string[]> {
   return all.filter(id => chat.includes(id))
 }
 
-/** 本地对话调用（OpenAI 兼容 /chat/completions，无需账户 Key；供 AI 翻译本地引擎用） */
+/**
+ * 拉取本地服务中「可用于 AI 助手」的模型列表：保留文本 + 视觉多模态模型（AI 助手支持图片），
+ * 只排除嵌入/生图/视频/语音/重排类。Ollama 有能力信息时要求含 completion（视觉模型 gemma3 也含 completion）。
+ */
+export async function fetchLocalAssistantModels(base: string): Promise<string[]> {
+  const all = await fetchLocalMediaModels(base)
+  const capable: string[] = []
+  await Promise.all(all.map(async id => {
+    const caps = await queryLocalModelCapabilities(base, id)
+    // 有能力信息：必须有 completion（vision+completion 的视觉模型保留）；否则回退名字判断
+    const ok = caps === null
+      ? isAssistantCapableLocalModel(id)
+      : caps.includes('completion') && !caps.some(c => /embed|rerank|tts|whisper|asr|audio|image|video|diffusion/.test(c))
+    if (ok) capable.push(id)
+  }))
+  return all.filter(id => capable.includes(id))
+}
+
+/** 本地对话调用（OpenAI 兼容 /chat/completions，无需账户 Key；images 为 data URL 数组时以多模态发送） */
 export async function callLocalChat(
-  base: string, model: string, messages: { role: string; content: string }[],
+  base: string, model: string, messages: { role: string; content: string }[], images?: string[],
 ): Promise<ProviderCallResult> {
   try {
     const url = `${localBase(base)}/chat/completions`
-    const body = { model, messages, stream: false, temperature: 0.3 }
+    // 有图片时，把最后一条 user 消息的 content 改成多模态数组（OpenAI 兼容格式）
+    let outMessages: unknown = messages
+    if (images?.length) {
+      const idx = [...messages].map(m => m.role).lastIndexOf('user')
+      if (idx >= 0) {
+        outMessages = messages.map((m, i) => i === idx ? {
+          role: m.role,
+          content: [
+            { type: 'text', text: m.content },
+            ...images.map(u => ({ type: 'image_url', image_url: { url: u } })),
+          ],
+        } : m)
+      }
+    }
+    const body = { model, messages: outMessages, stream: false, temperature: 0.3 }
     const raw = isDesktopApp() ? await invokeApi(url, 'local', body) : await directFetch(url, 'local', body)
     const json = JSON.parse(raw)
     const text = json.choices?.[0]?.message?.content ?? json.choices?.[0]?.text ?? ''
