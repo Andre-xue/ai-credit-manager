@@ -21,6 +21,8 @@ import { isAccountServiceEnabled } from '../core/localServicesSettings'
 import { needsBinaryParse, parseBinaryDocument } from '../core/documentParse'
 import { buildDocxBlob, DOCX_MIME } from '../core/docxExport'
 import { ocrImage, ocrToParagraphs, renderTranslatedImage } from '../core/imageOcr'
+import { ServiceSwitch } from './ServiceSwitch'
+import type { ServiceController } from '../core/useServiceController'
 import type { Account, AppSettings } from '../core/types'
 
 interface TransResult {
@@ -35,13 +37,14 @@ interface Props {
   accounts: Account[]
   notify: (m: string) => void
   settings?: AppSettings
+  serviceController?: ServiceController
 }
 
 const LAYOUTS: BilingualLayout[] = ['side-by-side', 'interleaved', 'stacked']
 const CATEGORY_ICON = { document: FileText, image: ImageIcon, archive: Archive, other: FileText }
 const CATEGORY_LABEL = { document: '文档', image: '图片', archive: '压缩包', other: '其他' }
 
-export function TranslationView({ accounts, notify, settings }: Props) {
+export function TranslationView({ accounts, notify, settings, serviceController }: Props) {
   const [files, setFiles] = useState<TranslateFile[]>([])
   const [engine, setEngine] = useState<TranslateEngine>('free')
   const [freeEngine, setFreeEngine] = useState<FreeEngine>('google')
@@ -302,6 +305,11 @@ export function TranslationView({ accounts, notify, settings }: Props) {
 
   return (
     <div className="translate-page">
+      {serviceController && <div className="translate-service-bar">
+        <span className="translate-service-hint">本地翻译服务</span>
+        <ServiceSwitch controller={serviceController} serviceKey="ollama" />
+        <Info size={13} /> <span>开启后可在本机翻译（无需联网）；关闭则只走云端引擎。开关与设置页同步。</span>
+      </div>}
       <div className="translate-intro">
         <Info size={14} />
         <span>拖入/粘贴文件（txt/md/docx/pdf/图片）或直接粘贴文本，选择翻译引擎与目标语言，即可生成双语对照文件。docx/pdf 在本机解析，图片由云端视觉模型 OCR 识别文字后翻译（失败自动跳过）。</span>

@@ -1,0 +1,92 @@
+// 本地服务控制 Hook：把 App 层的服务开关状态与启停逻辑集中管理，
+// 供设置页、AI 翻译、AI 图像、AI 视频等多处共用，保证开关状态联动。
+// 状态源单一：settings.localServices（持久化）；运行时状态（服务是否真在跑）由本机探测得到。
+
+import { useCallback, useEffect, useState } from 'react'
+import type { AppSettings, LocalServiceKey, MemoryTier } from './types'
+import {
+  checkLocalService, startLocalService, stopServiceByPort,
+} from './localServices'
+import {
+  LOCAL_SERVICE_KEYS, isServiceEnabled, toggleService, notifyLocalServiceChanged,
+} from './localServicesSettings'
+
+export interface ServiceController {
+  /** 某服务在 App 内是否启用（来自 settings） */
+  enabled: (key: LocalServiceKey) => boolean
+  /** 某服务本机是否真的在运行（返回地址或 null） */
+  status: Partial<Record<LocalServiceKey, string | null>>
+  /** 正在切换的服务 key */
+  busyKey: LocalServiceKey | null
+  /** 切换服务开关（含启停进程、8G 限制） */
+  toggle: (key: LocalServiceKey) => Promise<void>
+  /** 刷新运行时状态 */
+  refresh: () => void
+}
+
+/**
+ * @param settings 当前 AppSettings（只读）
+ * @param patchSettings 更新 settings 的回调（写入 localServices）
+ * @param memTier 内存档位
+ * @param notify 提示回调
+ */
+export function useServiceController(
+  settings: AppSettings | undefined,
+  patchSettings: (patch: Partial<AppSettings>) => void,
+  memTier: MemoryTier,
+  notify: (msg: string) => void,
+): ServiceController {
+  const [status, setStatus] = useState<Partial<Record<LocalServiceKey, string | null>>>({})
+  const [busyKey, setBusyKey] = useState<LocalServiceKey | null>(null)
+
+  const refresh = useCallback(() => {
+    void Promise.all(LOCAL_SERVICE_KEYS.map(async k => [k, await checkLocalService(k)] as const))
+      .then(rows => setStatus(Object.fromEntries(rows)))
+  }, [])
+  useEffect(() => { refresh() }, [refresh])
+
+  const enabled = useCallback((key: LocalServiceKey) => isServiceEnabled(settings, key), [settings])
+
+  const toggle = useCallback(async (key: LocalServiceKey) => {
+    if (busyKey) return
+    const next = toggleService(settings, key, memTier)
+    if (!next) {
+      notify(`内存档位限制：${memTier === 8 ? '8G 电脑最多同时开启 1 个本地服务，请先关闭其他服务' : '已达上限'}。请到设置页调整内存档位或关闭其他服务。`)
+      return
+    }
+    setBusyKey(key)
+    patchSettings({ localServices: next })
+    const willEnable = next[key] !== false
+    const name = key === 'ollama' ? 'Ollama' : key === 'comfyui' ? 'ComfyUI' : 'LM Studio'
+    try {
+      if (willEnable) {
+        const already = await checkLocalService(key)
+        if (already) {
+          setStatus(prev => ({ ...prev, [key]: already }))
+          notify(`${name} 已在运行，已直接启用`)
+        } else if (key !== 'lmstudio') {
+          const r = await startLocalService(key)
+          notify(`${name}：${r.message}`)
+          if (r.ok) {
+            let tries = 0
+            const poll = window.setInterval(() => {
+              void checkLocalService(key).then(addr => {
+                if (addr) { setStatus(prev => ({ ...prev, [key]: addr })); window.clearInterval(poll) }
+                else if (++tries >= 15) window.clearInterval(poll)
+              })
+            }, 2000)
+          }
+        } else {
+          notify(`${name} 请在 LM Studio 应用内手动开启本地服务器`)
+        }
+      } else {
+        const r = await stopServiceByPort(key)
+        notify(`${name}：${r.ok ? r.message : `停止失败：${r.message}`}`)
+        setStatus(prev => ({ ...prev, [key]: '' }))
+      }
+      notifyLocalServiceChanged(key, willEnable)
+    } finally { setBusyKey(null) }
+  }, [settings, memTier, busyKey, patchSettings, notify])
+
+  return { enabled, status, busyKey, toggle, refresh }
+}

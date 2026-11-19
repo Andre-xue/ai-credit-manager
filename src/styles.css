@@ -1868,3 +1868,19 @@ input[type="range"] { width: 100%; height: 4px; accent-color: var(--primary); cu
 .gen-empty-hint > svg { flex: 0 0 16px; }
 .gen-empty-hint b, .gen-empty-hint code { white-space: nowrap; }
 .sd-detected-tag { display: inline-flex; align-items: center; padding: 4px 9px; border-radius: 99px; background: #16a34a1a; color: #16a34a; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+
+/* ============ 本地服务联动开关（AI翻译/Ollama · AI图像/视频/ComfyUI） ============ */
+.service-switch { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-2); color: var(--text-2); font-size: 11.5px; cursor: pointer; white-space: nowrap; transition: .18s; }
+.service-switch:hover:not(:disabled) { border-color: var(--primary); color: var(--text); }
+.service-switch:disabled { opacity: .6; cursor: wait; }
+.service-switch.on { border-color: #16a34a; background: #16a34a12; color: #16a34a; }
+.service-switch-label { font-weight: 550; }
+.service-switch-state { font-size: 10px; padding: 2px 7px; border-radius: 99px; background: var(--border); color: var(--text-3); }
+.service-switch-state.on { background: #16a34a22; color: #16a34a; }
+.service-switch-dot { display: inline-flex; opacity: .45; }
+.service-switch-dot.running { opacity: 1; color: #16a34a; }
+.service-switch.compact { padding: 5px 9px; font-size: 10.5px; }
+.gen-head-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.translate-service-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); font-size: 11px; color: var(--text-3); }
+.translate-service-bar > svg { flex-shrink: 0; color: var(--text-3); }
+.translate-service-hint { font-size: 11.5px; font-weight: 600; color: var(--text-2); }

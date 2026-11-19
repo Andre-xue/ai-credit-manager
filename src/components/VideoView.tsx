@@ -11,6 +11,8 @@ import { callVideo, extractModelId, queryVideoTask, fetchProviderModels, filterM
 import { decryptSecret, getBiometricPassword } from '../core/crypto'
 import { ModelInfoCard } from './ModelInfoCard'
 import { GenProgressBar, useGenProgress } from './GenProgressBar'
+import { ServiceSwitch } from './ServiceSwitch'
+import type { ServiceController } from '../core/useServiceController'
 import { PROVIDER_MAP } from '../data/providers'
 import { categoryFromNote } from '../core/modelCategories'
 import {
@@ -23,8 +25,8 @@ import type { Account, AppSettings } from '../core/types'
 const DURATIONS = [5, 10, 15]
 const RATIOS = ['16:9', '9:16', '1:1']
 
-export function VideoView({ accounts, sessionPwd, onUnlock, notify, onOpenLocal }: {
-  accounts: Account[]; sessionPwd: string; onUnlock: (pwd: string) => void; notify: (m: string) => void; settings?: AppSettings; onOpenLocal?: () => void
+export function VideoView({ accounts, sessionPwd, onUnlock, notify, onOpenLocal, serviceController }: {
+  accounts: Account[]; sessionPwd: string; onUnlock: (pwd: string) => void; notify: (m: string) => void; settings?: AppSettings; onOpenLocal?: () => void; serviceController?: ServiceController
 }) {
   // 可用于生视频的账户：严格按「备注/用途」分类筛选——只列出标记为「视频型」的账户
   const usable = useMemo(() => accounts
@@ -150,7 +152,10 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify, onOpenLocal 
       <div className="gen-layout">
         <section className="gen-panel">
           <div className="gen-panel-head"><span className="gen-head-icon"><Film size={18} /></span><div><h3>AI 视频生成</h3><p>输入画面描述，用你自己的视频账户生成短片</p></div>
-            {onOpenLocal && <button className="btn sm ghost gen-local-entry" onClick={onOpenLocal} title="打开 ComfyUI 风格的本地生成页面"><HardDrive size={14} /> 本地生成</button>}
+            <div className="gen-head-actions">
+              {serviceController && <ServiceSwitch controller={serviceController} serviceKey="comfyui" compact />}
+              {onOpenLocal && <button className="btn sm ghost gen-local-entry" onClick={onOpenLocal} title="打开 ComfyUI 风格的本地生成页面"><HardDrive size={14} /> 本地生成</button>}
+            </div>
           </div>
           <div className="gen-body">
             <label className="gen-label">视频账户</label>

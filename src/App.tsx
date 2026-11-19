@@ -7,7 +7,7 @@ import {
   Film, Layers, Monitor, PanelLeftOpen,
   Cloud, Database, Volume2, HardDrive, Palette, RotateCcw, Menu, FileText, Languages,
 } from 'lucide-react'
-import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
+import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot, AppSettings } from './core/types'
 import { isLocalProvider } from './core/types'
 import { detectLocalServices, getSystemMemoryGb, checkLocalService, startLocalService, stopLocalService, stopServiceByPort, isServiceAppManaged, fetchLocalModels, chooseModelFile, type LocalService } from './core/localServices'
 import { DocQAView } from './components/DocQAView'
@@ -57,6 +57,7 @@ import { UpdateModal } from './components/UpdateModal'
 import { APP_VERSION, currentPlatform } from './core/updater'
 import { NOTE_CATEGORIES, buildNote, categoryFromNote, type NoteCategory } from './core/modelCategories'
 import { pullPayload, pushPayload, applyPayload, getLastSyncAt, getClientId, checkRemoteVersion, setBaseline, getRemoteVersion, type PullResult } from './core/sync'
+import { useServiceController } from './core/useServiceController'
 import { CloudLoginModal } from './components/CloudLogin'
 import { loadDevices, touchCurrentDevice, type DeviceRecord } from './core/accountDevices'
 import {
@@ -88,12 +89,15 @@ const CATEGORY_ICON: Record<ProviderDefinition['category'], typeof Code2> = {
 function App() {
   const [state, setState] = useState<AppState>(() => loadState())
 
+  // 本机物理内存 GB（供内存档位判断与服务联动开关共用）
+  const [memGb, setMemGb] = useState(0)
   // 首次启动：按本机内存档位初始化本地服务开关（8G 只开 1 个），仅执行一次
   useEffect(() => {
-    if (state.settings.localServicesInitialized) return
     let alive = true
     void getSystemMemoryGb().then(gb => {
       if (!alive) return
+      setMemGb(gb)
+      if (state.settings.localServicesInitialized) return
       const tier = memoryToTier(gb)
       setState(s => s.settings.localServicesInitialized ? s : ({
         ...s,
@@ -201,6 +205,14 @@ function App() {
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
     toastTimer.current = window.setTimeout(() => setToast(null), 2600)
   }, [])
+
+  // 本地服务联动控制器：设置页 / AI翻译 / AI图像 / AI视频 共用的服务开关状态源。
+  // 所有开关读写同一份 settings.localServices，任一处切换后各处同步显示。
+  const patchSettings = useCallback((patch: Partial<AppSettings>) => {
+    setState(s => updateSettings(s, patch))
+  }, [])
+  const appMemTier: MemoryTier = state.settings.memoryTierOverride ?? memoryToTier(memGb)
+  const serviceController = useServiceController(state.settings, patchSettings, appMemTier, notify)
 
   /** 统一备份门禁：任何删除/备份操作都先走同一个弹窗，备份完成后才执行后续动作 */
   const requestBackup = useCallback((ids: string[], title: string, confirmLabel: string, after: () => void, backupOnly = false) => {
@@ -639,11 +651,11 @@ function App() {
             onToggle={(pid, aid) => setState(s => toggleCheckin(s, pid, aid))}
           />}
 
-          {tab === 'benefits' && <TranslationView accounts={state.accounts} notify={notify} settings={state.settings} />}
+          {tab === 'benefits' && <TranslationView accounts={state.accounts} notify={notify} settings={state.settings} serviceController={serviceController} />}
 
-          {tab === 'image' && <ImageView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} settings={state.settings} onOpenLocal={() => openTab('local-image')} />}
+          {tab === 'image' && <ImageView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} settings={state.settings} onOpenLocal={() => openTab('local-image')} serviceController={serviceController} />}
 
-          {tab === 'video' && <VideoView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} settings={state.settings} onOpenLocal={() => openTab('local-video')} />}
+          {tab === 'video' && <VideoView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} settings={state.settings} onOpenLocal={() => openTab('local-video')} serviceController={serviceController} />}
 
           {tab === 'local-image' && <div className="set-content"><button className="btn sm ghost sd-back" onClick={() => openTab('image')}><X size={15} /> 返回 AI 图像</button><LocalImageView notify={notify} /></div>}
 

@@ -11,6 +11,8 @@ import { decryptSecret, getBiometricPassword } from '../core/crypto'
 import { ModelInfoCard } from './ModelInfoCard'
 import { GenProgressBar, useGenProgress } from './GenProgressBar'
 import { SafeThumb } from './SafeThumb'
+import { ServiceSwitch } from './ServiceSwitch'
+import type { ServiceController } from '../core/useServiceController'
 import { PROVIDER_MAP } from '../data/providers'
 import { categoryFromNote } from '../core/modelCategories'
 import {
@@ -24,8 +26,8 @@ const SIZES = ['1024x1024', '1536x1024', '1024x1536', '1792x1024', '512x512']
 const QUALITIES = ['', 'standard', 'hd']
 const STYLES = ['', 'vivid', 'natural']
 
-export function ImageView({ accounts, sessionPwd, onUnlock, notify, onOpenLocal }: {
-  accounts: Account[]; sessionPwd: string; onUnlock: (pwd: string) => void; notify: (m: string) => void; settings?: AppSettings; onOpenLocal?: () => void
+export function ImageView({ accounts, sessionPwd, onUnlock, notify, onOpenLocal, serviceController }: {
+  accounts: Account[]; sessionPwd: string; onUnlock: (pwd: string) => void; notify: (m: string) => void; settings?: AppSettings; onOpenLocal?: () => void; serviceController?: ServiceController
 }) {
   // 可用于生图的账户：严格按「备注/用途」分类筛选——只列出标记为「生图型」的账户
   const usable = useMemo(() => accounts
@@ -119,7 +121,10 @@ export function ImageView({ accounts, sessionPwd, onUnlock, notify, onOpenLocal 
         {/* 左：生成控制 */}
         <section className="gen-panel">
           <div className="gen-panel-head"><span className="gen-head-icon"><ImageIcon size={18} /></span><div><h3>AI 图像生成</h3><p>输入画面描述，用你自己的生图账户生成图片</p></div>
-            {onOpenLocal && <button className="btn sm ghost gen-local-entry" onClick={onOpenLocal} title="打开 SD 风格的本地生成页面"><HardDrive size={14} /> 本地生成</button>}
+            <div className="gen-head-actions">
+              {serviceController && <ServiceSwitch controller={serviceController} serviceKey="comfyui" compact />}
+              {onOpenLocal && <button className="btn sm ghost gen-local-entry" onClick={onOpenLocal} title="打开 SD 风格的本地生成页面"><HardDrive size={14} /> 本地生成</button>}
+            </div>
           </div>
           <div className="gen-body">
             <label className="gen-label">生图账户</label>
