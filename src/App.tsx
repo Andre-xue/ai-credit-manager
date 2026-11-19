@@ -26,6 +26,7 @@ import {
   loadState, saveStateDebounced, flushState, uid, updateAccount, removeAccount, upsertQuota, latestQuota, toggleCheckin,
   importState, mergeState, addUsageEvent, updateSettings, clearAllData,
 } from './core/store'
+import { initSubmitMorph } from './core/submitMorph'
 import {
   AGENT_TOOLS, CHECKIN_TOOLS, CATEGORY_TAGS, PLATFORM_TAGS,
   type AgentTool, type AgentRegion, type AgentCategory, type AgentPlatform,
@@ -82,6 +83,9 @@ const CATEGORY_ICON: Record<ProviderDefinition['category'], typeof Code2> = {
 
 function App() {
   const [state, setState] = useState<AppState>(() => loadState())
+
+  // 全局主操作按钮 Submit Morph 动画（只初始化一次）
+  useEffect(() => { initSubmitMorph() }, [])
 
   // 首次启动：按本机内存档位初始化本地服务开关（8G 只开 1 个），仅执行一次
   useEffect(() => {
