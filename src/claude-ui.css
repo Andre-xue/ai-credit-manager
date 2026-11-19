@@ -260,29 +260,33 @@
 /* 页面容器：作为顶栏绝对定位的参照 */
 .ai-page { position: relative; }
 
-/* 顶部栏：三个图标固定在页面右上角（脱离居中的 shell，不受输入框位置影响） */
+/* 顶部栏：sticky 吸顶，消息从下方滑过，不再遮挡三个功能图标 */
 .ai-layout-welcome .ai-topbar,
 .ai-layout-focus .ai-topbar,
 .ai-layout-chat .ai-topbar {
-  position: absolute; top: 12px; right: 22px; z-index: 20;
+  position: sticky; top: 0; z-index: 30;
   display: flex; justify-content: flex-end; align-items: center;
-  border-bottom: none; padding: 0; min-height: 40px;
+  border-bottom: none; padding: 8px 0 10px; min-height: 40px;
+  background: var(--background-primary, #fff);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  margin: -8px 0 0; /* 抵消上方 padding，保持视觉起点不变 */
 }
 .ai-layout-welcome .ai-top-actions,
 .ai-layout-focus .ai-top-actions,
 .ai-layout-chat .ai-top-actions { gap: 16px; min-width: 0; }
 
-/* 手机端：覆盖旧的 width:100%/padding-left 规则，顶栏钉在视口右上角。
-   左上有悬浮菜单按钮，右上角图标靠右不冲突。 */
+/* 手机端：同样 sticky 吸顶，左上有悬浮菜单按钮，靠 padding-left 避让 */
 .phone-shell .ai-layout-welcome .ai-topbar,
 .phone-shell .ai-layout-focus .ai-topbar,
 .phone-shell .ai-layout-chat .ai-topbar {
-  position: fixed;
-  top: calc(env(safe-area-inset-top, 0px) + 6px);
-  right: 14px; left: auto;
-  width: auto; max-width: none; padding: 0;
+  position: sticky;
+  top: 0;
+  right: auto; left: auto;
+  width: 100%; max-width: none; padding: 8px 0 10px;
   overflow: visible; gap: 0;
   z-index: 60;
+  margin: 0;
 }
 .phone-shell .ai-layout-welcome .ai-top-actions,
 .phone-shell .ai-layout-focus .ai-top-actions,
@@ -324,9 +328,8 @@
 .ai-layout-focus .ai-shell { justify-content: center; }
 .ai-layout-welcome .ai-messages,
 .ai-layout-focus .ai-messages { flex: 0 0 auto; padding: 0; overflow: visible; }
-/* 聊天模式：顶栏是 absolute 固定在右上角，消息区需留出顶部空间，
-   否则第一条用户消息（靠右）会与右上角功能图标重叠 */
-.ai-layout-chat .ai-messages { flex: 1 1 auto; overflow-y: auto; padding-top: 56px; }
+/* 聊天模式：顶栏 sticky 占文档流，消息区无需额外顶部补白 */
+.ai-layout-chat .ai-messages { flex: 1 1 auto; overflow-y: auto; padding-top: 8px; }
 .ai-layout-chat .ai-compose { flex-shrink: 0; }
 .ai-layout-welcome .ai-compose,
 .ai-layout-focus .ai-compose { border-top: none; padding-top: 0; }
