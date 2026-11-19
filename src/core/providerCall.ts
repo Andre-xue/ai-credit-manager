@@ -25,7 +25,7 @@ async function invokeApi(url: string, apiKey: string, body: unknown, method: 'PO
   const w = window as unknown as InvokeWindow
   if (!w.__TAURI_INTERNALS__?.invoke) throw Object.assign(new Error('桌面代理不可用'), { cors: true })
   return w.__TAURI_INTERNALS__.invoke!('call_provider_api', {
-    url, apiKey, bodyJson: JSON.stringify(body), method,
+    url, apiKey, bodyJson: body === undefined ? '{}' : JSON.stringify(body), method,
   })
 }
 
@@ -177,9 +177,23 @@ export function extractModelId(account: Account): string {
   return withSlash ?? candidates[0] ?? account.label ?? ''
 }
 
+/** 生图可选参数（AI 图像模块用；不传则保持原有默认行为） */
+export interface ImageOptions {
+  size?: string           // 如 '1024x1024' / '1536x1024' / '1792x1024'
+  n?: number              // 生成张数
+  quality?: string        // 'standard' | 'hd'（部分平台支持）
+  style?: string          // 'vivid' | 'natural'（部分平台支持）
+}
+/** 生视频可选参数（AI 视频模块用） */
+export interface VideoOptions {
+  duration?: number       // 秒
+  ratio?: string          // '16:9' | '9:16' | '1:1'
+  image?: string          // 图生视频的首帧图（URL 或 data URL）
+}
+
 /** 生图：OpenAI 兼容 images generations */
 export async function callImage(
-  account: Account, apiKey: string, prompt: string,
+  account: Account, apiKey: string, prompt: string, opts?: ImageOptions,
 ): Promise<ProviderCallResult> {
   try {
     let base = (account.apiUrl || '').trim().replace(/\/+$/, '')
@@ -187,7 +201,14 @@ export async function callImage(
     if (!/\/v\d+/.test(base)) base += '/v1'
     const url = `${base}/images/generations`
     const model = extractModelId(account)
-    const body = { model, prompt, n: 1, size: '1024x1024', response_format: 'url' }
+    const body: Record<string, unknown> = {
+      model, prompt,
+      n: opts?.n ?? 1,
+      size: opts?.size ?? '1024x1024',
+      response_format: 'url',
+    }
+    if (opts?.quality) body.quality = opts.quality
+    if (opts?.style) body.style = opts.style
     const raw = isDesktopApp() ? await invokeApi(url, apiKey, body) : await directFetch(url, apiKey, body)
     const json = JSON.parse(raw)
     const images: string[] = (json.data ?? []).map((d: { url?: string; b64_json?: string }) => d.url ?? (d.b64_json ? `data:image/png;base64,${d.b64_json}` : '')).filter(Boolean)
@@ -202,7 +223,7 @@ export async function callImage(
 
 /** 视频：异步任务制，尽力提交任务并给出引导（多数平台为私有协议，不保证成功） */
 export async function callVideo(
-  account: Account, apiKey: string, prompt: string,
+  account: Account, apiKey: string, prompt: string, opts?: VideoOptions,
 ): Promise<ProviderCallResult> {
   const base = (account.apiUrl || '').trim().replace(/\/+$/, '')
   if (!base) return { ok: false, text: '', error: '该账户未填写 API 地址' }
@@ -212,11 +233,13 @@ export async function callVideo(
   const model = extractModelId(account)
   for (const url of candidates) {
     try {
-      const body = { model, prompt, duration: 5 }
+      const body: Record<string, unknown> = { model, prompt, duration: opts?.duration ?? 5 }
+      if (opts?.ratio) body.ratio = opts.ratio
+      if (opts?.image) body.image = opts.image
       const raw = isDesktopApp() ? await invokeApi(url, apiKey, body) : await directFetch(url, apiKey, body)
       const json = JSON.parse(raw)
       const id = json.id ?? json.task_id ?? json.data?.id
-      const videoUrl = json.url ?? json.data?.url ?? json.output?.url
+      const videoUrl = json.url ?? json.data?.url ?? json.output?.url ?? json.data?.[0]?.url
       if (videoUrl) return { ok: true, text: '视频已生成', images: [videoUrl] }
       if (id) return { ok: true, text: `视频任务已提交（ID: ${String(id).slice(0, 20)}）。生成需数分钟，结果请到官方平台查看。` }
       lastErr = '接口已响应但未返回任务信息'
@@ -225,6 +248,37 @@ export async function callVideo(
   return {
     ok: false, text: '',
     error: `${account.label} 的视频接口暂未能自动调用（${lastErr.slice(0, 80)}）。这类平台多为私有异步协议，建议到官方页面生成后在此记录。`,
+  }
+}
+
+/**
+ * 查询视频生成任务状态（OpenAI 兼容 GET /v1/videos/{id}），拿到视频 URL 即返回。
+ * 用于 AI 视频模块提交任务后轮询；不支持的平台返回 ok:false，由界面提示去官方查看。
+ */
+export async function queryVideoTask(
+  account: Account, apiKey: string, taskId: string,
+): Promise<ProviderCallResult> {
+  let base = (account.apiUrl || '').trim().replace(/\/+$/, '')
+  if (!base) return { ok: false, text: '', error: '该账户未填写 API 地址' }
+  if (!/\/v\d+/.test(base)) base += '/v1'
+  const url = `${base}/videos/${encodeURIComponent(taskId)}`
+  try {
+    const raw = isDesktopApp()
+      ? await invokeApi(url, apiKey, undefined, 'GET')
+      : await (async () => {
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } })
+        const text = await res.text()
+        if (!res.ok) throw new Error(`接口返回 ${res.status}：${text.slice(0, 120)}`)
+        return text
+      })()
+    const json = JSON.parse(raw)
+    const status = String(json.status ?? '')
+    const videoUrl = json.url ?? json.video_url ?? json.output?.url ?? json.data?.url
+    if (videoUrl) return { ok: true, text: '视频已生成', images: [videoUrl] }
+    if (/fail|error|reject|cancel/i.test(status)) return { ok: false, text: '', error: `视频生成失败（状态：${status}）` }
+    return { ok: true, text: status ? `任务状态：${status}` : '任务处理中' }
+  } catch (e) {
+    return toError(e)
   }
 }
 

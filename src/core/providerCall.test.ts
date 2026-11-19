@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Account } from './types'
-import { callChat, normalizeReasoningEffort, usesFixedSampling, extractModelId } from './providerCall'
+import { callChat, callImage, callVideo, queryVideoTask, normalizeReasoningEffort, usesFixedSampling, extractModelId } from './providerCall'
 
 const acct = (providerId: string): Account => ({
   id: 'a1', providerId, label: 'test', mode: 'api',
@@ -69,5 +69,71 @@ describe('生图/生视频模型 ID 提取', () => {
     const a = { ...acct('custom'), label: '硅基流动 · BAABe Large En V1.5', note: '[生图型] 我的账户' }
     // 无斜杠，取 note 去掉分类后的首个 token
     expect(extractModelId(a)).toBe('我的账户')
+  })
+})
+
+describe('AI 图像/视频模块参数化调用', () => {
+  const imgResp = (bodies: unknown[]) => ({
+    ok: true,
+    text: async () => {
+      const b = bodies[bodies.length - 1] as { n?: number }
+      return JSON.stringify({ data: Array.from({ length: b?.n ?? 1 }, () => ({ url: 'https://img.example.com/a.png' })) })
+    },
+  })
+  it('callImage 携带尺寸/数量/质量/风格参数，返回图片 URL', async () => {
+    const bodies: unknown[] = []
+    const fetchMock = vi.fn().mockImplementation((_url, init) => {
+      bodies.push(JSON.parse(init.body))
+      return Promise.resolve(imgResp(bodies))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const a = { ...acct('siliconflow'), note: '[生图型] Kwai-Kolors/Kolors' }
+    const r = await callImage(a, 'key', '一只猫', { size: '1536x1024', n: 2, quality: 'hd', style: 'vivid' })
+    expect(r.ok).toBe(true)
+    expect(r.images).toHaveLength(2)
+    const body = bodies[0] as Record<string, unknown>
+    expect(body.size).toBe('1536x1024')
+    expect(body.n).toBe(2)
+    expect(body.quality).toBe('hd')
+    expect(body.style).toBe('vivid')
+    expect(body.model).toBe('Kwai-Kolors/Kolors')
+  })
+  it('callImage 不传参数时保持默认 1024x1024 与 1 张（向后兼容）', async () => {
+    const bodies: unknown[] = []
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((_url, init) => {
+      bodies.push(JSON.parse(init.body)); return Promise.resolve(imgResp(bodies))
+    }))
+    await callImage(acct('custom'), 'key', '一只猫')
+    expect((bodies[0] as Record<string, unknown>).size).toBe('1024x1024')
+    expect((bodies[0] as Record<string, unknown>).n).toBe(1)
+  })
+  it('callVideo 携带时长/比例/首帧图参数', async () => {
+    const bodies: unknown[] = []
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((_url, init) => {
+      bodies.push(JSON.parse(init.body))
+      return Promise.resolve({ ok: true, text: async () => JSON.stringify({ id: 'task-123' }) })
+    }))
+    const a = { ...acct('kling'), note: '[视频型] Kling-v1' }
+    const r = await callVideo(a, 'key', '海浪拍打礁石', { duration: 10, ratio: '16:9', image: 'data:image/png;base64,AAA' })
+    expect(r.ok).toBe(true)
+    expect(r.text).toContain('task-123')
+    const body = bodies[0] as Record<string, unknown>
+    expect(body.duration).toBe(10)
+    expect(body.ratio).toBe('16:9')
+    expect(body.image).toBe('data:image/png;base64,AAA')
+  })
+  it('queryVideoTask 识别视频 URL 与失败状态', async () => {
+    const a = acct('kling')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce({
+      ok: true, text: async () => JSON.stringify({ status: 'completed', url: 'https://v.example.com/o.mp4' }),
+    }))
+    const done = await queryVideoTask(a, 'key', 'task-1')
+    expect(done.ok).toBe(true)
+    expect(done.images).toEqual(['https://v.example.com/o.mp4'])
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce({
+      ok: true, text: async () => JSON.stringify({ status: 'failed' }),
+    }))
+    const fail = await queryVideoTask(a, 'key', 'task-2')
+    expect(fail.ok).toBe(false)
   })
 })

@@ -12,6 +12,8 @@ import { isLocalProvider } from './core/types'
 import { detectLocalServices, getSystemMemoryGb, checkLocalService, startLocalService, stopLocalService, stopServiceByPort, isServiceAppManaged, fetchLocalModels, chooseModelFile, type LocalService } from './core/localServices'
 import { DocQAView } from './components/DocQAView'
 import { TranslationView } from './components/TranslationView'
+import { ImageView } from './components/ImageView'
+import { VideoView } from './components/VideoView'
 import { syncVoiceAccounts, setVoiceSessionPwd } from './core/voiceKey'
 import { saveTtsConfig } from './core/voice-download'
 import { detectModelCapability, shouldHideFromChat } from './core/modelCapability'
@@ -66,7 +68,7 @@ type CsvImportPreview =
   | { kind: 'quotas'; quotas: ReturnType<typeof parseQuotasCsv> }
   | { kind: 'usage'; events: UsageEventInput[] }
 
-type Tab = 'ai' | 'dashboard' | 'checkin' | 'benefits' | 'keys' | 'usage' | 'voice' | 'docs' | 'settings'
+type Tab = 'ai' | 'dashboard' | 'checkin' | 'benefits' | 'image' | 'video' | 'keys' | 'usage' | 'voice' | 'docs' | 'settings'
 
 const UNIT_LABEL: Record<CreditUnit, string> = {
   credit: '积分', token: 'Tokens', request: '次', currency: '元', day: '天',
@@ -110,7 +112,7 @@ function App() {
   const isPhone = isNativeApp() || phonePreview
   const [tab, setTab] = useState<Tab>(() => {
     const t = new URLSearchParams(location.search).get('tab')
-    if (t && ['ai', 'dashboard', 'checkin', 'benefits', 'keys', 'usage', 'voice', 'docs', 'settings'].includes(t)) return t as Tab
+    if (t && ['ai', 'dashboard', 'checkin', 'benefits', 'image', 'video', 'keys', 'usage', 'voice', 'docs', 'settings'].includes(t)) return t as Tab
     return isPhone ? 'ai' : 'dashboard'
   })
   const [sidebarVisible, setSidebarVisible] = useState<boolean>(() => {
@@ -514,6 +516,8 @@ function App() {
     { id: 'dashboard', label: '额度看板', icon: LayoutDashboard },
     { id: 'checkin', label: 'AI 工具大全', icon: CalendarCheck2 },
     { id: 'benefits', label: 'AI 翻译', icon: Languages },
+    { id: 'image', label: 'AI 图像', icon: Image },
+    { id: 'video', label: 'AI 视频', icon: Film },
     { id: 'keys', label: 'API Key 管理', icon: KeyRound },
     { id: 'usage', label: '用量与费用', icon: BarChart3 },
     { id: 'voice', label: '语音配置', icon: Volume2 },
@@ -522,14 +526,14 @@ function App() {
   ]
 
   // 移动端底部导航：AI 置于正中间（看板/签到/翻译 · AI · 密钥/用量/设置）
-  const bottomTabs: Tab[] = ['dashboard', 'checkin', 'benefits', 'ai', 'keys', 'usage', 'voice', 'settings']
+  const bottomTabs: Tab[] = ['dashboard', 'checkin', 'benefits', 'ai', 'image', 'video', 'keys', 'usage', 'voice', 'settings']
   const shortLabel: Record<Tab, string> = {
-    ai: 'AI', dashboard: '看板', checkin: '签到', benefits: '翻译',
+    ai: 'AI', dashboard: '看板', checkin: '签到', benefits: '翻译', image: '图像', video: '视频',
     keys: '密钥', usage: '用量', voice: '语音', docs: '文档', settings: '设置',
   }
 
-  // 手机端侧栏：AI 主页面置顶，其后依次为 看板 / 签到 / 翻译 / 密钥 / 用量 / 设置
-  const drawerTabs: Tab[] = ['ai', 'dashboard', 'checkin', 'benefits', 'keys', 'usage', 'settings']
+  // 手机端侧栏：AI 主页面置顶，其后依次为 看板 / 签到 / 翻译 / 图像 / 视频 / 密钥 / 用量 / 设置
+  const drawerTabs: Tab[] = ['ai', 'dashboard', 'checkin', 'benefits', 'image', 'video', 'keys', 'usage', 'settings']
 
   // 界面风格：全平台统一极简留白风（已移除其他风格选项，强制 claude）
   const motionOn = state.settings.uiMotion !== false
@@ -633,6 +637,10 @@ function App() {
           />}
 
           {tab === 'benefits' && <TranslationView accounts={state.accounts} notify={notify} settings={state.settings} />}
+
+          {tab === 'image' && <ImageView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} settings={state.settings} />}
+
+          {tab === 'video' && <VideoView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} settings={state.settings} />}
 
           {tab === 'keys' && <KeysView
             state={state} notify={notify}
