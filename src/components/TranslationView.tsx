@@ -10,6 +10,10 @@ import {
 } from '../core/translate'
 import { chooseBackupFolder } from '../core/keyBackup'
 import { isDesktopApp } from '../core/openExternal'
+import {
+  readFilesFromPaths, readFilesFromDataTransfer, onTauriFileDrop,
+  type ImportedFile,
+} from '../core/fileImport'
 import { detectModelCapability, capabilityChatCapable } from '../core/modelCapability'
 import { isVoiceConfigAccount } from '../core/modelCategories'
 import { isAccountServiceEnabled } from '../core/localServicesSettings'
@@ -54,29 +58,28 @@ export function TranslationView({ accounts, notify, settings }: Props) {
     if (usableAccounts.length && !usableAccounts.some(a => a.id === accountId)) setAccountId(usableAccounts[0].id)
   }, [usableAccounts, accountId])
 
-  const addFiles = async (fileList: FileList | File[]) => {
+  // 统一导入：给文件分类、给出跳过提示，加入待翻译列表
+  const ingestFiles = (imported: ImportedFile[]) => {
     const added: TranslateFile[] = []
-    for (const f of Array.from(fileList)) {
+    for (const f of imported) {
       const category = categorizeFile(f.name)
-      let text = ''
-      if (category === 'document') {
-        // 仅纯文本类可直接读；二进制文档（docx/pdf）第一阶段提示不支持
-        if (/\.(txt|md|markdown|csv|json|log|text|xml|yaml|yml|html?)$/i.test(f.name)) {
-          text = await f.text()
-        } else {
-          notify(`「${f.name}」是二进制文档，第一阶段暂不支持解析，请转存为 txt/md 后导入`)
-          continue
-        }
-      } else if (category === 'image') {
-        notify(`「${f.name}」是图片，OCR 翻译将在第二阶段支持，本次跳过`)
-        continue
-      } else {
-        notify(`「${f.name}」是压缩包，需先解压再导入，本次跳过`)
+      if (category !== 'document') {
+        notify(`「${f.name}」${category === 'image' ? '是图片，OCR 翻译将在第二阶段支持' : category === 'archive' ? '是压缩包，需先解压再导入' : '暂不支持'}，本次跳过`)
         continue
       }
-      added.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name: f.name, category, text })
+      added.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name: f.name, category, text: f.text })
     }
-    if (added.length) setFiles(prev => [...prev, ...added])
+    if (added.length) {
+      setFiles(prev => [...prev, ...added])
+      notify(`已导入 ${added.length} 个文件`)
+    }
+  }
+
+  // Web/手机：从点击选择的 input 读取
+  const addFiles = async (fileList: FileList | File[]) => {
+    const added: ImportedFile[] = []
+    for (const f of Array.from(fileList)) added.push({ name: f.name, text: await f.text() })
+    ingestFiles(added)
   }
 
   const doTranslate = async () => {
@@ -171,10 +174,21 @@ export function TranslationView({ accounts, notify, settings }: Props) {
     notify('已打开打印窗口（每种布局独立分页），可选择「另存为 PDF」')
   }
 
-  // 粘贴导入：从剪贴板读取文本，作为 txt 文件
+  // 粘贴导入：文本 或 文件（剪贴板里的文件）
   useEffect(() => {
-    const onPaste = (e: ClipboardEvent) => {
-      const text = e.clipboardData?.getData('text/plain')
+    const onPaste = async (e: ClipboardEvent) => {
+      const dt = e.clipboardData
+      if (!dt) return
+      // 优先处理粘贴的文件
+      if (dt.files.length > 0) {
+        e.preventDefault()
+        const r = await readFilesFromDataTransfer(dt)
+        if (r.skipped.length) notify(`已跳过 ${r.skipped.length} 个不支持的文件（仅纯文本文档可翻译）`)
+        ingestFiles(r.files)
+        return
+      }
+      // 纯文本粘贴
+      const text = dt.getData('text/plain')
       if (!text?.trim()) return
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
@@ -183,6 +197,19 @@ export function TranslationView({ accounts, notify, settings }: Props) {
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
+  }, [notify])
+
+  // 桌面端：Tauri 原生文件拖放（WebView 会拦截 DOM drop，必须走此 API）
+  useEffect(() => {
+    let cancelled = false
+    let unlisten: (() => void) | undefined
+    void onTauriFileDrop(async paths => {
+      const r = await readFilesFromPaths(paths)
+      if (cancelled) return
+      if (r.skipped.length) notify(`已跳过 ${r.skipped.length} 个不支持的文件（仅纯文本文档可翻译）`)
+      ingestFiles(r.files)
+    }).then(fn => { if (cancelled) fn(); else unlisten = fn })
+    return () => { cancelled = true; unlisten?.() }
   }, [notify])
 
   return (
@@ -196,7 +223,17 @@ export function TranslationView({ accounts, notify, settings }: Props) {
         className={`translate-drop ${dragOver ? 'over' : ''}`}
         onDragOver={e => { e.preventDefault(); setDragOver(true) }}
         onDragLeave={() => setDragOver(false)}
-        onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files) }}
+        onDrop={e => {
+          e.preventDefault(); setDragOver(false)
+          // 桌面端由 Tauri 原生拖放监听处理，避免重复
+          if (isDesktopApp()) return
+          if (e.dataTransfer.files.length) {
+            void readFilesFromDataTransfer(e.dataTransfer).then(r => {
+              if (r.skipped.length) notify(`已跳过 ${r.skipped.length} 个不支持的文件`)
+              ingestFiles(r.files)
+            })
+          }
+        }}
         onClick={() => fileRef.current?.click()}
       >
         <input ref={fileRef} type="file" multiple accept=".txt,.md,.markdown,.csv,.json,.log,.text,.xml,.yaml,.yml,.html,.htm,.png,.jpg,.jpeg,.webp,.zip,.rar,.7z" style={{ display: 'none' }}
