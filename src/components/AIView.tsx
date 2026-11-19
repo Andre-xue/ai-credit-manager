@@ -20,7 +20,7 @@ import {
 } from '../core/aiIdentity'
 import { VoiceCall } from './VoiceCall'
 import {
-  MODEL_CATEGORIES, CATEGORY_META, categoryForModel, isVoiceConfigAccount, type ModelCategory,
+  CATEGORY_META, categoryForModel, isVoiceConfigAccount, type ModelCategory,
 } from '../core/modelCategories'
 import { detectModelCapability, capabilityChatCapable } from '../core/modelCapability'
 import { callByCategory, fetchProviderModels } from '../core/providerCall'
@@ -32,6 +32,7 @@ import {
   isTextAttachment, decodeAttachmentText, type PickedAttachment,
 } from '../core/attachments'
 import { AttachmentPicker } from './AttachmentPicker'
+import { ServiceSwitch } from './ServiceSwitch'
 import {
   enginesFor, enginesFromRemote, hasCatalog, REASONING_LEVELS, REASONING_DESC, toReasoningEffort, defaultReasoningLevel,
   type ReasoningLevel,
@@ -60,10 +61,14 @@ function welcomeText(userNick?: string): string {
   return `${greet}，${name}`
 }
 
-export function AIView({ notify, accounts, settings }: {
+/** AI 助手页只展示这 4 类模型，免费模型排第一（生图型/视频型/文本型不在此页展示） */
+const AI_CATEGORIES: ModelCategory[] = ['免费模型', '通用型', '对话型', '本地型']
+
+export function AIView({ notify, accounts, settings, serviceController }: {
   notify: (m: string) => void
   accounts: Account[]
   settings?: import('../core/types').AppSettings
+  serviceController?: import('../core/useServiceController').ServiceController
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadHistory())
   const [input, setInput] = useState('')
@@ -71,7 +76,7 @@ export function AIView({ notify, accounts, settings }: {
   const [models, setModels] = useState<AiModel[]>([])
   const [model, setModel] = useState<string>('')
   const [modelOpen, setModelOpen] = useState(false)
-  const [category, setCategory] = useState<ModelCategory>('通用型')
+  const [category, setCategory] = useState<ModelCategory>('免费模型')
   const [categoryOpen, setCategoryOpen] = useState(false)
   const [streamingText, setStreamingText] = useState('')
   const [speakingId, setSpeakingId] = useState<string | null>(null)
@@ -253,20 +258,26 @@ export function AIView({ notify, accounts, settings }: {
   const selectedEngine = engines.find(e => e.id === engineId) ?? null
 
   useEffect(() => {
+    // 兜底：当前分类不在展示列表（如旧存档停在生图型），或当前模型已不在选项里，先清掉再重选
+    if (!AI_CATEGORIES.includes(category) || (model && allOptions.length > 0 && !allOptions.some(o => o.key === model))) {
+      setModel('')
+      if (!AI_CATEGORIES.includes(category)) setCategory('免费模型')
+      return
+    }
     if (model || allOptions.length === 0) return
     const saved = loadModel()
     if (saved && allOptions.some(o => o.key === saved)) { setModel(saved); return }
     // 默认从当前分类选；当前分类为空则切到第一个有模型的分类
     const inCategory = allOptions.filter(o => o.category === category)
     if (inCategory.length) { setModel(inCategory[0].key); return }
-    const firstCat = MODEL_CATEGORIES.find(c => allOptions.some(o => o.category === c))
+    const firstCat = AI_CATEGORIES.find(c => allOptions.some(o => o.category === c))
     if (firstCat) { setCategory(firstCat); setModel(allOptions.find(o => o.category === firstCat)!.key) }
   }, [allOptions, model, category])
 
   // 本地服务被全部关闭时，若当前停在「本地型」则自动切到有模型的分类，避免停留在隐藏分类的空列表
   useEffect(() => {
     if (category === '本地型' && !shouldShowLocalCategory(settings)) {
-      const firstCat = MODEL_CATEGORIES.find(c => c !== '本地型' && allOptions.some(o => o.category === c))
+      const firstCat = AI_CATEGORIES.find(c => c !== '本地型' && allOptions.some(o => o.category === c))
       if (firstCat) {
         setCategory(firstCat)
         setModel(allOptions.find(o => o.category === firstCat)?.key ?? '')
@@ -464,7 +475,7 @@ export function AIView({ notify, accounts, settings }: {
       <Layers size={13} /> {category} <ChevronDown size={13} />
     </button>
     {categoryOpen && <div className="ai-model-menu me-panel-in" key={`cat-${category}`}>
-      {MODEL_CATEGORIES.filter(c => {
+      {AI_CATEGORIES.filter(c => {
         // 本地服务全关时隐藏「本地型」分类；开启任一服务则显示
         if (c === '本地型' && !shouldShowLocalCategory(settings)) return false
         return true
@@ -504,8 +515,11 @@ export function AIView({ notify, accounts, settings }: {
         <div className="ai-menu-backdrop" onClick={() => { setCategoryOpen(false); setModelOpen(false); setReasoningOpen(false) }} />
       )}
       <div className="ai-shell">
-        {/* 顶部栏：朗读开关 / 电话 / 刷新，靠右间距适中 */}
+        {/* 顶部栏：本地服务开关 / 朗读开关 / 电话 / 刷新 */}
         <div className="ai-topbar">
+          <div className="ai-top-left">
+            {serviceController && <ServiceSwitch controller={serviceController} serviceKey="ollama" compact />}
+          </div>
           <div className="ai-top-actions">
             <button className={`ai-icon-btn auto-speak-btn ${autoSpeak ? 'active' : ''}`} onClick={toggleAutoSpeak}
               title={autoSpeak ? '自动朗读已开启：AI 回复后自动朗读纯文字，点击关闭' : '开启自动朗读：AI 回复后自动朗读纯文字'}>

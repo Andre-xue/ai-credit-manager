@@ -357,21 +357,52 @@ export async function fetchLocalMediaModels(base: string): Promise<string[]> {
   return ids
 }
 
-/** 本地模型名是否像文本对话模型（排除视觉/嵌入/生图/视频/语音/重排类） */
+/** 本地模型名是否「看起来」像文本对话模型（无能力信息时的兜底：排除常见视觉/嵌入/生图/视频/语音系列） */
 export function isChatCapableLocalModel(id: string): boolean {
-  const exclude = /(embed|vision|vl[-_]|-vl\b|image|draw|diffusion|sd[-_]|flux|tts|whisper|asr|audio|video|ocr|rerank|clip)/i
-  return !exclude.test(id)
+  const exclude = /(embed|vision|\bvl[-_]?|image|draw|diffusion|sd[-_]|flux|tts|whisper|asr|audio|video|ocr|rerank|clip|gemma3|gemma4|llava|bakllava|moondream|pixtral|smolvlm|internvl|llama4|paligemma|qwen3\.5)/i
+  return !exclude.test(id.replace(/\s/g, ''))
+}
+
+/** 去掉 /v1 后缀，得到服务根地址（Ollama 原生 /api/show 不带 /v1） */
+function rootBase(base: string): string {
+  return base.trim().replace(/\/+$/, '').replace(/\/v\d+$/, '')
+}
+
+/** 向本地服务查询某模型的能力列表（Ollama /api/show）；失败返回 null */
+export async function queryLocalModelCapabilities(base: string, model: string): Promise<string[] | null> {
+  const url = `${rootBase(base)}/api/show`
+  try {
+    const raw = isDesktopApp()
+      ? await invokeApi(url, 'local', { name: model })
+      : await (async () => {
+        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: model }) })
+        if (!res.ok) throw new Error(String(res.status))
+        return res.text()
+      })()
+    const json = JSON.parse(raw)
+    return Array.isArray(json?.capabilities) ? json.capabilities.map((c: unknown) => String(c).toLowerCase()) : null
+  } catch { return null }
 }
 
 /**
  * 拉取本地服务中「可用于对话/翻译」的文本模型列表。
- * 按模型名排除视觉/嵌入/生图/视频/语音类模型，只保留文本模型（如 llama/qwen/gemma/deepseek 等）。
+ * 优先用 Ollama /api/show 的 capabilities 精确判断（有 vision 即排除）；
+ * 非 Ollama 服务或查询失败时回退到模型名黑名单。
  */
 export async function fetchLocalChatModels(base: string): Promise<string[]> {
   const all = await fetchLocalMediaModels(base)
-  const chat = all.filter(isChatCapableLocalModel)
+  const chat: string[] = []
+  await Promise.all(all.map(async id => {
+    const caps = await queryLocalModelCapabilities(base, id)
+    // 有能力信息时：必须有 completion 且无 vision；查询失败则回退名字黑名单
+    const capable = caps === null
+      ? isChatCapableLocalModel(id)
+      : caps.includes('completion') && !caps.some(c => c.includes('vision'))
+    if (capable) chat.push(id)
+  }))
   if (chat.length === 0) throw new Error('本地服务中未找到可用于翻译的文本模型')
-  return chat
+  // 保持原顺序
+  return all.filter(id => chat.includes(id))
 }
 
 /** 本地对话调用（OpenAI 兼容 /chat/completions，无需账户 Key；供 AI 翻译本地引擎用） */
