@@ -549,13 +549,76 @@ fn get_system_memory_gb() -> f64 {
     out.unwrap_or(0.0)
 }
 
+/// 检测单个本地服务是否正在运行（HTTP 指纹校验，返回服务实际地址或 null）。
+/// key: ollama / comfyui / lmstudio
+#[tauri::command]
+async fn check_local_service(key: String) -> Option<String> {
+    use std::time::Duration;
+    let (ports, path, check): (&[u16], &str, fn(&serde_json::Value) -> bool) = match key.as_str() {
+        "ollama" => (&[11434, 11435, 11436], "/api/tags", fp_ollama),
+        "comfyui" => (&[8188, 8189, 8288], "/system_stats", fp_comfyui),
+        "lmstudio" => (&[1234, 1235], "/v1/models", fp_lmstudio),
+        _ => return None,
+    };
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(1000))
+        .connect_timeout(Duration::from_millis(250))
+        .build()
+        .ok()?;
+    for &port in ports {
+        for host in ["127.0.0.1", "localhost"] {
+            let url = format!("http://{}:{}{}", host, port, path);
+            if let Ok(resp) = client.get(&url).send().await {
+                if resp.status().is_success() {
+                    if let Ok(json) = resp.json::<serde_json::Value>().await {
+                        if check(&json) {
+                            return Some(format!("http://127.0.0.1:{}", port))
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 启动本机本地模型服务（显式调用，由用户主动触发）。
+/// 仅拉起应用进程，不修改任何系统自启设置；服务由用户在各自应用内管理停止。
+/// 返回启动指引文案。
+#[tauri::command]
+fn start_local_service(key: String) -> Result<String, String> {
+    use std::process::Command;
+    let (app_name, guide): (&str, &str) = match key.as_str() {
+        "ollama" => ("Ollama", "Ollama 启动后将在 11434 端口提供服务"),
+        "comfyui" => ("Comfy Desktop", "ComfyUI 启动后将在 8188 端口提供服务"),
+        "lmstudio" => ("LM Studio", "LM Studio 需在设置中开启本地服务器（1234 端口）"),
+        _ => return Err("未知服务".to_string()),
+    };
+    #[cfg(target_os = "macos")]
+    {
+        // 先确认应用是否安装
+        let app_path = format!("/Applications/{}.app", app_name);
+        if !std::path::Path::new(&app_path).exists() {
+            return Err(format!("未检测到 {}，请先安装后再启动", app_name))
+        }
+        match Command::new("open").args(["-a", app_name]).spawn() {
+            Ok(_) => Ok(format!("已请求启动 {}，请稍候点击「重新检测」。{}", app_name, guide)),
+            Err(e) => Err(format!("启动失败：{}", e)),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(format!("当前平台暂不支持一键启动，请手动打开 {}。{}", app_name, guide))
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb])
+        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

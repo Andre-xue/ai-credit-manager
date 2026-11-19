@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { isLocalProvider } from './core/types'
-import { detectLocalServices, getSystemMemoryGb, type LocalService } from './core/localServices'
+import { detectLocalServices, getSystemMemoryGb, checkLocalService, startLocalService, type LocalService } from './core/localServices'
 import {
   LOCAL_SERVICE_KEYS, providerToService, memoryToTier, tierAdvice, maxServicesForTier,
   isServiceEnabled, toggleService, notifyLocalServiceChanged, initServicesForTier,
@@ -3078,6 +3078,34 @@ function SettingsView({ state, onChange, notify, onOpenVault, onClear, onChangeP
   const memTier: MemoryTier = s.memoryTierOverride ?? memoryToTier(memGb)
   const memDetected = memGb > 0
 
+  // 各服务实时运行状态（null=未检测/非桌面端，字符串=运行中的地址，''=未运行）
+  const [serviceStatus, setServiceStatus] = useState<Partial<Record<LocalServiceKey, string | null>>>({})
+  const [startingKey, setStartingKey] = useState<LocalServiceKey | null>(null)
+  const refreshServiceStatus = useCallback(() => {
+    void Promise.all(LOCAL_SERVICE_KEYS.map(async k => [k, await checkLocalService(k)] as const))
+      .then(pairs => { setServiceStatus(Object.fromEntries(pairs)) })
+  }, [])
+  useEffect(() => { refreshServiceStatus() }, [refreshServiceStatus])
+
+  /** 一键启动本机服务（显式操作；仅拉起应用，不改系统自启、不停服务） */
+  const onStartService = async (key: LocalServiceKey) => {
+    setStartingKey(key)
+    try {
+      const r = await startLocalService(key)
+      notify(r.message)
+      if (r.ok) {
+        // 服务启动需要时间，延迟轮询几次状态
+        let tries = 0
+        const poll = window.setInterval(() => {
+          void checkLocalService(key).then(addr => {
+            if (addr) { setServiceStatus(prev => ({ ...prev, [key]: addr })); window.clearInterval(poll) }
+            else if (++tries >= 12) window.clearInterval(poll) // 最多等 ~18s
+          })
+        }, 1500)
+      }
+    } finally { setStartingKey(null) }
+  }
+
   /** 切换本地服务开关：8G 硬限制 + 关闭时立即派发清理缓存事件 */
   const onToggleLocalService = (key: LocalServiceKey) => {
     const next = toggleService(s, key, memTier)
@@ -3155,13 +3183,37 @@ function SettingsView({ state, onChange, notify, onOpenVault, onClear, onChangeP
             {LOCAL_SERVICE_KEYS.map(key => {
               const label = key === 'ollama' ? 'Ollama' : key === 'comfyui' ? 'ComfyUI' : 'LM Studio'
               const enabled = isServiceEnabled(s, key)
+              const status = serviceStatus[key]
+              const running = typeof status === 'string' && status.length > 0
               return (
-                <SettingsRow key={key} title={`启用 ${label}（App 内）`} desc={`仅控制本 App 是否调用；关闭不影响其他软件使用本机 ${label} 服务`}>
-                  <Toggle checked={enabled} onChange={() => onToggleLocalService(key)} />
-                </SettingsRow>
+                <div className="local-service-row" key={key}>
+                  <div className="local-service-main">
+                    <div className="local-service-title">
+                      <span>允许 App 使用 {label}</span>
+                      <span className={`local-status-badge ${running ? 'running' : ''}`}>
+                        {status === undefined || status === null ? '未检测' : running ? '运行中' : '未运行'}
+                      </span>
+                    </div>
+                    <div className="local-service-desc">
+                      {running ? `服务地址 ${status} · 可被其他软件共用` : '本机服务未启动，可点右侧「启动」；也可自行打开对应应用'}
+                    </div>
+                  </div>
+                  <div className="local-service-actions">
+                    {!running && (
+                      <button className="btn sm" disabled={startingKey === key}
+                        onClick={() => void onStartService(key)} title="拉起本机应用，不改系统自启">
+                        {startingKey === key ? '启动中…' : '启动'}
+                      </button>
+                    )}
+                    {running && <button className="btn sm" onClick={refreshServiceStatus} title="刷新运行状态">刷新</button>}
+                    <Toggle checked={enabled} onChange={() => onToggleLocalService(key)} />
+                  </div>
+                </div>
               )
             })}
-            <div className="local-mem-note">开关仅作用于本 App，不会启停系统服务。关闭时立即清理该服务在本 App 内的引擎/模型缓存以释放内存。</div>
+            <div className="local-mem-note">
+              两个开关含义不同：「允许 App 使用」只控制本 App 是否调用（关闭会清理缓存，不影响其他软件）；「启动」仅拉起本机应用，不改系统自启。服务停止请在对应应用内操作，App 不会自动停止，以免影响其他软件。
+            </div>
           </SettingsSection>
 
           <SettingsSection title="通用" desc="提醒与预警行为" icon={Settings} tone="indigo">
