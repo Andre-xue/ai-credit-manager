@@ -3056,20 +3056,25 @@ function SelectionBar({ selectedCount, totalOnPage, allSelected, onToggleAll, on
 
 /** 开关组件 */
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  // 果冻动画：null=静态，'on'/'off'=正在向对应方向滑动
+  const [anim, setAnim] = useState<'on' | 'off' | null>(null)
+  const prevChecked = useRef(checked)
+  useEffect(() => {
+    if (prevChecked.current !== checked) {
+      setAnim(checked ? 'on' : 'off')
+      prevChecked.current = checked
+      const t = window.setTimeout(() => setAnim(null), 360)
+      return () => window.clearTimeout(t)
+    }
+  }, [checked])
   return (
     <button
       role="switch" aria-checked={checked}
       onClick={() => onChange(!checked)}
-      style={{
-        width: 40, height: 22, borderRadius: 11, border: 'none', flexShrink: 0,
-        background: checked ? 'var(--primary)' : 'var(--border-strong)',
-        position: 'relative', transition: 'background .15s', padding: 0,
-      }}
+      className={`jelly-toggle ${checked ? 'is-on' : ''}`}
+      aria-label={checked ? '关闭' : '开启'}
     >
-      <span style={{
-        position: 'absolute', top: 3, left: checked ? 21 : 3, width: 16, height: 16,
-        borderRadius: '50%', background: '#fff', transition: 'left .15s',
-      }} />
+      <span className={`jelly-dot ${anim ? `anim-${anim}` : (checked ? 'static-on' : 'static-off')}`} />
     </button>
   )
 }

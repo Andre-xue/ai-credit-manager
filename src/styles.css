@@ -1631,3 +1631,45 @@ html, body { touch-action: manipulation; }
   animation: submit-morph-draw .32s ease-out forwards;
 }
 @keyframes submit-morph-draw { to { stroke-dashoffset: 0 } }
+
+/* ============ Jelly Toggle：果冻开关 ============ */
+/* 点击后圆点滑向另一端，途中横向拉长成胶囊，到终点回弹恢复圆形；底色灰→绿；350ms 弹簧曲线 */
+.jelly-toggle {
+  width: 40px; height: 22px; border-radius: 11px; border: none; padding: 0;
+  flex-shrink: 0; position: relative; cursor: pointer;
+  background: var(--border-strong);
+  transition: background-color .35s cubic-bezier(.34, 1.2, .64, 1);
+}
+.jelly-toggle.is-on { background: #16a34a; }
+.jelly-dot {
+  position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
+  border-radius: 8px; background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,.18);
+  will-change: transform;
+}
+.jelly-dot.static-off { transform: translateX(0) scaleX(1); }
+.jelly-dot.static-on { transform: translateX(18px) scaleX(1); }
+/* 向右滑动：途中拉长成胶囊(scaleX)，到终点回弹(overshoot)后恢复圆形 */
+.jelly-dot.anim-on {
+  transform-origin: center center;
+  animation: jelly-slide-on .35s cubic-bezier(.34, 1.2, .64, 1) both;
+}
+@keyframes jelly-slide-on {
+  0%   { transform: translateX(0) scaleX(1); border-radius: 8px; }
+  35%  { transform: translateX(7px) scaleX(1.75); border-radius: 7px; }
+  65%  { transform: translateX(15px) scaleX(1.55); border-radius: 7px; }
+  82%  { transform: translateX(20px) scaleX(.86); border-radius: 8px; } /* 越过终点回弹压缩 */
+  100% { transform: translateX(18px) scaleX(1); border-radius: 8px; }
+}
+/* 向左滑动：反向拉长回弹 */
+.jelly-dot.anim-off {
+  transform-origin: center center;
+  animation: jelly-slide-off .35s cubic-bezier(.34, 1.2, .64, 1) both;
+}
+@keyframes jelly-slide-off {
+  0%   { transform: translateX(18px) scaleX(1); border-radius: 8px; }
+  35%  { transform: translateX(11px) scaleX(1.75); border-radius: 7px; }
+  65%  { transform: translateX(3px) scaleX(1.55); border-radius: 7px; }
+  82%  { transform: translateX(-2px) scaleX(.86); border-radius: 8px; }
+  100% { transform: translateX(0) scaleX(1); border-radius: 8px; }
+}
