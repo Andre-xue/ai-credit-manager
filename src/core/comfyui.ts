@@ -115,6 +115,16 @@ const isDesktop = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' i
 const call = (base: string, endpoint: string, method: string, body: unknown, wantImage: boolean) =>
   isDesktop() ? invokeComfy(base, endpoint, method, body, wantImage) : fetchComfy(base, endpoint, method, body, wantImage)
 
+/** 从 ComfyUI 实时 API 拉取可用 checkpoint 列表；失败返回空数组由调用方回退到扫目录 */
+export async function fetchComfyCheckpoints(base: string): Promise<string[]> {
+  try {
+    const text = await call(base, 'object_info/CheckpointLoaderSimple', 'GET', undefined, false)
+    const json = JSON.parse(text)
+    const arr = json?.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0]
+    return Array.isArray(arr) ? arr.filter((x: unknown) => typeof x === 'string') : []
+  } catch { return [] }
+}
+
 /** 提交工作流，返回 prompt_id */
 export async function comfySubmit(base: string, workflow: Record<string, unknown>): Promise<string> {
   const clientId = `acm-${Date.now()}`

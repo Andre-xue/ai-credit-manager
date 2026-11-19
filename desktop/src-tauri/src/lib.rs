@@ -1114,6 +1114,29 @@ async fn comfyui_api(base_url: String, endpoint: String, method: String, body_js
     Ok(text)
 }
 
+/// 从 ComfyUI /object_info/CheckpointLoaderSimple 获取实时可用的 checkpoint 列表（比扫目录准确）。
+#[tauri::command]
+async fn comfyui_checkpoints(base_url: String) -> Result<Vec<String>, String> {
+    let base = validate_proxy_url(base_url.trim().trim_end_matches('/'))?.to_string();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build().map_err(|e| format!("客户端错误：{}", e))?;
+    let resp = client.get(format!("{}/object_info/CheckpointLoaderSimple", base)).send().await
+        .map_err(|e| format!("连接 ComfyUI 失败：{}", e))?;
+    if !resp.status().is_success() { return Err(format!("ComfyUI 返回 {}", resp.status().as_u16())) }
+    let json: serde_json::Value = resp.json().await.map_err(|e| format!("响应格式异常：{}", e))?;
+    let names = json.get("CheckpointLoaderSimple")
+        .and_then(|v| v.get("input"))
+        .and_then(|v| v.get("required"))
+        .and_then(|v| v.get("ckpt_name"))
+        .and_then(|v| v.get(0))
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect::<Vec<_>>())
+        .unwrap_or_default();
+    if names.is_empty() { return Err("ComfyUI 未报告任何 checkpoint（可能未加载模型）".into()) }
+    Ok(names)
+}
+
 /// 拉取本地服务已加载/已安装的模型列表，供添加本地模型弹窗选择。
 /// key: ollama / comfyui / lmstudio；url 为探测到的服务网关地址。
 #[tauri::command]
@@ -1200,7 +1223,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, write_binary_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service, stop_local_service, is_service_app_managed, tts_test_direct, tts_clone_direct, tts_synthesize_direct, voicestudio_test, voicestudio_list, voicestudio_clone, voicestudio_synthesize, fetch_local_models, choose_model_file, ollama_embed, stop_service_by_port, comfyui_api])
+        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, write_binary_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service, stop_local_service, is_service_app_managed, tts_test_direct, tts_clone_direct, tts_synthesize_direct, voicestudio_test, voicestudio_list, voicestudio_clone, voicestudio_synthesize, fetch_local_models, choose_model_file, ollama_embed, stop_service_by_port, comfyui_api, comfyui_checkpoints])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

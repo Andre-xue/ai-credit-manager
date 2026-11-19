@@ -8,7 +8,7 @@ import {
   Dices, Upload, X, Maximize2, ChevronDown, SlidersHorizontal, History, Settings2,
 } from 'lucide-react'
 import { callLocalImage, fetchLocalMediaModels } from '../core/providerCall'
-import { isComfyUIBase, comfyGenerate } from '../core/comfyui'
+import { isComfyUIBase, comfyGenerate, fetchComfyCheckpoints } from '../core/comfyui'
 import { fetchLocalModels } from '../core/localServices'
 import { saveMedia, loadHistory, addHistory, removeHistory, clearHistory, newMediaId, errTextSafe, urlToThumb, type MediaHistoryItem } from '../core/mediaGeneration'
 import { HoldToConfirm } from './HoldToConfirm'
@@ -23,7 +23,15 @@ const RATIOS = [
 const DEFAULT_BASE = 'http://127.0.0.1:8188'  // ComfyUI 默认端口
 
 export function LocalImageView({ notify }: { notify: (m: string) => void }) {
-  const [base, setBase] = useState(() => localStorage.getItem('acm.local.img.base') || DEFAULT_BASE)
+  // 一次性迁移：旧版默认 11434（Ollama 端口）导致连不上 ComfyUI，升级后自动切到 8188
+  const [base, setBase] = useState(() => {
+    if (localStorage.getItem('acm.local.img.migrated')) return localStorage.getItem('acm.local.img.base') || DEFAULT_BASE
+    const old = localStorage.getItem('acm.local.img.base')
+    const next = !old || old.includes('11434') ? DEFAULT_BASE : old
+    localStorage.setItem('acm.local.img.base', next)
+    localStorage.setItem('acm.local.img.migrated', '1')
+    return next
+  })
   const [models, setModels] = useState<string[]>([])
   const [model, setModel] = useState('')
   const [loadingModels, setLoadingModels] = useState(false)
@@ -56,16 +64,25 @@ export function LocalImageView({ notify }: { notify: (m: string) => void }) {
     try {
       let ids: string[]
       if (isComfyUIBase(base)) {
-        const r = await fetchLocalModels('comfyui', base)
-        if (!r.ok) throw new Error(r.error ?? '拉取失败')
-        ids = r.models
+        // 优先用 ComfyUI 实时 API 拿 checkpoint（最准确），失败回退到本地目录扫描
+        ids = await fetchComfyCheckpoints(base)
+        if (ids.length === 0) {
+          const r = await fetchLocalModels('comfyui', base)
+          if (!r.ok) throw new Error(r.error ?? '拉取失败')
+          ids = r.models
+        }
       } else {
         ids = await fetchLocalMediaModels(base)
       }
       setModels(ids)
       setModel(prev => ids.includes(prev) ? prev : (ids[0] ?? ''))
       notify(`已连接本地服务，找到 ${ids.length} 个模型${isComfyUIBase(base) ? '（ComfyUI）' : ''}`)
-    } catch (e) { notify(`连接失败：${errTextSafe(e)}`) }
+    } catch (e) {
+      const msg = errTextSafe(e)
+      notify(!isComfyUIBase(base) && /502|503|connection|refused|连接/i.test(msg)
+        ? `连接失败：${msg}。当前地址 ${base} 可能不是生图服务，ComfyUI 请用 http://127.0.0.1:8188`
+        : `连接失败：${msg}`)
+    }
     finally { setLoadingModels(false) }
   }
 

@@ -11,6 +11,8 @@ import { callLocalVideo, queryLocalVideoTask, fetchLocalMediaModels } from '../c
 import { saveMedia, loadHistory, addHistory, removeHistory, clearHistory, newMediaId, errTextSafe, type MediaHistoryItem } from '../core/mediaGeneration'
 import { HoldToConfirm } from './HoldToConfirm'
 import { extractTaskId } from '../core/mediaAdapters'
+import { isComfyUIBase, fetchComfyCheckpoints } from '../core/comfyui'
+import { fetchLocalModels } from '../core/localServices'
 import { GenProgressBar, useGenProgress } from './GenProgressBar'
 
 const RESOLUTIONS = ['480p', '576p', '720p', '768p', '1080p']
@@ -18,7 +20,14 @@ const RATIOS = ['1:1', '3:4', '4:3', '9:16', '16:9', '21:9']
 const DEFAULT_BASE = 'http://127.0.0.1:11434'
 
 export function LocalVideoView({ notify }: { notify: (m: string) => void }) {
-  const [base, setBase] = useState(() => localStorage.getItem('acm.local.vid.base') || DEFAULT_BASE)
+  const [base, setBase] = useState(() => {
+    if (localStorage.getItem('acm.local.vid.migrated')) return localStorage.getItem('acm.local.vid.base') || DEFAULT_BASE
+    const old = localStorage.getItem('acm.local.vid.base')
+    const next = !old || old.includes('11434') ? DEFAULT_BASE : old
+    localStorage.setItem('acm.local.vid.base', next)
+    localStorage.setItem('acm.local.vid.migrated', '1')
+    return next
+  })
   const [models, setModels] = useState<string[]>([])
   const [model, setModel] = useState('')
   const [loadingModels, setLoadingModels] = useState(false)
@@ -50,11 +59,28 @@ export function LocalVideoView({ notify }: { notify: (m: string) => void }) {
   const loadModels = async () => {
     setLoadingModels(true)
     try {
-      const ids = await fetchLocalMediaModels(base)
+      let ids: string[]
+      if (isComfyUIBase(base)) {
+        // ComfyUI 无标准视频接口，只能列出 checkpoint 作为参考底模
+        ids = await fetchComfyCheckpoints(base)
+        if (ids.length === 0) {
+          const r = await fetchLocalModels('comfyui', base)
+          if (!r.ok) throw new Error(r.error ?? '拉取失败')
+          ids = r.models
+        }
+        if (ids.length) notify(`已连上 ComfyUI，列出 ${ids.length} 个 checkpoint。注意：ComfyUI 生视频需 AnimateDiff 等工作流，此页可能仍无法生成`)
+      } else {
+        ids = await fetchLocalMediaModels(base)
+      }
       setModels(ids)
       setModel(prev => ids.includes(prev) ? prev : (ids[0] ?? ''))
-      notify(`已连接本地服务，找到 ${ids.length} 个模型`)
-    } catch (e) { notify(`连接失败：${errTextSafe(e)}`) }
+      if (!isComfyUIBase(base)) notify(`已连接本地服务，找到 ${ids.length} 个模型`)
+    } catch (e) {
+      const msg = errTextSafe(e)
+      notify(!isComfyUIBase(base) && /502|503|connection|refused|连接/i.test(msg)
+        ? `连接失败：${msg}。当前地址 ${base} 可能不是视频服务；ComfyUI 默认 8188（但 ComfyUI 生视频需额外工作流）`
+        : `连接失败：${msg}`)
+    }
     finally { setLoadingModels(false) }
   }
   const randomSeed = () => setSeed(Math.floor(Math.random() * 4294967295))
