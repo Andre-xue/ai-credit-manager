@@ -1483,3 +1483,11 @@ html, body { touch-action: manipulation; }
 }
 .local-status-badge.running { background: #e7f7ef; color: #12855a; border-color: #b7e4cd; }
 .local-service-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+/* 第三方语音服务直连引导 */
+.voice-direct-guide {
+  font-size: 12px; line-height: 1.9; color: var(--text-2);
+  background: var(--panel-2); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px;
+}
+.voice-direct-guide a { color: var(--primary); text-decoration: none; font-weight: 600; }
+.voice-direct-guide a:hover { text-decoration: underline; }

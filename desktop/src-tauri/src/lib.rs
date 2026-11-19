@@ -691,13 +691,141 @@ fn stop_local_service(key: String) -> Result<String, String> {
     else { Err(format!("停止进程 {} 失败", pid)) }
 }
 
+// ==================== 阿里云百炼 TTS 直连 ====================
+// 用户只需填 API Key，App 后端直调官方 REST API（规避浏览器 CORS、免部署代理）。
+
+/// 阿里云百炼旧域名（仍可用，无需 WorkspaceId，降低用户配置门槛）
+const DASHSCOPE_BASE: &str = "https://dashscope.aliyuncs.com/api/v1/services/audio/tts";
+
+/// 解析声音复刻响应中的 voice_id
+fn parse_clone_voice_id(json: &serde_json::Value) -> Option<String> {
+    json.get("output")?.get("voice_id")?.as_str().map(|s| s.to_string())
+}
+
+/// 解析语音合成响应中的音频 URL（非流式：output.audio.url）
+fn parse_synthesize_url(json: &serde_json::Value) -> Option<String> {
+    json.get("output")?.get("audio")?.get("url")?.as_str().map(|s| s.to_string())
+}
+
+/// 校验测试连接响应是否有效（list_voice 成功即 Key 有效；有 voice_list 或仅 request_id 都算成功）
+fn parse_test_ok(json: &serde_json::Value) -> bool {
+    json.get("request_id").and_then(|v| v.as_str()).is_some()
+}
+
+/// base64 编码字节（无外部依赖）
+fn base64_encode(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut i = 0;
+    while i < data.len() {
+        let b0 = data[i];
+        let b1 = if i + 1 < data.len() { data[i + 1] } else { 0 };
+        let b2 = if i + 2 < data.len() { data[i + 2] } else { 0 };
+        out.push(T[(b0 >> 2) as usize] as char);
+        out.push(T[(((b0 & 0x03) << 4) | (b1 >> 4)) as usize] as char);
+        out.push(if i + 1 < data.len() { T[(((b1 & 0x0f) << 2) | (b2 >> 6)) as usize] as char } else { '=' });
+        out.push(if i + 2 < data.len() { T[(b2 & 0x3f) as usize] as char } else { '=' });
+        i += 3;
+    }
+    out
+}
+
+/// 校验 API Key 有效性：调用 list_voice，成功即有效
+#[tauri::command]
+async fn tts_test_direct(api_key: String) -> Result<String, String> {
+    let key = api_key.trim();
+    if key.is_empty() { return Err("请先填写 API Key".to_string()) }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build().map_err(|e| format!("客户端错误：{}", e))?;
+    let url = format!("{}/customization", DASHSCOPE_BASE);
+    let body = serde_json::json!({
+        "model": "voice-enrollment",
+        "input": { "action": "list_voice", "page_size": 1, "page_index": 0 }
+    });
+    let resp = client.post(&url)
+        .header("Authorization", format!("Bearer {}", key))
+        .header("Content-Type", "application/json")
+        .json(&body).send().await
+        .map_err(|e| format!("连接失败：{}", e))?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() { return Err(format!("API Key 无效或未知错误（HTTP {}）：{}", status.as_u16(), text.chars().take(160).collect::<String>())) }
+    let json: serde_json::Value = serde_json::from_str(&text).map_err(|_| "响应格式异常".to_string())?;
+    if parse_test_ok(&json) { Ok("连接成功，API Key 有效".to_string()) }
+    else { Err(format!("校验未通过：{}", text.chars().take(160).collect::<String>())) }
+}
+
+/// 声音复刻：POST customization create_voice，audio 为 Data URI
+#[tauri::command]
+async fn tts_clone_direct(api_key: String, name: String, mime: String, audio_data_url: String) -> Result<String, String> {
+    let key = api_key.trim();
+    if key.is_empty() { return Err("请先填写 API Key".to_string()) }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(180))
+        .build().map_err(|e| format!("客户端错误：{}", e))?;
+    // prefix 仅允许字母数字、≤10 字符
+    let prefix: String = name.chars().filter(|c| c.is_ascii_alphanumeric()).take(10).collect();
+    let prefix = if prefix.is_empty() { "voice".to_string() } else { prefix };
+    let body = serde_json::json!({
+        "model": "voice-enrollment",
+        "input": {
+            "action": "create_voice",
+            "target_model": "cosyvoice-v2",
+            "prefix": prefix,
+            "audio": audio_data_url,
+            "language_hints": ["zh"]
+        }
+    });
+    let url = format!("{}/customization", DASHSCOPE_BASE);
+    let resp = client.post(&url)
+        .header("Authorization", format!("Bearer {}", key))
+        .header("Content-Type", "application/json")
+        .json(&body).send().await
+        .map_err(|e| format!("克隆请求失败：{}", e))?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() { return Err(format!("克隆失败（HTTP {}）：{}", status.as_u16(), text.chars().take(200).collect::<String>())) }
+    let json: serde_json::Value = serde_json::from_str(&text).map_err(|_| format!("响应格式异常：{}", text.chars().take(160).collect::<String>()))?;
+    parse_clone_voice_id(&json).ok_or_else(|| format!("服务未返回 voice_id：{}", text.chars().take(200).collect::<String>()))
+}
+
+/// 语音合成：POST SpeechSynthesizer → 取 audio.url → 下载字节 → 返回 base64（含 data URI）
+#[tauri::command]
+async fn tts_synthesize_direct(api_key: String, voice: String, text: String) -> Result<String, String> {
+    let key = api_key.trim();
+    if key.is_empty() { return Err("请先填写 API Key".to_string()) }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build().map_err(|e| format!("客户端错误：{}", e))?;
+    let body = serde_json::json!({
+        "model": "cosyvoice-v2",
+        "input": { "text": text, "voice": voice, "format": "mp3", "sample_rate": 24000 }
+    });
+    let url = format!("{}/SpeechSynthesizer", DASHSCOPE_BASE);
+    let resp = client.post(&url)
+        .header("Authorization", format!("Bearer {}", key))
+        .header("Content-Type", "application/json")
+        .json(&body).send().await
+        .map_err(|e| format!("合成请求失败：{}", e))?;
+    let status = resp.status();
+    let resp_text = resp.text().await.unwrap_or_default();
+    if !status.is_success() { return Err(format!("合成失败（HTTP {}）：{}", status.as_u16(), resp_text.chars().take(200).collect::<String>())) }
+    let json: serde_json::Value = serde_json::from_str(&resp_text).map_err(|_| "合成响应格式异常".to_string())?;
+    let audio_url = parse_synthesize_url(&json).ok_or_else(|| format!("合成未返回音频地址：{}", resp_text.chars().take(200).collect::<String>()))?;
+    let audio = client.get(&audio_url).send().await.map_err(|e| format!("下载音频失败：{}", e))?;
+    if !audio.status().is_success() { return Err(format!("下载音频失败（HTTP {}）", audio.status().as_u16())) }
+    let bytes = audio.bytes().await.map_err(|e| format!("读取音频失败：{}", e))?;
+    Ok(format!("data:audio/mp3;base64,{}", base64_encode(&bytes)))
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service, stop_local_service, is_service_app_managed])
+        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service, stop_local_service, is_service_app_managed, tts_test_direct, tts_clone_direct, tts_synthesize_direct])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -742,6 +870,35 @@ mod local_service_tests {
         let gb = parse_meminfo_linux(meminfo).unwrap();
         assert!(gb > 15.0 && gb < 17.0, "解析结果 {} 应接近 16GB", gb);
         assert_eq!(parse_meminfo_linux("no mem here"), None);
+    }
+
+    #[test]
+    fn parse_clone_voice_id_ok() {
+        let j = serde_json::json!({"request_id":"x","output":{"voice_id":"cosyvoice-v2-abc-123"}});
+        assert_eq!(parse_clone_voice_id(&j), Some("cosyvoice-v2-abc-123".to_string()));
+        assert_eq!(parse_clone_voice_id(&serde_json::json!({"output":{}})), None);
+    }
+
+    #[test]
+    fn parse_synthesize_url_ok() {
+        let j = serde_json::json!({"output":{"audio":{"url":"https://oss.example/a.wav"},"finish_reason":"stop"}});
+        assert_eq!(parse_synthesize_url(&j), Some("https://oss.example/a.wav".to_string()));
+        assert_eq!(parse_synthesize_url(&serde_json::json!({"output":{"audio":{"data":""}}})), None);
+    }
+
+    #[test]
+    fn parse_test_ok_requires_request_id() {
+        assert!(parse_test_ok(&serde_json::json!({"request_id":"req-1","output":{"voice_list":[]}})));
+        assert!(!parse_test_ok(&serde_json::json!({"error":"bad key"})));
+    }
+
+    #[test]
+    fn base64_encode_standard() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
     }
 
     #[test]

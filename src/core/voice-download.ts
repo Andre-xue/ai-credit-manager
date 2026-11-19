@@ -2,6 +2,8 @@
 // 切换音色时：删除旧文件 → 提示 → 下载新文件。文件存 IndexedDB（适合二进制 Blob）。
 // 第三方 TTS 的密钥本地加密存储；未配置时下载入口禁用并说明。
 
+import { ttsSynthesizeDirect } from './ttsDirect'
+
 const DB_NAME = 'acm-voice-db'
 const STORE = 'voices'
 const SLOT_KEY = 'active-voice'
@@ -19,13 +21,36 @@ export interface VoiceFile {
 export interface TtsProviderConfig {
   /** 第三方 TTS 服务类型；未配置为空 */
   provider: '' | 'local' | 'aliyun' | 'volcengine' | 'tencent' | 'minimax' | 'elevenlabs'
-  /** 服务端点（由部署方配置，避免前端持有长期密钥） */
+  /** 服务端点（自建代理模式使用） */
   endpoint: string
+  /** 配置模式：direct=官方 API Key 直连(免部署,推荐)；proxy=自建服务端代理 */
+  mode?: 'direct' | 'proxy'
+  /** 官方 API Key（直连模式使用；存储时混淆，不落明文） */
+  apiKey?: string
   secretId?: string
   secretKey?: string
 }
 
-const EMPTY_CONFIG: TtsProviderConfig = { provider: '', endpoint: '' }
+const EMPTY_CONFIG: TtsProviderConfig = { provider: '', endpoint: '', mode: 'direct' }
+
+// API Key 轻度混淆（异或固定盐 + base64），避免 localStorage 明文直读。
+// 非强加密，密钥始终在用户本机，不上传、不进云同步。
+const KEY_SALT = 'acm-tts-2026'
+function obfuscateKey(s: string): string {
+  if (!s) return ''
+  let out = ''
+  for (let i = 0; i < s.length; i++) out += String.fromCharCode(s.charCodeAt(i) ^ KEY_SALT.charCodeAt(i % KEY_SALT.length))
+  try { return btoa(unescape(encodeURIComponent(out))) } catch { return '' }
+}
+function deobfuscateKey(s: string): string {
+  if (!s) return ''
+  try {
+    const out = decodeURIComponent(escape(atob(s)))
+    let res = ''
+    for (let i = 0; i < out.length; i++) res += String.fromCharCode(out.charCodeAt(i) ^ KEY_SALT.charCodeAt(i % KEY_SALT.length))
+    return res
+  } catch { return '' }
+}
 
 /** 切换音色时的标准提示（保留原意，措辞更自然） */
 export const SWITCH_NOTICE = '为避免存储空间过载，已清理原下载的音色，正在下载新音色…'
@@ -79,21 +104,36 @@ export async function hasDownloadedVoice(): Promise<boolean> {
   return (await getActiveVoiceFile()) !== null
 }
 
-/** 获取 TTS 配置（明文返回给调用方用于发起请求，存储时不落明文日志） */
+/** 获取 TTS 配置（明文返回给调用方用于发起请求，存储时 apiKey 不落明文） */
 export function getTtsConfig(): TtsProviderConfig {
   try {
     const raw = localStorage.getItem(CONFIG_KEY)
-    return raw ? { ...EMPTY_CONFIG, ...JSON.parse(raw) } : EMPTY_CONFIG
+    if (!raw) return EMPTY_CONFIG
+    const obj = JSON.parse(raw) as Partial<TtsProviderConfig> & { apiKeyEnc?: string }
+    return {
+      ...EMPTY_CONFIG,
+      ...obj,
+      mode: obj.mode ?? 'proxy', // 老配置无 mode，按代理模式兼容
+      apiKey: obj.apiKey ?? deobfuscateKey(obj.apiKeyEnc ?? ''),
+    }
   } catch { return EMPTY_CONFIG }
 }
 
+/** 是否已配置可用（直连模式需 provider+apiKey；代理模式需 provider+endpoint） */
 export function hasTtsConfig(): boolean {
   const c = getTtsConfig()
-  return !!(c.provider && c.endpoint)
+  if (!c.provider) return false
+  return c.mode === 'direct' ? !!c.apiKey?.trim() : !!c.endpoint?.trim()
 }
 
 export function saveTtsConfig(c: TtsProviderConfig): void {
-  try { localStorage.setItem(CONFIG_KEY, JSON.stringify(c)) } catch { /* 忽略 */ }
+  try {
+    localStorage.setItem(CONFIG_KEY, JSON.stringify({
+      ...c,
+      apiKey: undefined,
+      apiKeyEnc: obfuscateKey(c.apiKey ?? ''),
+    }))
+  } catch { /* 忽略 */ }
 }
 
 export function clearTtsConfig(): void {
@@ -116,7 +156,8 @@ export async function switchVoice(
   signal?: AbortSignal,
 ): Promise<{ ok: boolean; error?: string }> {
   const config = getTtsConfig()
-  if (!config.provider || !config.endpoint) {
+  const direct = config.mode === 'direct' && config.provider === 'aliyun' && !!config.apiKey?.trim()
+  if (!config.provider || (!direct && !config.endpoint)) {
     return { ok: false, error: '方言音色需先配置第三方语音服务（设置 → 语音朗读）' }
   }
 
@@ -129,11 +170,23 @@ export async function switchVoice(
 
   onState('downloading')
   try {
-    // 通过部署方的 TTS 代理端点换取音频；密钥在服务端持有，前端只传音色 id。
-    const url = `${config.endpoint.replace(/\/$/, '')}/voice?provider=${encodeURIComponent(config.provider)}&voice=${encodeURIComponent(voiceId)}`
-    const res = await fetch(url, { signal })
-    if (!res.ok) throw new Error(`下载失败（HTTP ${res.status}）`)
-    const blob = await res.blob()
+    let blob: Blob
+    if (direct) {
+      // 直连模式：用该音色合成一句样音作本地缓存（官方无独立"音色文件"下载端点）
+      const dataUri = await ttsSynthesizeDirect(config, voiceId, '你好，这是音色试听。')
+      const b64 = dataUri.split(',')[1] ?? ''
+      if (!b64) throw new Error('音色样音为空')
+      const bin = atob(b64)
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+      blob = new Blob([bytes], { type: 'audio/mp3' })
+    } else {
+      // 通过部署方的 TTS 代理端点换取音频；密钥在服务端持有，前端只传音色 id。
+      const url = `${config.endpoint.replace(/\/$/, '')}/voice?provider=${encodeURIComponent(config.provider)}&voice=${encodeURIComponent(voiceId)}`
+      const res = await fetch(url, { signal })
+      if (!res.ok) throw new Error(`下载失败（HTTP ${res.status}）`)
+      blob = await res.blob()
+    }
     if (blob.size === 0) throw new Error('下载的音色文件为空')
 
     const db = await openDb()

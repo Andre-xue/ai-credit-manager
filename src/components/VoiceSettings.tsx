@@ -21,12 +21,14 @@ import {
 import {
   getVolcConfig, saveVolcConfig, clearVolcConfig, type VolcConfig,
 } from '../core/volcConfig'
+import { ttsTestDirect } from '../core/ttsDirect'
 
 export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
   const [rate, setRate] = useState(getRate())
   const [ttsConfigured, setTtsConfigured] = useState(hasTtsConfig())
   const [config, setConfig] = useState<TtsProviderConfig>(() => getTtsConfig())
   const [configOpen, setConfigOpen] = useState(false)
+  const [testingKey, setTestingKey] = useState(false)
   const [previewing, setPreviewing] = useState(false)
   const [sample, setSample] = useState<VoiceSample | null>(null)
   const [clonedId, setClonedId] = useState<string | null>(() => getClonedVoiceId())
@@ -58,12 +60,25 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
 
   const changeRate = (r: number) => { setRate(r); saveRate(r) }
 
+  const isDirect = (config.mode ?? 'direct') === 'direct'
   const saveConfig = () => {
-    if (config.provider && !config.endpoint) { notify('请填写服务端点'); return }
+    if (!config.provider) { saveTtsConfig({ provider: '', endpoint: '', mode: 'direct' }); setTtsConfigured(false); setConfigOpen(false); notify('已清除语音服务配置'); return }
+    if (isDirect) {
+      if (!config.apiKey?.trim()) { notify('请填写阿里云百炼 API Key'); return }
+    } else if (!config.endpoint?.trim()) { notify('请填写服务端点'); return }
     saveTtsConfig(config)
-    setTtsConfigured(!!(config.provider && config.endpoint))
+    setTtsConfigured(true)
     setConfigOpen(false)
-    notify(config.provider ? '语音服务配置已保存' : '已清除语音服务配置')
+    notify('语音服务配置已保存')
+  }
+
+  const testDirect = async () => {
+    if (!config.apiKey?.trim()) { notify('请先填写 API Key'); return }
+    setTestingKey(true)
+    try {
+      const r = await ttsTestDirect(config.apiKey.trim())
+      notify(r.message)
+    } finally { setTestingKey(false) }
   }
 
   const doRecord = async () => {
@@ -233,7 +248,7 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
         </div>
       )}
       {cloneError && <div className="voice-clone-error"><Info size={14} /> <span>{cloneError}</span><button className="icon-btn" onClick={() => setCloneError('')}>×</button></div>}
-      {!ttsConfigured && <div className="voice-hint"><Info size={13} /> 声音克隆需要第三方语音服务代理（下方配置）；内置免费模型不提供克隆能力。</div>}
+      {!ttsConfigured && <div className="voice-hint"><Info size={13} /> 声音克隆需配置语音服务：桌面端推荐「官方直连」（填一个 API Key 即可，无需部署）；内置免费模型不提供克隆能力。</div>}
       {desktop && <div className="voice-hint"><Info size={13} /> 桌面 WebView 不提供浏览器录音接口；请用「选择音频文件」导入样本（可先用 QuickTime 等工具录音）。</div>}
 
       {/* 已保存的克隆音色列表：可命名、切换、删除 */}
@@ -278,6 +293,12 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
         <Globe2 size={14} /> 第三方语音服务配置 {ttsConfigured ? '（已配置）' : '（未配置）'} <span>{configOpen ? '收起' : '展开'}</span>
       </button>
       {configOpen && <div className="voice-config">
+        <label className="form-label">连接模式
+          <select className="select" value={config.mode ?? 'direct'} onChange={e => setConfig({ ...config, mode: e.target.value as 'direct' | 'proxy' })}>
+            <option value="direct">官方直连（推荐 · 无需部署，只需一个 API Key）</option>
+            <option value="proxy">自建服务端代理（高级 · 密钥放自己的服务端）</option>
+          </select>
+        </label>
         <label className="form-label">服务商
           <select className="select" value={config.provider} onChange={e => setConfig({ ...config, provider: e.target.value as TtsProviderConfig['provider'] })}>
             <option value="">未选择</option>
@@ -286,13 +307,36 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
             ))}
           </select>
         </label>
-        <label className="form-label">服务端点（代理地址，密钥在服务端持有)
-          <input className="input" value={config.endpoint} onChange={e => setConfig({ ...config, endpoint: e.target.value })} placeholder="https://your-tts-proxy.example.com" />
-        </label>
-        <div className="voice-config-note">为安全起见，请将 AccessKey 保存在服务端代理，前端仅配置端点地址。</div>
+
+        {isDirect ? (
+          <>
+            <div className="voice-direct-guide">
+              1. 打开 <a href="https://bailian.console.aliyun.com/?tab=model#/api-key" target="_blank" rel="noreferrer">阿里云百炼控制台 → API Key 管理 ↗</a><br />
+              2. 开通「语音合成 CosyVoice」并创建 API Key（创建音色免费）<br />
+              3. 复制 Key 粘贴到下方，点「测试连接」验证
+            </div>
+            <label className="form-label">阿里云百炼 API Key（sk- 开头）
+              <input className="input" type="password" value={config.apiKey ?? ''} onChange={e => setConfig({ ...config, apiKey: e.target.value, provider: config.provider || 'aliyun' })} placeholder="sk-xxxxxxxxxxxxxxxx" />
+            </label>
+            {config.provider !== 'aliyun' && config.provider && (
+              <div className="voice-config-note">直连模式目前支持阿里云百炼；已自动为你选中该服务商。</div>
+            )}
+            <div className="voice-config-actions">
+              <button className="btn sm" onClick={() => void testDirect()} disabled={testingKey}>{testingKey ? '测试中…' : '测试连接'}</button>
+            </div>
+            <div className="voice-config-note">Key 仅保存在本机（混淆存储），不上传、不进云同步/备份。直连由 App 后端转发调用，无需部署任何代理。</div>
+          </>
+        ) : (
+          <>
+            <label className="form-label">服务端点（代理地址，密钥在服务端持有）
+              <input className="input" value={config.endpoint} onChange={e => setConfig({ ...config, endpoint: e.target.value })} placeholder="https://your-tts-proxy.example.com" />
+            </label>
+            <div className="voice-config-note">需自行部署云函数/代理，把 AccessKey 配在服务端。适合注重密钥隔离的高级用户。</div>
+          </>
+        )}
         <div className="voice-config-actions">
           <button className="btn sm primary" onClick={saveConfig}>保存配置</button>
-          {ttsConfigured && <button className="btn sm ghost" onClick={() => { clearTtsConfig(); setConfig({ provider: '', endpoint: '' }); setTtsConfigured(false); notify('已清除配置') }}>清除</button>}
+          {ttsConfigured && <button className="btn sm ghost" onClick={() => { clearTtsConfig(); setConfig({ provider: '', endpoint: '', mode: 'direct', apiKey: '' }); setTtsConfigured(false); notify('已清除配置') }}>清除</button>}
         </div>
       </div>}
 

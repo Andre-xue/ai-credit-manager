@@ -214,12 +214,14 @@ export function unlockTts(): void {
 
 import { getTtsConfig } from './voice-download'
 import { getClonedVoiceId, listClonedVoices } from './voiceClone'
+import { isDirectMode, ttsSynthesizeDirect } from './ttsDirect'
 
 let activeCallback: ((state: 'start' | 'end' | 'error') => void) | null = null
 
 /** 当前 AI 朗读会走哪种音色：clone=克隆音色，system=系统音色。界面标识与 speakAsync 行为共用此判断。 */
 export function getSpeakSource(): 'clone' | 'system' {
-  return getClonedVoiceId() && getTtsConfig().endpoint ? 'clone' : 'system'
+  const cfg = getTtsConfig()
+  return getClonedVoiceId() && (isDirectMode(cfg) || !!cfg.endpoint) ? 'clone' : 'system'
 }
 
 export function isSpeaking(): boolean {
@@ -285,23 +287,36 @@ export async function speakAsync(
     voiceURI, clonedVoices, getSpeakSource() === 'clone' ? getClonedVoiceId() : null,
   )
   const cfg = getTtsConfig()
-  if (cloned && cfg.endpoint) {
+  const direct = isDirectMode(cfg)
+  if (cloned && (direct || cfg.endpoint)) {
     let lastErr = ''
     try {
       stopSpeak()
       const speakText = cleanForSpeech(text)
       if (!speakText) throw new Error('朗读内容为空')
-      const url = `${cfg.endpoint.replace(/\/$/, '')}/synthesize?provider=${encodeURIComponent(cfg.provider)}&voice=${encodeURIComponent(cloned)}&text=${encodeURIComponent(speakText)}`
-      const res = await fetch(url)
-      if (!res.ok) {
-        const detail = await res.text().catch(() => '')
-        throw new Error(`HTTP ${res.status} ${detail.slice(0, 80)}`)
+      let arrayBuf: ArrayBuffer
+      if (direct) {
+        // 直连模式：Rust 后端调官方 API 返回音频 data URI
+        const dataUri = await ttsSynthesizeDirect(cfg, cloned, speakText)
+        const b64 = dataUri.split(',')[1] ?? ''
+        if (!b64) throw new Error('合成音频为空')
+        const bin = atob(b64)
+        const bytes = new Uint8Array(bin.length)
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+        arrayBuf = bytes.buffer
+      } else {
+        const url = `${cfg.endpoint.replace(/\/$/, '')}/synthesize?provider=${encodeURIComponent(cfg.provider)}&voice=${encodeURIComponent(cloned)}&text=${encodeURIComponent(speakText)}`
+        const res = await fetch(url)
+        if (!res.ok) {
+          const detail = await res.text().catch(() => '')
+          throw new Error(`HTTP ${res.status} ${detail.slice(0, 80)}`)
+        }
+        const blob = await res.blob()
+        if (!blob.size) throw new Error('合成音频为空')
+        arrayBuf = await blob.arrayBuffer()
       }
-      const blob = await res.blob()
-      if (!blob.size) throw new Error('合成音频为空')
       const ctx = getAudioCtx()
       if (!ctx) throw new Error('当前环境不支持音频解码')
-      const arrayBuf = await blob.arrayBuffer()
       const decoded = await ctx.decodeAudioData(arrayBuf)
       // 先停掉上一段，避免多段重叠导致"一个字一个字蹦"
       try { (window as any).__acmCloneSrc?.stop() } catch { /* ignore */ }
