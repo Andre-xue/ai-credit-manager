@@ -1558,7 +1558,9 @@ html, body { touch-action: manipulation; }
 .tr-layout-opt { display: inline-flex; align-items: center; gap: 7px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel); font-size: 12px; cursor: pointer; transition: .15s; }
 .tr-layout-opt.active { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
 .tr-layout-opt input { accent-color: var(--primary); }
-.tr-export-actions { margin-top: 16px; }
+.tr-export-actions { margin-top: 16px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.tr-dir-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tr-dir-label { font-size: 12px; color: var(--text-3); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .translate-results { display: flex; flex-direction: column; gap: 8px; }
 .translate-result { padding: 11px 13px; background: var(--panel-2); border-radius: 9px; }
 .tr-result-name { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--text); margin-bottom: 6px; }

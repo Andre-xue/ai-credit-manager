@@ -199,3 +199,12 @@ export function layoutName(layout: BilingualLayout): string {
     case 'stacked': return '上下结构（上原文 · 下译文）'
   }
 }
+
+/** 布局对应的文件名短后缀（多布局导出多个文件时使用） */
+export function layoutSuffix(layout: BilingualLayout): string {
+  switch (layout) {
+    case 'side-by-side': return '左右对照'
+    case 'interleaved': return '逐句对照'
+    case 'stacked': return '上下结构'
+  }
+}

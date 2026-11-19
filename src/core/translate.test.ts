@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   categorizeFile, chunkForTranslate, alignPairs, renderPairHtml,
-  buildHtml, buildPlain, layoutName, type TranslatePair,
+  buildHtml, buildPlain, layoutName, layoutSuffix, type TranslatePair,
 } from './translate'
 
 const pairs: TranslatePair[] = [
@@ -95,5 +95,27 @@ describe('导出内容生成', () => {
     expect(md).toContain('左右对照')
     expect(md).toContain('逐句对照')
     expect(md).toContain('上下结构')
+  })
+})
+
+describe('多布局导出为多个文件', () => {
+  it('每种布局文件名后缀不同', () => {
+    expect(layoutSuffix('side-by-side')).toBe('左右对照')
+    expect(layoutSuffix('interleaved')).toBe('逐句对照')
+    expect(layoutSuffix('stacked')).toBe('上下结构')
+  })
+  it('单布局HTML只含该布局，不含其他布局', () => {
+    const html = buildHtml('测试', pairs, ['stacked'])
+    expect(html).toContain('data-layout="stacked"')
+    expect(html).not.toContain('data-layout="side-by-side"')
+    expect(html).not.toContain('data-layout="interleaved"')
+  })
+  it('分别生成的两个HTML各自只含一种布局', () => {
+    const a = buildHtml('测试', pairs, ['side-by-side'])
+    const b = buildHtml('测试', pairs, ['interleaved'])
+    expect(a).toContain('data-layout="side-by-side"')
+    expect(a).not.toContain('data-layout="interleaved"')
+    expect(b).toContain('data-layout="interleaved"')
+    expect(b).not.toContain('data-layout="side-by-side"')
   })
 })

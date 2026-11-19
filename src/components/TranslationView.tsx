@@ -5,9 +5,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Languages, Upload, FileText, Image as ImageIcon, Archive, Trash2, Loader2, Download, Printer, Check, Info } from 'lucide-react'
 import {
   categorizeFile, translateText, alignPairs,
-  buildHtml, buildPlain, layoutName, TARGET_LANGUAGES,
+  buildHtml, buildPlain, layoutName, layoutSuffix, TARGET_LANGUAGES,
   type TranslateFile, type TranslateEngine, type BilingualLayout, type ExportFormat,
 } from '../core/translate'
+import { chooseBackupFolder } from '../core/keyBackup'
+import { isDesktopApp } from '../core/openExternal'
 import { detectModelCapability, capabilityChatCapable } from '../core/modelCapability'
 import { isVoiceConfigAccount } from '../core/modelCategories'
 import { isAccountServiceEnabled } from '../core/localServicesSettings'
@@ -31,6 +33,7 @@ export function TranslationView({ accounts, notify, settings }: Props) {
   const [bilingual, setBilingual] = useState(true)
   const [layouts, setLayouts] = useState<BilingualLayout[]>(['side-by-side'])
   const [format, setFormat] = useState<ExportFormat | 'pdf'>('html')
+  const [exportDir, setExportDir] = useState<string | null>(null)
   const [translating, setTranslating] = useState(false)
   const [progress, setProgress] = useState('')
   const [results, setResults] = useState<{ name: string; source: string; translated: string }[]>([])
@@ -105,42 +108,67 @@ export function TranslationView({ accounts, notify, settings }: Props) {
     setLayouts(prev => prev.includes(l) ? prev.filter(x => x !== l) : [...prev, l])
   }
 
-  const download = (filename: string, content: string, mime: string) => {
-    const blob = new Blob(['\ufeff' + content], { type: mime + ';charset=utf-8' })
+  // 保存文件：桌面指定目录走 Tauri 写入，否则浏览器下载
+  const saveFile = async (filename: string, content: string) => {
+    if (isDesktopApp() && exportDir) {
+      const w = window as unknown as { __TAURI_INTERNALS__?: { invoke?: (cmd: string, args: Record<string, unknown>) => Promise<string> } }
+      const invoke = w.__TAURI_INTERNALS__?.invoke
+      if (invoke) {
+        const path = await invoke('write_file_to_dir', { dir: exportDir, filename, content: '\ufeff' + content })
+        return path
+      }
+    }
+    const blob = new Blob(['\ufeff' + content], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a'); a.href = url; a.download = filename; a.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
+    return filename
   }
 
-  const doExport = () => {
+  const pickDir = async () => {
+    if (!isDesktopApp()) { notify('Web / 手机端由浏览器自动下载到默认目录，无法自定义文件夹'); return }
+    const dir = await chooseBackupFolder()
+    if (dir) { setExportDir(dir); notify('已选择导出文件夹') }
+  }
+
+  const doExport = async () => {
     if (!results.length) { notify('请先翻译'); return }
     if (bilingual && layouts.length === 0) { notify('请至少选择一种双语布局，或关闭双语对照'); return }
     const activeLayouts: BilingualLayout[] = bilingual ? layouts : ['side-by-side']
-    results.forEach(r => {
-      const pairs = alignPairs(r.source, r.translated)
-      const base = r.name.replace(/\.[^.]+$/, '')
-      if (format === 'html') {
-        download(`${base}-译文.html`, buildHtml(r.name, pairs, activeLayouts), 'text/html')
-      } else if (format === 'md') {
-        download(`${base}-译文.md`, buildPlain(r.name, pairs, activeLayouts, 'md'), 'text/markdown')
-      } else if (format === 'txt') {
-        download(`${base}-译文.txt`, buildPlain(r.name, pairs, activeLayouts, 'txt'), 'text/plain')
+    let count = 0
+    try {
+      // 每种布局单独一个文件（多选布局 = 多个文件）
+      for (const r of results) {
+        const pairs = alignPairs(r.source, r.translated)
+        const base = r.name.replace(/\.[^.]+$/, '')
+        for (const layout of activeLayouts) {
+          const multi = activeLayouts.length > 1
+          const suffix = multi ? `-${layoutSuffix(layout)}` : ''
+          if (format === 'html') await saveFile(`${base}-译文${suffix}.html`, buildHtml(r.name, pairs, [layout]))
+          else if (format === 'md') await saveFile(`${base}-译文${suffix}.md`, buildPlain(r.name, pairs, [layout], 'md'))
+          else if (format === 'txt') await saveFile(`${base}-译文${suffix}.txt`, buildPlain(r.name, pairs, [layout], 'txt'))
+          count++
+        }
       }
-    })
-    const mode = bilingual && layouts.length > 1 ? `（${activeLayouts.length} 种布局）` : ''
-    notify(`已导出 ${results.length} 个文件${mode}`)
+      notify(`已导出 ${count} 个文件（${results.length} 个文档 × ${activeLayouts.length} 种布局）`)
+    } catch (e) {
+      notify(`导出失败：${(e as Error)?.message ?? String(e)}`)
+    }
   }
 
   const doPrintPdf = () => {
     if (!results.length) { notify('请先翻译'); return }
     const activeLayouts: BilingualLayout[] = bilingual ? layouts : ['side-by-side']
-    const html = results.map(r => buildHtml(r.name, alignPairs(r.source, r.translated), activeLayouts)).join('<div style="page-break-after:always"></div>')
+    // 每个布局单独一节，各自分页；用户可分别另存，或一次性打印成多页 PDF
+    const html = results.flatMap(r => activeLayouts.map(layout =>
+      `<div style="page-break-after:always">${buildHtml(`${r.name} · ${layoutName(layout)}`, alignPairs(r.source, r.translated), [layout])}</div>`
+    )).join('')
     const win = window.open('', '_blank')
     if (!win) { notify('打印窗口被拦截，请允许弹出窗口后重试'); return }
     win.document.write(html)
     win.document.close()
     setTimeout(() => win.print(), 400)
-    notify('已打开打印窗口，请选择「另存为 PDF」')
+    notify('已打开打印窗口（每种布局独立分页），可选择「另存为 PDF」')
   }
 
   // 粘贴导入：从剪贴板读取文本，作为 txt 文件
@@ -259,9 +287,15 @@ export function TranslationView({ accounts, notify, settings }: Props) {
               </div>
             )}
             <div className="tr-export-actions">
+              <div className="tr-dir-row">
+                <button className="btn sm" onClick={() => void pickDir()}><Upload size={13} /> 选择导出文件夹</button>
+                <span className="tr-dir-label" title={exportDir ?? ''}>
+                  {exportDir ? exportDir.split(/[\\/]/).slice(-2).join('/') : '未选择 · 浏览器默认下载目录'}
+                </span>
+              </div>
               {format === 'pdf'
                 ? <button className="btn primary" onClick={doPrintPdf}><Printer size={14} /> 打印 / 另存为 PDF</button>
-                : <button className="btn primary" onClick={doExport}><Download size={14} /> 导出文件</button>}
+                : <button className="btn primary" onClick={() => void doExport()}><Download size={14} /> 导出文件</button>}
             </div>
           </div>
 
