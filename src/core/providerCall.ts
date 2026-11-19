@@ -6,6 +6,10 @@
 import type { Account } from './types'
 import type { ModelCategory } from './modelCategories'
 import { isDesktopApp } from './openExternal'
+import {
+  detectMediaStyle, buildImageRequest, buildVideoRequest,
+  extractTaskId, extractVideoUrl, videoTaskTerminal,
+} from './mediaAdapters'
 
 export interface ProviderCallResult {
   ok: boolean
@@ -183,15 +187,17 @@ export interface ImageOptions {
   n?: number              // 生成张数
   quality?: string        // 'standard' | 'hd'（部分平台支持）
   style?: string          // 'vivid' | 'natural'（部分平台支持）
+  model?: string          // 显式指定模型 ID（从平台拉取并筛选后选择；不传则从账户备注提取）
 }
 /** 生视频可选参数（AI 视频模块用） */
 export interface VideoOptions {
   duration?: number       // 秒
   ratio?: string          // '16:9' | '9:16' | '1:1'
   image?: string          // 图生视频的首帧图（URL 或 data URL）
+  model?: string          // 显式指定模型 ID（从平台拉取并筛选后选择）
 }
 
-/** 生图：OpenAI 兼容 images generations */
+/** 生图：按服务商协议风格自动生成请求（OpenAI 标准 / 硅基 image_size 等） */
 export async function callImage(
   account: Account, apiKey: string, prompt: string, opts?: ImageOptions,
 ): Promise<ProviderCallResult> {
@@ -199,21 +205,14 @@ export async function callImage(
     let base = (account.apiUrl || '').trim().replace(/\/+$/, '')
     if (!base) throw new Error('该账户未填写 API 地址')
     if (!/\/v\d+/.test(base)) base += '/v1'
-    const url = `${base}/images/generations`
-    const model = extractModelId(account)
-    const body: Record<string, unknown> = {
-      model, prompt,
-      n: opts?.n ?? 1,
-      size: opts?.size ?? '1024x1024',
-      response_format: 'url',
-    }
-    if (opts?.quality) body.quality = opts.quality
-    if (opts?.style) body.style = opts.style
-    const raw = isDesktopApp() ? await invokeApi(url, apiKey, body) : await directFetch(url, apiKey, body)
+    const style = detectMediaStyle(account)
+    const model = opts?.model || extractModelId(account)
+    const req = buildImageRequest(style, model, prompt, opts)
+    const raw = isDesktopApp() ? await invokeApi(`${base}${req.path}`, apiKey, req.body) : await directFetch(`${base}${req.path}`, apiKey, req.body)
     const json = JSON.parse(raw)
-    const images: string[] = (json.data ?? []).map((d: { url?: string; b64_json?: string }) => d.url ?? (d.b64_json ? `data:image/png;base64,${d.b64_json}` : '')).filter(Boolean)
+    const images: string[] = (json.data ?? []).map((d: { url?: string; b64_json?: string; image_url?: string }) => d.url ?? d.image_url ?? (d.b64_json ? `data:image/png;base64,${d.b64_json}` : '')).filter(Boolean)
     if (images.length === 0) {
-      return { ok: false, text: '', error: `接口未返回图片（模型：${model}）。请确认账户名称/备注里填的是真实生图模型 ID，如 Kwai-Kolors/Kolors、black-forest-labs/FLUX.1-schnell、Qwen/Qwen-Image` }
+      return { ok: false, text: '', error: `接口未返回图片（模型：${model}）。请确认所选模型支持生图、且该 Key 有对应权限；可在「拉取」里查看该 Key 实际可用的生图模型。` }
     }
     return { ok: true, text: `已生成 ${images.length} 张图片`, images }
   } catch (e) {
@@ -221,39 +220,40 @@ export async function callImage(
   }
 }
 
-/** 视频：异步任务制，尽力提交任务并给出引导（多数平台为私有协议，不保证成功） */
+/** 视频：按服务商协议风格提交任务（硅基专用 /video/submit，其余 OpenAI 风格兼容） */
 export async function callVideo(
   account: Account, apiKey: string, prompt: string, opts?: VideoOptions,
 ): Promise<ProviderCallResult> {
   const base = (account.apiUrl || '').trim().replace(/\/+$/, '')
   if (!base) return { ok: false, text: '', error: '该账户未填写 API 地址' }
-  // 尝试常见的 OpenAI 兼容视频端点；失败则明确引导官方
-  const candidates = [`${base}/v1/videos/generations`, `${base}/v1/video/generations`, `${base}/videos/generations`]
+  const style = detectMediaStyle(account)
+  const model = opts?.model || extractModelId(account)
+  const req = buildVideoRequest(style, model, prompt, opts)
+
+  const urls = style === 'siliconflow-video'
+    ? [`${base}${req.submitPath}`]
+    : [`${base}${req.submitPath}`, `${base}/video/generations`, `${base.replace(/\/v\d+$/, '')}/videos/generations`]
   let lastErr = ''
-  const model = extractModelId(account)
-  for (const url of candidates) {
+  for (const url of urls) {
     try {
-      const body: Record<string, unknown> = { model, prompt, duration: opts?.duration ?? 5 }
-      if (opts?.ratio) body.ratio = opts.ratio
-      if (opts?.image) body.image = opts.image
-      const raw = isDesktopApp() ? await invokeApi(url, apiKey, body) : await directFetch(url, apiKey, body)
+      const raw = isDesktopApp() ? await invokeApi(url, apiKey, req.body) : await directFetch(url, apiKey, req.body)
       const json = JSON.parse(raw)
-      const id = json.id ?? json.task_id ?? json.data?.id
-      const videoUrl = json.url ?? json.data?.url ?? json.output?.url ?? json.data?.[0]?.url
+      const videoUrl = extractVideoUrl(json)
       if (videoUrl) return { ok: true, text: '视频已生成', images: [videoUrl] }
-      if (id) return { ok: true, text: `视频任务已提交（ID: ${String(id).slice(0, 20)}）。生成需数分钟，结果请到官方平台查看。` }
+      const id = extractTaskId(json)
+      if (id) return { ok: true, text: `视频任务已提交（ID: ${String(id).slice(0, 20)}）。生成需数分钟，正在查询进度。` }
       lastErr = '接口已响应但未返回任务信息'
     } catch (e) { lastErr = errText(e) }
   }
   return {
     ok: false, text: '',
-    error: `${account.label} 的视频接口暂未能自动调用（${lastErr.slice(0, 120)}）。这类平台多为私有异步协议，建议到官方页面生成后在此记录。`,
+    error: `${account.label} 的视频接口暂未能自动调用（${lastErr.slice(0, 120)}）。若该平台为私有协议，建议到官方页面生成后在此记录。`,
   }
 }
 
 /**
- * 查询视频生成任务状态（OpenAI 兼容 GET /v1/videos/{id}），拿到视频 URL 即返回。
- * 用于 AI 视频模块提交任务后轮询；不支持的平台返回 ok:false，由界面提示去官方查看。
+ * 查询视频生成任务状态：硅基走 POST /video/status + requestId；
+ * 其余平台走 GET /v1/videos/{id}。拿到视频 URL 即返回。
  */
 export async function queryVideoTask(
   account: Account, apiKey: string, taskId: string,
@@ -261,22 +261,28 @@ export async function queryVideoTask(
   let base = (account.apiUrl || '').trim().replace(/\/+$/, '')
   if (!base) return { ok: false, text: '', error: '该账户未填写 API 地址' }
   if (!/\/v\d+/.test(base)) base += '/v1'
-  const url = `${base}/videos/${encodeURIComponent(taskId)}`
+  const style = detectMediaStyle(account)
   try {
-    const raw = isDesktopApp()
-      ? await invokeApi(url, apiKey, undefined, 'GET')
-      : await (async () => {
-        const res = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } })
-        const text = await res.text()
-        if (!res.ok) throw new Error(`接口返回 ${res.status}：${text.slice(0, 120)}`)
-        return text
-      })()
+    let raw: string
+    if (style === 'siliconflow-video') {
+      const body = { requestId: taskId }
+      raw = isDesktopApp() ? await invokeApi(`${base}/video/status`, apiKey, body) : await directFetch(`${base}/video/status`, apiKey, body)
+    } else {
+      raw = isDesktopApp()
+        ? await invokeApi(`${base}/videos/${encodeURIComponent(taskId)}`, apiKey, undefined, 'GET')
+        : await (async () => {
+          const res = await fetch(`${base}/videos/${encodeURIComponent(taskId)}`, { headers: { Authorization: `Bearer ${apiKey}` } })
+          const text = await res.text()
+          if (!res.ok) throw new Error(`接口返回 ${res.status}：${text.slice(0, 120)}`)
+          return text
+        })()
+    }
     const json = JSON.parse(raw)
-    const status = String(json.status ?? '')
-    const videoUrl = json.url ?? json.video_url ?? json.output?.url ?? json.data?.url
+    const videoUrl = extractVideoUrl(json)
     if (videoUrl) return { ok: true, text: '视频已生成', images: [videoUrl] }
-    if (/fail|error|reject|cancel/i.test(status)) return { ok: false, text: '', error: `视频生成失败（状态：${status}）` }
-    return { ok: true, text: status ? `任务状态：${status}` : '任务处理中' }
+    const term = videoTaskTerminal(json)
+    if (term.failed) return { ok: false, text: '', error: `视频生成失败（状态：${term.status}${json.reason ? `：${String(json.reason).slice(0, 80)}` : ''}）` }
+    return { ok: true, text: term.status ? `任务状态：${term.status}` : '任务处理中' }
   } catch (e) {
     return toError(e)
   }
@@ -295,6 +301,8 @@ export async function callByCategory(
     default: return callChat(account, apiKey, messages, engineId, reasoningEffort)
   }
 }
+
+export { filterMediaModels } from './mediaAdapters'
 
 /**
  * 本地模型调用（Ollama / ComfyUI / LM Studio 等本机 OpenAI 兼容服务）。

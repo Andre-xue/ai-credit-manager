@@ -7,9 +7,10 @@ import {
   Film, Sparkles, Loader2, Download, Trash2, Info, KeyRound,
   ExternalLink, History, X, Upload, HardDrive, RefreshCw,
 } from 'lucide-react'
-import { callVideo, callLocalVideo, extractModelId, queryVideoTask, queryLocalVideoTask, fetchLocalMediaModels } from '../core/providerCall'
+import { callVideo, callLocalVideo, extractModelId, queryVideoTask, queryLocalVideoTask, fetchLocalMediaModels, fetchProviderModels, filterMediaModels } from '../core/providerCall'
 import { decryptSecret, getBiometricPassword } from '../core/crypto'
 import { isDesktopApp } from '../core/openExternal'
+import { ModelInfoCard } from './ModelInfoCard'
 import { PROVIDER_MAP } from '../data/providers'
 import { categoryFromNote } from '../core/modelCategories'
 import {
@@ -34,6 +35,26 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify }: {
     }), [accounts])
   const [accountId, setAccountId] = useState('')
   const account = usable.find(a => a.id === accountId) ?? usable[0]
+
+  // 云端账户：该 Key 实际可用的视频模型（从 /v1/models 拉取并筛选）
+  const [cloudModels, setCloudModels] = useState<string[]>([])
+  const [cloudModel, setCloudModel] = useState('')
+  const [loadingCloudModels, setLoadingCloudModels] = useState(false)
+  const loadCloudModels = async () => {
+    const pwd = getBiometricPassword() || sessionPwd
+    if (!account) { notify('请先选择账户'); return }
+    if (!pwd) { notify('请先在主密码框解锁密钥库'); return }
+    setLoadingCloudModels(true)
+    try {
+      const key = await decryptSecret(account.encryptedKey!, pwd)
+      const all = await fetchProviderModels(account, key)
+      const vids = filterMediaModels(all, 'video')
+      setCloudModels(vids)
+      setCloudModel(prev => vids.includes(prev) ? prev : (vids[0] ?? ''))
+      notify(vids.length ? `找到 ${vids.length} 个视频模型（已从 ${all.length} 个模型中筛选）` : `该 Key 的 ${all.length} 个模型里未识别出视频模型`)
+    } catch (e) { notify(`拉取模型失败：${errTextSafe(e)}`) }
+    finally { setLoadingCloudModels(false) }
+  }
 
   // 模型来源：cloud=自有账户 / local=本机模型服务
   const [source, setSource] = useState<'cloud' | 'local'>('cloud')
@@ -68,7 +89,7 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify }: {
 
   const isLocal = source === 'local'
   const model = account ? extractModelId(account) : ''
-  const activeModel = isLocal ? (localModel || '本地模型') : model
+  const activeModel = isLocal ? (localModel || '本地模型') : (cloudModel || model)
   const needPwd = !isLocal && !!account && !!account.encryptedKey && !getBiometricPassword() && !sessionPwd
 
   const onPickFrame = (file?: File) => {
@@ -87,7 +108,7 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify }: {
     if (!isLocal && !pwd) { notify('请先解锁密钥库（本页下方输入主密码）'); return }
     setBusy(true); setResults([]); setTaskText('正在提交生成任务…')
     try {
-      const opts = { duration, ratio, image: firstFrame || undefined }
+      const opts = { duration, ratio, image: firstFrame || undefined, model: cloudModel || undefined }
       const useAccount = account!
       const apiKey = isLocal ? '' : await decryptSecret(useAccount.encryptedKey!, pwd)
       const r = isLocal
@@ -158,12 +179,26 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify }: {
                   <div className="gen-empty-hint"><KeyRound size={16} /> 还没有可用的视频账户。请到「API Key 管理」添加账户并填写 OpenAI 兼容的 API 地址；模型 ID 写在账户备注里即可。</div>
                 ) : (
                   <div className="gen-select-wrap">
-                    <select className="input" value={account?.id ?? ''} onChange={e => setAccountId(e.target.value)}>
+                    <select className="input" value={account?.id ?? ''} onChange={e => { setAccountId(e.target.value); setCloudModels([]); setCloudModel('') }}>
                       {usable.map(a => <option key={a.id} value={a.id}>{a.label} · {PROVIDER_MAP[a.providerId]?.shortName ?? a.providerId}</option>)}
                     </select>
-                    {account && <span className="gen-model-tag">模型：{model || '未识别（请在备注填模型ID）'}</span>}
+                    {account && <span className="gen-model-tag">从备注识别：{model || '未填（可点下方拉取自动选）'}</span>}
                   </div>
                 )}
+                <label className="gen-label" style={{ marginTop: 12 }}>视频模型（仅列出可生视频模型）</label>
+                <div className="gen-local-row">
+                  {cloudModels.length > 0 ? (
+                    <select className="input" value={cloudModel} onChange={e => setCloudModel(e.target.value)}>
+                      {cloudModels.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  ) : (
+                    <input className="input" placeholder="点右侧拉取，或手填模型ID（如 MiniMaxAI/MiniMax-H3）" value={cloudModel} onChange={e => setCloudModel(e.target.value)} />
+                  )}
+                  <button className="btn sm ghost" onClick={() => void loadCloudModels()} disabled={loadingCloudModels || !account} title="从平台拉取并筛选视频模型">
+                    {loadingCloudModels ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} 拉取
+                  </button>
+                </div>
+                <ModelInfoCard modelId={cloudModel || model} kind="video" />
               </>
             ) : (
               <>
@@ -182,6 +217,7 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify }: {
                 ) : (
                   <input className="input" placeholder="手动填写本地视频模型名" value={localModel} onChange={e => setLocalModel(e.target.value)} />
                 )}
+                <ModelInfoCard modelId={localModel} kind="video" />
                 <div className="gen-tip"><Info size={13} /> <span>本地服务需支持 OpenAI 兼容 <code>/v1/videos/generations</code>。多数本地方案（Ollama/ComfyUI）不支持视频生成，需专门的本地视频模型服务。{!isDesktopApp() && ' 当前非桌面端，直连本地地址可能受浏览器跨域限制。'}</span></div>
               </>
             )}

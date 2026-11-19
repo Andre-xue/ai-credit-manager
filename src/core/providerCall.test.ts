@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Account } from './types'
-import { callChat, callImage, callVideo, callLocalImage, callLocalVideo, queryVideoTask, fetchLocalMediaModels, normalizeReasoningEffort, usesFixedSampling, extractModelId } from './providerCall'
+import { callChat, callImage, callVideo, callLocalImage, callLocalVideo, queryVideoTask, fetchLocalMediaModels, filterMediaModels, normalizeReasoningEffort, usesFixedSampling, extractModelId } from './providerCall'
 
 const acct = (providerId: string): Account => ({
   id: 'a1', providerId, label: 'test', mode: 'api',
@@ -87,7 +87,7 @@ describe('AI 图像/视频模块参数化调用', () => {
       return Promise.resolve(imgResp(bodies))
     })
     vi.stubGlobal('fetch', fetchMock)
-    const a = { ...acct('siliconflow'), note: '[生图型] Kwai-Kolors/Kolors' }
+    const a = { ...acct('custom'), note: '[生图型] Kwai-Kolors/Kolors' }
     const r = await callImage(a, 'key', '一只猫', { size: '1536x1024', n: 2, quality: 'hd', style: 'vivid' })
     expect(r.ok).toBe(true)
     expect(r.images).toHaveLength(2)
@@ -168,5 +168,46 @@ describe('本地模型媒体调用与错误兜底', () => {
     const r = await callVideo(acct('kling'), 'key', 'test')
     expect(r.ok).toBe(false)
     expect(r.error).toContain('boom string error')
+  })
+})
+
+describe('云账户模型按用途过滤（图像/视频下拉只显示对应模型）', () => {
+  const all = [
+    'Kwai-Kolors/Kolors', 'black-forest-labs/FLUX.1-schnell', 'Qwen/Qwen-Image',
+    'Tongyi-MAI/Z-Image-Turbo', 'OpenMOSS-Team/MOSS-Image',
+    'MiniMaxAI/MiniMax-H3', 'Wan-AI/Wan2.2-T2V-A14B', 'Wan-AI/Wan2.2-I2V-A14B',
+    'deepseek-ai/DeepSeek-V4.1-Flash', 'Qwen/Qwen3.8-27B',
+    'BAAI/bge-m3', 'BAAI/bge-reranker-v2-m3', 'FunAudioLLM/CosyVoice2-0.5B',
+  ]
+  it('生图过滤：命中 Kolors/FLUX/Qwen-Image/Z-Image/MOSS-Image，排除对话/嵌入/语音', () => {
+    const r = filterMediaModels(all, 'image')
+    expect(r).toContain('Kwai-Kolors/Kolors')
+    expect(r).toContain('black-forest-labs/FLUX.1-schnell')
+    expect(r).toContain('Qwen/Qwen-Image')
+    expect(r).toContain('Tongyi-MAI/Z-Image-Turbo')
+    expect(r).toContain('OpenMOSS-Team/MOSS-Image')
+    expect(r).not.toContain('deepseek-ai/DeepSeek-V4.1-Flash')
+    expect(r).not.toContain('BAAI/bge-m3')
+    expect(r).not.toContain('FunAudioLLM/CosyVoice2-0.5B')
+    expect(r).not.toContain('MiniMaxAI/MiniMax-H3')
+  })
+  it('视频过滤：命中 MiniMax-H3/Wan2.2 T2V/I2V，排除对话/嵌入/生图', () => {
+    const r = filterMediaModels(all, 'video')
+    expect(r).toContain('MiniMaxAI/MiniMax-H3')
+    expect(r).toContain('Wan-AI/Wan2.2-T2V-A14B')
+    expect(r).toContain('Wan-AI/Wan2.2-I2V-A14B')
+    expect(r).not.toContain('Kwai-Kolors/Kolors')
+    expect(r).not.toContain('deepseek-ai/DeepSeek-V4.1-Flash')
+    expect(r).not.toContain('BAAI/bge-m3')
+  })
+  it('callImage 使用 opts.model 覆盖账户备注中的模型 ID', async () => {
+    const bodies: unknown[] = []
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((_url, init) => {
+      bodies.push(JSON.parse(init.body))
+      return Promise.resolve({ ok: true, text: async () => JSON.stringify({ data: [{ url: 'http://x/a.png' }] }) })
+    }))
+    const a = { ...acct('siliconflow'), note: '[生图型] 硅基流动' }
+    await callImage(a, 'key', '猫', { model: 'Kwai-Kolors/Kolors' })
+    expect((bodies[0] as Record<string, unknown>).model).toBe('Kwai-Kolors/Kolors')
   })
 })

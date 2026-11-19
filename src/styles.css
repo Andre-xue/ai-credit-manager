@@ -1723,3 +1723,17 @@ html, body { touch-action: manipulation; }
 .gen-local-row { display: flex; gap: 8px; align-items: center; }
 .gen-local-row .input { flex: 1; min-width: 0; }
 .gen-local-row .btn { flex-shrink: 0; }
+
+/* 模型优缺点说明卡片 */
+.gen-model-info { margin-top: 12px; padding: 11px 12px; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--border); }
+.gen-mi-title { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 650; color: var(--text); margin-bottom: 9px; }
+.gen-mi-title svg { color: var(--primary); }
+.gen-mi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.gen-mi-col { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.gen-mi-label { display: flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 600; margin-bottom: 2px; }
+.gen-mi-col.pros .gen-mi-label { color: #16a34a; }
+.gen-mi-col.cons .gen-mi-label { color: #ea580c; }
+.gen-mi-item { font-size: 10.5px; color: var(--text-2); line-height: 1.5; }
+.gen-mi-best { display: flex; align-items: center; gap: 5px; margin-top: 9px; padding-top: 8px; border-top: 1px dashed var(--border); font-size: 10.5px; color: var(--text-3); }
+.gen-mi-best svg { color: var(--primary); flex-shrink: 0; }
+@media (max-width: 680px) { .gen-mi-grid { grid-template-columns: 1fr; gap: 8px; } }
