@@ -20,7 +20,7 @@ import {
 } from '../core/aiIdentity'
 import { VoiceCall } from './VoiceCall'
 import {
-  MODEL_CATEGORIES, CATEGORY_META, categoryForModel, type ModelCategory,
+  MODEL_CATEGORIES, CATEGORY_META, categoryForModel, isVoiceConfigAccount, type ModelCategory,
 } from '../core/modelCategories'
 import { callByCategory, fetchProviderModels } from '../core/providerCall'
 import type { Account } from '../core/types'
@@ -189,13 +189,15 @@ export function AIView({ notify, accounts, settings }: {
   // 免费模型 + 用户自己的账户模型，按分类联动过滤
   const freeOptions = useMemo(() => models.map(m => ({ key: m.id, label: m.name, account: null as Account | null, category: '免费模型' as ModelCategory, free: true })), [models])
   const ownOptions = useMemo(() => accounts
+    // 语音配置(APP)账户只服务语音模块，不在 AI 聊天列表展示、不参与调用
+    .filter(a => !isVoiceConfigAccount(a.providerId, a.note))
     // App 内本地服务开关关闭时，隐藏对应本地模型账户（账户数据本身保留）
     .filter(a => isAccountServiceEnabled(settings, a.providerId))
     .map(a => ({
       key: `own:${a.id}`,
       label: `${a.label}${a.note ? ` · ${a.note.replace(/^\[[^\]]+\]\s*/, '')}` : ''}`,
       account: a,
-      category: categoryForModel(a.note),
+      category: categoryForModel(a.note) as ModelCategory,
       free: false,
     })), [accounts, settings])
   const allOptions = useMemo(() => [...freeOptions, ...ownOptions], [freeOptions, ownOptions])

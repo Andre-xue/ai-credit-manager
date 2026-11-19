@@ -10,6 +10,7 @@ import {
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { isLocalProvider } from './core/types'
 import { detectLocalServices, getSystemMemoryGb, checkLocalService, startLocalService, stopLocalService, isServiceAppManaged, fetchLocalModels, chooseModelFile, type LocalService } from './core/localServices'
+import { syncVoiceAccounts } from './core/voiceKey'
 import {
   LOCAL_SERVICE_KEYS, providerToService, memoryToTier, tierAdvice, maxServicesForTier,
   isServiceEnabled, toggleService, notifyLocalServiceChanged, initServicesForTier,
@@ -72,7 +73,7 @@ const MODE_LABEL: Record<AccountMode, string> = {
 
 const CATEGORY_ICON: Record<ProviderDefinition['category'], typeof Code2> = {
   llm: Sparkles, code: Code2, image: Image, video: Film, voice: Mic,
-  search: Search, design: PenTool, embedding: Layers, local: HardDrive, other: CircleHelp,
+  search: Search, design: PenTool, embedding: Layers, local: HardDrive, 'voice-config': Volume2, other: CircleHelp,
 }
 
 function App() {
@@ -96,6 +97,8 @@ function App() {
     })
     return () => { alive = false }
   }, [])
+  // 同步账户到语音模块（供语音 Key 读取，账户变化时自动失效缓存）
+  useEffect(() => { syncVoiceAccounts(state.accounts) }, [state.accounts])
   // 手机原生端（安卓/iOS）默认进入 AI 聊天页、侧栏抽屉默认隐藏；其他端沿用旧行为
   // 预览参数仅用于浏览器验收手机端界面，生产环境不会带此参数
   const phonePreview = typeof location !== 'undefined' && (new URLSearchParams(location.search).get('preview') === 'phone' || location.hash.includes('preview=phone'))
@@ -659,7 +662,7 @@ function App() {
 
           {tab === 'voice' && <div className="set-content">
             <SettingsSection title="语音配置" desc="朗读音色、方言、语速与声音克隆 · 所有配置仅保存在此设备" icon={Volume2} tone="blue">
-              <div style={{ padding: '4px 2px 2px' }}><VoiceSettings notify={notify} /></div>
+              <div style={{ padding: '4px 2px 2px' }}><VoiceSettings notify={notify} accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} /></div>
             </SettingsSection>
           </div>}
 
@@ -2339,9 +2342,11 @@ function AccountFormModal({ provider, sessionPwd, onClose, onSave }: {
       // 解析已获取的余额为额度快照（若成功获取）
       const quotaMatch = balance?.match(/剩余\s*([\d,]+(?:\.\d+)?)/)
       const quotaTotal = quotaMatch ? Number(quotaMatch[1].replace(/,/g, '')) : 0
+      const isVoiceCfg = provider.id === 'voice-config'
       const account: AppState['accounts'][number] = {
         id: uid('acc'), providerId: provider.id, label: provider.shortName, mode: 'api',
-        encryptedKey: enc, keyFingerprint: fp, apiUrl: apiUrl || undefined, note: buildNote(noteCat, note),
+        encryptedKey: enc, keyFingerprint: fp, apiUrl: apiUrl || undefined,
+        note: isVoiceCfg ? '[语音配置(APP)]' + (note.trim() ? ` ${note.trim()}` : '') : buildNote(noteCat, note),
         createdAt: now, updatedAt: now,
       }
       const quota: QuotaSnapshot | undefined = quotaTotal > 0 ? {
@@ -2380,27 +2385,44 @@ function AccountFormModal({ provider, sessionPwd, onClose, onSave }: {
             </button>
             <div className="form-hint">只读 · 点击上述地址可直达官方 API Key 管理页</div>
           </div>
-          {/* 行3：模型分类（写死下拉）+ 可选说明 */}
+          {/* 行3：模型分类（语音配置固定，其余写死下拉）+ 可选说明 */}
           <div className="form-row">
-            <label className="form-label">模型分类 <span className="req">*</span> <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>· 决定 AI 助手里该模型的用途与联动</span></label>
-            <select className="select" value={noteCat} onChange={e => setNoteCat(e.target.value as NoteCategory)}>
-              {NOTE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <input className="input" style={{ marginTop: 8 }} placeholder="补充说明（可选），例如：日常对话 / 批量生图" value={note} onChange={e => setNote(e.target.value)} />
-            <div className="form-hint">分类按该模型的官方真实用途选择；AI 助手将按此分类展示与调用</div>
+            {provider.id === 'voice-config' ? (
+              <>
+                <label className="form-label">模型分类 <span className="req">*</span></label>
+                <div className="voice-fixed-cat">🔊 语音配置(APP) · 专用于语音朗读/声音克隆</div>
+                <input className="input" style={{ marginTop: 8 }} placeholder="备注（可选），例如：我的百炼 Key" value={note} onChange={e => setNote(e.target.value)} />
+                <div className="form-hint">此 Key 仅「语音配置」模块使用；AI 聊天不会调用，也不会在聊天模型列表里出现。</div>
+              </>
+            ) : (
+              <>
+                <label className="form-label">模型分类 <span className="req">*</span> <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>· 决定 AI 助手里该模型的用途与联动</span></label>
+                <select className="select" value={noteCat} onChange={e => setNoteCat(e.target.value as NoteCategory)}>
+                  {NOTE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <input className="input" style={{ marginTop: 8 }} placeholder="补充说明（可选），例如：日常对话 / 批量生图" value={note} onChange={e => setNote(e.target.value)} />
+                <div className="form-hint">分类按该模型的官方真实用途选择；AI 助手将按此分类展示与调用</div>
+              </>
+            )}
           </div>
-          {/* 行4：API Key 输入 + 自动获取余额 */}
+          {/* 行4：API Key 输入（语音配置无需余额） */}
           <div className="form-row">
-            <label className="form-label">API Key <span className="req">*</span> <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>· 输入后自动获取余额</span></label>
+            <label className="form-label">API Key <span className="req">*</span>
+              {provider.id !== 'voice-config' && <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>· 输入后自动获取余额</span>}
+            </label>
             <div className="row" style={{ gap: 8 }}>
               <input className="input" style={{ flex: 1 }} type="text" placeholder="粘贴你的 API Key（明文输入）" value={secret} onChange={e => { setSecret(e.target.value); setBalance(null) }} />
-              <button className="btn sm" onClick={() => void fetchBalance()} disabled={fetching || !secret.trim()}>
-                <RefreshCw size={13} style={fetching ? { animation: 'acm-spin 1s linear infinite' } : undefined} /> {fetching ? '获取中' : '获取余额'}
-              </button>
+              {provider.id !== 'voice-config' && (
+                <button className="btn sm" onClick={() => void fetchBalance()} disabled={fetching || !secret.trim()}>
+                  <RefreshCw size={13} style={fetching ? { animation: 'acm-spin 1s linear infinite' } : undefined} /> {fetching ? '获取中' : '获取余额'}
+                </button>
+              )}
             </div>
-            <div className={`balance-box ${balance ? 'has' : ''}`}>
-              <Wallet size={13} /> {balance ?? '余额未获取（可选，可稍后手动录入）'}
-            </div>
+            {provider.id !== 'voice-config' && (
+              <div className={`balance-box ${balance ? 'has' : ''}`}>
+                <Wallet size={13} /> {balance ?? '余额未获取（可选，可稍后手动录入）'}
+              </div>
+            )}
           </div>
           {err && <div className="form-error">{err}</div>}
         </div>

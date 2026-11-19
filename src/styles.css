@@ -1496,3 +1496,12 @@ html, body { touch-action: manipulation; }
 .local-model-hint { font-size: 12px; color: var(--text-3); padding: 8px 10px; background: var(--panel-2); border-radius: 8px; line-height: 1.5; }
 .local-model-actions { display: flex; gap: 8px; margin-top: 8px; }
 .local-model-note { font-size: 11px; color: var(--text-3); line-height: 1.6; margin-top: 8px; }
+
+/* 语音配置账户 Key 解锁 */
+.voice-key-unlock { background: var(--panel-2); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+.voice-unlock-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; font-weight: 600; color: var(--text); }
+.voice-unlock-desc { font-size: 12px; color: var(--text-2); margin: 8px 0; line-height: 1.5; }
+.voice-unlock-actions { display: flex; gap: 8px; align-items: center; }
+.voice-unlock-actions .input { flex: 1; }
+.voice-unlock-note { font-size: 11px; color: var(--text-3); margin-top: 8px; line-height: 1.5; }
+.voice-fixed-cat { padding: 9px 12px; background: var(--primary-soft); color: var(--primary); border-radius: 8px; font-size: 13px; font-weight: 600; }

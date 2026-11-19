@@ -28,6 +28,7 @@ export interface ProviderDefinition {
     | 'design'     // 设计工具
     | 'embedding'  // 嵌入/向量
     | 'local'      // 本地部署模型（Ollama / ComfyUI 等）
+    | 'voice-config' // 语音配置(APP)专用账户：仅存语音服务 Key，不参与 AI 聊天
     | 'other'
   officialUrl: string
   /** 官方用量/账单页面，用于跳转（本人登录后查看） */

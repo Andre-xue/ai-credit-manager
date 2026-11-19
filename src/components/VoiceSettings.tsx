@@ -22,13 +22,39 @@ import {
   getVolcConfig, saveVolcConfig, clearVolcConfig, type VolcConfig,
 } from '../core/volcConfig'
 import { ttsTestDirect } from '../core/ttsDirect'
+import { verifyVault, getBiometricPassword } from '../core/crypto'
+import { voiceNeedsUnlock, setVoiceSessionPwd, hasVoiceCredential } from '../core/voiceKey'
+import type { Account } from '../core/types'
 
-export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
+export function VoiceSettings({ notify, accounts, sessionPwd, onUnlock }: {
+  notify: (m: string) => void
+  accounts: Account[]
+  sessionPwd: string
+  onUnlock: (pwd: string) => void
+}) {
   const [rate, setRate] = useState(getRate())
-  const [ttsConfigured, setTtsConfigured] = useState(hasTtsConfig())
+  const [ttsConfigured, setTtsConfigured] = useState(hasTtsConfig() || accounts.some(a => a.providerId === 'voice-config'))
   const [config, setConfig] = useState<TtsProviderConfig>(() => getTtsConfig())
   const [configOpen, setConfigOpen] = useState(false)
   const [testingKey, setTestingKey] = useState(false)
+  // 语音配置账户解锁（生物识别免密 / 本次会话密码）
+  const [voicePwdInput, setVoicePwdInput] = useState('')
+  const [voiceUnlocking, setVoiceUnlocking] = useState(false)
+  const needVoiceUnlock = voiceNeedsUnlock(accounts)
+  const voiceUnlocked = hasVoiceCredential() || !!sessionPwd
+
+  const unlockVoice = async () => {
+    if (!voicePwdInput) { notify('请输入主密码'); return }
+    setVoiceUnlocking(true)
+    try {
+      const ok = await verifyVault(voicePwdInput)
+      if (!ok) { notify('主密码错误'); return }
+      setVoiceSessionPwd(voicePwdInput)
+      onUnlock(voicePwdInput)
+      setVoicePwdInput('')
+      notify('已解锁，本次会话语音功能可读取加密 Key')
+    } finally { setVoiceUnlocking(false) }
+  }
   const [previewing, setPreviewing] = useState(false)
   const [sample, setSample] = useState<VoiceSample | null>(null)
   const [clonedId, setClonedId] = useState<string | null>(() => getClonedVoiceId())
@@ -248,7 +274,30 @@ export function VoiceSettings({ notify }: { notify: (m: string) => void }) {
         </div>
       )}
       {cloneError && <div className="voice-clone-error"><Info size={14} /> <span>{cloneError}</span><button className="icon-btn" onClick={() => setCloneError('')}>×</button></div>}
-      {!ttsConfigured && <div className="voice-hint"><Info size={13} /> 声音克隆需配置语音服务：桌面端推荐「官方直连」（填一个 API Key 即可，无需部署）；内置免费模型不提供克隆能力。</div>}
+      {/* 语音配置(APP) 账户：加密 Key 解锁 */}
+      {accounts.some(a => a.providerId === 'voice-config') && (
+        <div className="voice-key-unlock">
+          <div className="voice-unlock-row">
+            <span>🔐 语音配置账户 Key（加密保存）</span>
+            <span className={`local-status-badge ${voiceUnlocked ? 'running' : ''}`}>{voiceUnlocked ? '已解锁' : '待解锁'}</span>
+          </div>
+          {needVoiceUnlock && !voiceUnlocked && (
+            <>
+              <div className="voice-unlock-desc">该 Key 保存在保险箱中，验证主密码后本次会话可用（启用指纹则自动解锁）。</div>
+              <div className="voice-unlock-actions">
+                {getBiometricPassword() ? (
+                  <button className="btn sm" onClick={() => { const bp = getBiometricPassword(); if (bp) { setVoiceSessionPwd(bp); onUnlock(bp); notify('已通过生物识别解锁') } }}>指纹解锁</button>
+                ) : (
+                  <input className="input" type="password" placeholder="输入主密码" value={voicePwdInput} onChange={e => setVoicePwdInput(e.target.value)} />
+                )}
+                {!(getBiometricPassword()) && <button className="btn sm primary" disabled={voiceUnlocking} onClick={() => void unlockVoice()}>{voiceUnlocking ? '解锁中…' : '解锁'}</button>}
+              </div>
+            </>
+          )}
+          <div className="voice-unlock-note">在「API Key 管理 → 添加账户 → 语音配置(APP)」保存 Key；清除配置后账户仍在，无需重新申请。</div>
+        </div>
+      )}
+      {!ttsConfigured && <div className="voice-hint"><Info size={13} /> 声音克隆需配置语音服务：在「API Key 管理 → 添加账户 → 语音配置(APP)」保存 Key，或按下方直连配置；内置免费模型不提供克隆能力。</div>}
       {desktop && <div className="voice-hint"><Info size={13} /> 桌面 WebView 不提供浏览器录音接口；请用「选择音频文件」导入样本（可先用 QuickTime 等工具录音）。</div>}
 
       {/* 已保存的克隆音色列表：可命名、切换、删除 */}

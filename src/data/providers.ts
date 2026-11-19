@@ -436,6 +436,15 @@ export const PROVIDERS: ProviderDefinition[] = [
     color: '#1f9e7a', initials: 'CF', modes: ['api'],
     note: '本机 ComfyUI 服务，默认端口 8188；网关地址由本机实时探测，不可修改。',
   },
+
+  // ==================== 语音配置(APP)专用 ====================
+  // 只服务「语音配置」模块（声音克隆/朗读的官方 API Key）；不参与 AI 聊天调用与展示。
+  {
+    id: 'voice-config', name: '语音配置（APP）', shortName: '语音配置', category: 'voice-config',
+    officialUrl: 'https://bailian.console.aliyun.com/?tab=model#/api-key', usageUrl: 'https://bailian.console.aliyun.com/?tab=model#/api-key',
+    color: '#7c5cff', initials: 'VC', modes: ['api'],
+    note: '[语音配置(APP)] 专用于语音朗读/声音克隆的 API Key（如阿里云百炼 sk-）；AI 聊天不会调用，也不在该页展示。',
+  },
 ]
 
 export const PROVIDER_MAP: Record<string, ProviderDefinition> = Object.fromEntries(
@@ -444,11 +453,11 @@ export const PROVIDER_MAP: Record<string, ProviderDefinition> = Object.fromEntri
 
 /** 功能分类的顺序与中文标签（用于平台选择弹窗分组） */
 export const CATEGORY_ORDER: ProviderDefinition['category'][] = [
-  'llm', 'code', 'image', 'video', 'voice', 'search', 'design', 'embedding', 'local', 'other',
+  'llm', 'code', 'image', 'video', 'voice', 'search', 'design', 'embedding', 'local', 'voice-config', 'other',
 ]
 
 export const CATEGORY_LABEL: Record<ProviderDefinition['category'], string> = {
   llm: '文本大模型', code: '编程助手', image: '图像生成', video: '视频生成',
   voice: '语音音频', search: '搜索研究', design: '设计工具', embedding: '嵌入向量',
-  local: '本地模型', other: '其他',
+  local: '本地模型', 'voice-config': '语音配置(APP)', other: '其他',
 }

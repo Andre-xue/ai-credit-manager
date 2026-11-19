@@ -20,6 +20,15 @@ export const CATEGORY_META: Record<ModelCategory, { desc: string; icon: string; 
   免费模型: { desc: '平台内置免密钥模型（Auto/Hy4 等）', icon: '⚡', canChat: true },
 }
 
+/** 语音配置(APP)专用分类标识：不作为可选分类，仅供识别与 AI 页隐藏 */
+export const VOICE_CONFIG_CATEGORY = '语音配置(APP)'
+
+/** 是否为语音配置(APP)专用账户（按 providerId 或 note 前缀判定） */
+export function isVoiceConfigAccount(providerId?: string, note?: string): boolean {
+  if (providerId === 'voice-config') return true
+  return !!note && note.trimStart().startsWith(`[${VOICE_CONFIG_CATEGORY}]`)
+}
+
 /** 备注 → 分类（备注下拉 5 类）。兼容 [通用型]/通用型: 等写法，以及旧备注里的 文本/图片 等词。 */
 export function categoryFromNote(note?: string): NoteCategory {
   if (!note) return '通用型'
@@ -44,10 +53,12 @@ export function buildNote(category: NoteCategory, extra?: string): string {
   return tail ? `[${category}] ${tail}` : `[${category}]`
 }
 
-/** AI 页用：备注 → 模型分类（6 类，保留文本型）。 */
-export function categoryForModel(note?: string): ModelCategory {
+/** AI 页用：备注 → 模型分类（6 类，保留文本型）。语音配置(APP)返回专用标识，不进可见分类。 */
+export function categoryForModel(note?: string): ModelCategory | typeof VOICE_CONFIG_CATEGORY {
   if (!note) return '通用型'
   const s = note.trim()
+  // 语音配置(APP)专用：返回隐藏分类，AI 页下拉不展示、列表过滤时排除
+  if (s.startsWith(`[${VOICE_CONFIG_CATEGORY}]`)) return VOICE_CONFIG_CATEGORY
   const bracket = s.match(/^\[([^\]]+)\]/)
   const head = (bracket ? bracket[1] : s.split(/[:：\/\s]/)[0]).trim()
   const exact = MODEL_CATEGORIES.find(c => c === head)
