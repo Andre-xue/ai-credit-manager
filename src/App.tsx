@@ -691,7 +691,7 @@ function App() {
           {tab === 'docs' && <div className="set-content">
             <SettingsSection title="本地文档问答" desc="导入文档，基于本机模型问答 · 文档与向量只存此设备" icon={FileText} tone="indigo">
               <div style={{ padding: '4px 2px 2px' }}>
-                <DocQAView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} />
+                <DocQAView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} thinkingMode={state.settings.thinkingMode} />
               </div>
             </SettingsSection>
           </div>}
@@ -3380,6 +3380,12 @@ function SettingsView({ state, onChange, notify, onOpenVault, onClear, onChangeP
           <SettingsSection title="外观设计" desc="界面风格与动态效果" icon={Palette} tone="indigo">
             <SettingsRow title="动态效果" desc="抽屉滑入、卡片渐入、光斑浮动等动效">
               <Toggle checked={s.uiMotion !== false} onChange={v => onChange({ uiMotion: v })} />
+            </SettingsRow>
+          </SettingsSection>
+
+          <SettingsSection title="AI 行为" desc="对话推理与思考偏好，全局生效" icon={Sparkles} tone="indigo">
+            <SettingsRow title="AI 思考模式" desc="开启后 AI 对话默认深度推理（答案更严谨，但更慢、消耗更高）；仍可在聊天框单独调整等级。文档问答等模块同步生效。">
+              <Toggle checked={!!s.thinkingMode} onChange={v => onChange({ thinkingMode: v })} />
             </SettingsRow>
           </SettingsSection>
 

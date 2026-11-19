@@ -157,6 +157,8 @@ export interface AppSettings {
   uiStyle?: 'claude' | 'auto' | 'liquid' | 'classic'
   /** 界面动态效果开关（抽屉滑入、卡片渐入、光斑浮动等） */
   uiMotion?: boolean
+  /** AI 思考模式：开启后所有对话默认进行推理（AI 聊天/文档问答全局统一） */
+  thinkingMode?: boolean
   /** 本地模型服务在 App 内的启用开关（纯 App 层，不启停系统服务；键为 ollama/comfyui/lmstudio） */
   localServices?: Partial<Record<LocalServiceKey, boolean>>
   /** 本地服务开关是否已按内存档位完成过首次初始化 */

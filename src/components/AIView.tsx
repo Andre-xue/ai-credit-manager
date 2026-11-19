@@ -33,7 +33,7 @@ import {
 } from '../core/attachments'
 import { AttachmentPicker } from './AttachmentPicker'
 import {
-  enginesFor, enginesFromRemote, hasCatalog, REASONING_LEVELS, REASONING_DESC, toReasoningEffort,
+  enginesFor, enginesFromRemote, hasCatalog, REASONING_LEVELS, REASONING_DESC, toReasoningEffort, defaultReasoningLevel,
   type ReasoningLevel,
 } from '../data/engines'
 
@@ -94,8 +94,16 @@ export function AIView({ notify, accounts, settings }: {
   const [remoteEngines, setRemoteEngines] = useState<string[] | null>(null)
   const [engineSource, setEngineSource] = useState<'remote' | 'builtin' | 'none'>('none')
   const [loadingEngines, setLoadingEngines] = useState(false)
-  const [reasoning, setReasoning] = useState<ReasoningLevel>('Off')
+  const [reasoning, setReasoning] = useState<ReasoningLevel>(() => defaultReasoningLevel(settings?.thinkingMode))
   const [reasoningOpen, setReasoningOpen] = useState(false)
+  // 设置页「AI 思考模式」开关变化时，同步默认推理等级；不覆盖用户此后手动的选择
+  const lastThinkingMode = useRef(settings?.thinkingMode)
+  useEffect(() => {
+    if (lastThinkingMode.current !== settings?.thinkingMode) {
+      lastThinkingMode.current = settings?.thinkingMode
+      setReasoning(defaultReasoningLevel(settings?.thinkingMode))
+    }
+  }, [settings?.thinkingMode])
   const [identityOpen, setIdentityOpen] = useState<'bot' | 'user' | null>(null)
   const [botProfile, setBotProfile] = useState<BotProfile>(() => loadBotProfile())
   const [userProfile, setUserProfile] = useState<UserProfile>(() => loadUserProfile())

@@ -165,3 +165,15 @@ export function toReasoningEffort(level: ReasoningLevel): 'minimal' | 'low' | 'm
     case 'Max': return 'high'
   }
 }
+
+/**
+ * AI 思考模式全局映射（设置页开关 → 默认推理等级）。
+ * 开启：默认 High（深度推理 medium），关闭：Off。
+ * AI 聊天用此作为新对话默认值（仍可在输入框单独调整）；文档问答等无独立 UI 的模块直接用此 effort。
+ */
+export function defaultReasoningLevel(thinkingMode?: boolean): ReasoningLevel {
+  return thinkingMode ? 'High' : 'Off'
+}
+export function globalReasoningEffort(thinkingMode?: boolean): 'minimal' | 'low' | 'medium' | 'high' | undefined {
+  return toReasoningEffort(defaultReasoningLevel(thinkingMode))
+}

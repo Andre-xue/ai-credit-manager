@@ -10,10 +10,11 @@ import {
 import { detectModelCapability } from '../core/modelCapability'
 import { decryptSecret, getBiometricPassword } from '../core/crypto'
 import { callChat } from '../core/providerCall'
+import { globalReasoningEffort } from '../data/engines'
 import type { Account } from '../core/types'
 
-export function DocQAView({ accounts, sessionPwd, onUnlock, notify }: {
-  accounts: Account[]; sessionPwd: string; onUnlock: (pwd: string) => void; notify: (m: string) => void
+export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode }: {
+  accounts: Account[]; sessionPwd: string; onUnlock: (pwd: string) => void; notify: (m: string) => void; thinkingMode?: boolean
 }) {
   const supported = isDocQAAvailable()
   const [docs, setDocs] = useState<DocInfo[]>([])
@@ -74,7 +75,7 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify }: {
       const prompt = buildContextPrompt(q, hits)
       const apiKey = await decryptSecret(chatAccount.encryptedKey, pwd)
       if (pwdInput && pwdInput === pwd) { onUnlock(pwd); setPwdInput('') }
-      const r = await callChat(chatAccount, apiKey, [{ role: 'user', content: prompt }])
+      const r = await callChat(chatAccount, apiKey, [{ role: 'user', content: prompt }], undefined, globalReasoningEffort(thinkingMode))
       if (!r.ok) { notify(r.error ?? '回答失败'); return }
       setAnswer(r.text)
       setSources([...new Set(hits.map(h => h.chunk.docName))])
