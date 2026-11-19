@@ -40,7 +40,7 @@ export function VoiceSettings({ notify, accounts, sessionPwd, onUnlock }: {
   // 语音配置账户解锁（生物识别免密 / 本次会话密码）
   const [voicePwdInput, setVoicePwdInput] = useState('')
   const [voiceUnlocking, setVoiceUnlocking] = useState(false)
-  const needVoiceUnlock = voiceNeedsUnlock(accounts)
+  const needVoiceUnlock = voiceNeedsUnlock(accounts, config.provider || undefined)
   const voiceUnlocked = hasVoiceCredential() || !!sessionPwd
 
   const unlockVoice = async () => {
@@ -102,7 +102,7 @@ export function VoiceSettings({ notify, accounts, sessionPwd, onUnlock }: {
     if (!config.apiKey?.trim()) { notify('请先填写 API Key'); return }
     setTestingKey(true)
     try {
-      const r = await ttsTestDirect(config.apiKey.trim())
+      const r = await ttsTestDirect(config.apiKey.trim(), config.provider || undefined)
       notify(r.message)
     } finally { setTestingKey(false) }
   }

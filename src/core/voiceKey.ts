@@ -36,9 +36,14 @@ export function hasVoiceCredential(): boolean {
   return !!(getBiometricPassword() || sessionPwd)
 }
 
-/** 找到语音配置账户（providerId==='voice-config'） */
-export function findVoiceConfigAccount(accounts: Account[]): Account | undefined {
-  return accounts.find(a => a.providerId === 'voice-config')
+/** 找到语音配置账户；指定 provider 时匹配对应服务商，否则取第一个 */
+export function findVoiceConfigAccount(accounts: Account[], provider?: string): Account | undefined {
+  const list = accounts.filter(a => a.providerId === 'voice-config')
+  if (provider) {
+    const match = list.find(a => a.voiceProvider === provider)
+    if (match) return match
+  }
+  return list[0]
 }
 
 /** 同步判断是否存在语音配置账户（供 isDirectMode 等同步逻辑使用） */
@@ -47,8 +52,8 @@ export function hasVoiceConfigAccount(): boolean {
 }
 
 /** 是否需要解锁才能使用语音 Key（有账户但无凭据） */
-export function voiceNeedsUnlock(accounts: Account[]): boolean {
-  const acct = findVoiceConfigAccount(accounts)
+export function voiceNeedsUnlock(accounts: Account[], provider?: string): boolean {
+  const acct = findVoiceConfigAccount(accounts, provider)
   return !!acct?.encryptedKey && !hasVoiceCredential()
 }
 
@@ -57,13 +62,13 @@ export function voiceNeedsUnlock(accounts: Account[]): boolean {
  * @param accounts 账户列表（由 App 传入）
  * @returns Key 字符串；无账户/未解锁/解密失败返回 null
  */
-/** 供底层语音模块调用：从已同步的账户列表读取 Key（无需传 accounts） */
-export async function getCurrentVoiceApiKey(): Promise<string | null> {
-  return getVoiceApiKey(allAccounts)
+/** 供底层语音模块调用：从已同步的账户列表读取 Key（可指定服务商） */
+export async function getCurrentVoiceApiKey(provider?: string): Promise<string | null> {
+  return getVoiceApiKey(allAccounts, provider)
 }
 
-export async function getVoiceApiKey(accounts: Account[]): Promise<string | null> {
-  const acct = findVoiceConfigAccount(accounts)
+export async function getVoiceApiKey(accounts: Account[], provider?: string): Promise<string | null> {
+  const acct = findVoiceConfigAccount(accounts, provider)
   if (!acct?.encryptedKey) return null
   if (cachedKey && cachedAccountId === acct.id) return cachedKey
   const pwd = getBiometricPassword() || sessionPwd

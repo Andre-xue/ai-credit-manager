@@ -11,8 +11,10 @@ import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode
 import { isLocalProvider } from './core/types'
 import { detectLocalServices, getSystemMemoryGb, checkLocalService, startLocalService, stopLocalService, stopServiceByPort, isServiceAppManaged, fetchLocalModels, chooseModelFile, type LocalService } from './core/localServices'
 import { DocQAView } from './components/DocQAView'
-import { syncVoiceAccounts } from './core/voiceKey'
+import { syncVoiceAccounts, setVoiceSessionPwd } from './core/voiceKey'
+import { saveTtsConfig } from './core/voice-download'
 import { detectModelCapability, shouldHideFromChat } from './core/modelCapability'
+import { VOICE_PROVIDERS } from './core/voiceProviders'
 import {
   LOCAL_SERVICE_KEYS, providerToService, memoryToTier, tierAdvice, maxServicesForTier,
   isServiceEnabled, toggleService, notifyLocalServiceChanged, initServicesForTier,
@@ -803,15 +805,27 @@ function App() {
       {formProviderId && !isLocalProvider(formProviderId) && <AccountFormModal
         provider={PROVIDER_MAP[formProviderId]} sessionPwd={sessionPwd}
         onClose={() => setFormProviderId(null)}
-        onSave={(data) => {
+        onSave={async (data) => {
           setState(s => ({
             ...s,
             accounts: [{ ...data.account }, ...s.accounts],
             quotas: data.quota ? [...s.quotas, data.quota] : s.quotas,
           }))
           if (data.pwd && !sessionPwd) setSessionPwd(data.pwd)
+          // 语音配置(APP)：解密 Key 并同步到语音配置模块，让「第三方语音服务配置」立即显示已配置
+          if (data.account.providerId === 'voice-config' && data.account.encryptedKey && data.account.voiceProvider) {
+            try {
+              const plain = await decryptSecret(data.account.encryptedKey, data.pwd)
+              saveTtsConfig({ provider: data.account.voiceProvider as import('./core/voice-download').TtsProviderConfig['provider'], endpoint: '', mode: 'direct', apiKey: plain })
+              if (data.pwd) setVoiceSessionPwd(data.pwd)
+              notify(`已添加「${data.account.label}」，并同步到语音配置模块`)
+            } catch {
+              notify(`已添加「${data.account.label}」，但同步语音配置失败，请在语音配置页手动填写`)
+            }
+          } else {
+            notify(`已添加「${data.account.label}」，已置顶到 API Key 管理列表`)
+          }
           setFormProviderId(null)
-          notify(`已添加「${data.account.label}」，已置顶到 API Key 管理列表`)
         }}
       />}
       {vaultOpen && <VaultModal
@@ -2370,8 +2384,15 @@ function AccountFormModal({ provider, sessionPwd, onClose, onSave }: {
   const needInlinePwd = !sessionPwd && !getBiometricPassword()
   const adapter = getAdapter(provider.id)
 
+  const isVoiceCfg = provider.id === 'voice-config'
+  // 语音配置(APP)可选服务商（需 API Key 的；system/local 无需 Key，排除）
+  const voiceProviderChoices = VOICE_PROVIDERS.filter(p => p.id !== 'system' && p.id !== 'local')
+  const [voiceProvider, setVoiceProvider] = useState<string>(voiceProviderChoices[0]?.id ?? 'aliyun')
+  const chosenVoice = voiceProviderChoices.find(p => p.id === voiceProvider)
+
   const apiUrl = provider.apiBaseUrl ?? ''
-  const keyUrl = provider.apiKeyUrl ?? provider.usageUrl ?? provider.officialUrl
+  // 语音配置：API 链接用所选服务商官方文档；其余用平台默认
+  const keyUrl = isVoiceCfg ? (chosenVoice?.docs ?? provider.officialUrl) : (provider.apiKeyUrl ?? provider.usageUrl ?? provider.officialUrl)
 
   const fetchBalance = async () => {
     setErr('')
@@ -2408,11 +2429,13 @@ function AccountFormModal({ provider, sessionPwd, onClose, onSave }: {
       // 解析已获取的余额为额度快照（若成功获取）
       const quotaMatch = balance?.match(/剩余\s*([\d,]+(?:\.\d+)?)/)
       const quotaTotal = quotaMatch ? Number(quotaMatch[1].replace(/,/g, '')) : 0
-      const isVoiceCfg = provider.id === 'voice-config'
       const account: AppState['accounts'][number] = {
-        id: uid('acc'), providerId: provider.id, label: provider.shortName, mode: 'api',
+        id: uid('acc'), providerId: provider.id,
+        label: isVoiceCfg ? `${chosenVoice?.short ?? '语音'}（语音配置APP）` : provider.shortName,
+        mode: 'api',
         encryptedKey: enc, keyFingerprint: fp, apiUrl: apiUrl || undefined,
-        note: isVoiceCfg ? '[语音配置(APP)]' + (note.trim() ? ` ${note.trim()}` : '') : buildNote(noteCat, note),
+        note: isVoiceCfg ? `[语音配置(APP)] ${chosenVoice?.short ?? ''}${note.trim() ? ' · ' + note.trim() : ''}` : buildNote(noteCat, note),
+        voiceProvider: isVoiceCfg ? voiceProvider : undefined,
         createdAt: now, updatedAt: now,
       }
       const quota: QuotaSnapshot | undefined = quotaTotal > 0 ? {
@@ -2447,18 +2470,22 @@ function AccountFormModal({ provider, sessionPwd, onClose, onSave }: {
           <div className="form-row">
             <label className="form-label">API 链接地址 <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>· 点击前往官方创建 Key</span></label>
             <button className="form-link" onClick={() => { void openExternal(keyUrl); }} title={keyUrl}>
-              <span>{provider.apiBaseUrl || '—'}</span><ExternalLink size={13} />
+              <span>{isVoiceCfg ? (chosenVoice?.name ?? keyUrl) : (provider.apiBaseUrl || '—')}</span><ExternalLink size={13} />
             </button>
             <div className="form-hint">只读 · 点击上述地址可直达官方 API Key 管理页</div>
           </div>
           {/* 行3：模型分类（语音配置固定，其余写死下拉）+ 可选说明 */}
           <div className="form-row">
-            {provider.id === 'voice-config' ? (
+            {isVoiceCfg ? (
               <>
-                <label className="form-label">模型分类 <span className="req">*</span></label>
-                <div className="voice-fixed-cat">🔊 语音配置(APP) · 专用于语音朗读/声音克隆</div>
+                <label className="form-label">语音服务商 <span className="req">*</span></label>
+                <select className="select" value={voiceProvider} onChange={e => { setVoiceProvider(e.target.value); setBalance(null) }}>
+                  {voiceProviderChoices.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+                <div className="form-hint" style={{ marginTop: 6 }}>{chosenVoice?.desc}</div>
+                <div className="voice-fixed-cat" style={{ marginTop: 10 }}>🔊 语音配置(APP) · 专用于语音朗读/声音克隆</div>
                 <input className="input" style={{ marginTop: 8 }} placeholder="备注（可选），例如：我的百炼 Key" value={note} onChange={e => setNote(e.target.value)} />
-                <div className="form-hint">此 Key 仅「语音配置」模块使用；AI 聊天不会调用，也不会在聊天模型列表里出现。</div>
+                <div className="form-hint">此 Key 仅「语音配置」模块使用；AI 聊天不会调用，也不会在聊天模型列表里出现。添加后会自动同步到「语音配置」页。</div>
               </>
             ) : (
               <>

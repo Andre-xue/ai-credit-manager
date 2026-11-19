@@ -67,6 +67,8 @@ export interface Account {
   note?: string
   /** 模型能力分类（添加时自动识别：chat/translation/embedding/image/audio/unknown） */
   modelCapability?: ModelCapability
+  /** 语音配置(APP)账户所选的语音服务商 id（aliyun/volcengine/tencent/minimax/elevenlabs） */
+  voiceProvider?: string
   createdAt: string
   updatedAt: string
 }
