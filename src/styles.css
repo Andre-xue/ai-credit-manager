@@ -564,7 +564,7 @@ tbody tr:hover { background: var(--panel-2); }
 }
 .ai-model-btn:hover { border-color: var(--primary); color: var(--primary); }
 .ai-model-menu {
-  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
+  position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 30;
   min-width: 180px; max-height: 320px; overflow: auto;
   background: var(--panel); border: 1px solid var(--border);
   border-radius: 10px; box-shadow: var(--shadow); padding: 5px;
@@ -809,7 +809,7 @@ tbody tr:hover { background: var(--panel-2); }
 
 /* 附件菜单与待发送附件 */
 .ai-attach-menu {
-  position: absolute; right: 0; top: calc(100% + 8px); z-index: 35; min-width: 150px;
+  position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 35; min-width: 150px;
   background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
   box-shadow: var(--shadow); padding: 6px;
 }

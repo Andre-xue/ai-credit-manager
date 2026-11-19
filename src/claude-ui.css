@@ -306,21 +306,26 @@
 /* 页面容器：作为顶栏绝对定位的参照 */
 .ai-page { position: relative; }
 
-/* 顶部栏：sticky 吸顶，消息从下方滑过，不再遮挡三个功能图标 */
+/* 顶部栏：固定在 AI 页右上角（玻璃胶囊），welcome/focus/chat 三态位置一致、不随布局居中、不遮挡消息。
+   定位基准是 .ai-page（position:relative），故不受 shell 的 justify-content:center 影响。 */
 .ai-layout-welcome .ai-topbar,
 .ai-layout-focus .ai-topbar,
 .ai-layout-chat .ai-topbar {
-  position: sticky; top: 0; z-index: 30;
+  position: absolute; top: 6px; right: 0; left: 0; z-index: 30;
   display: flex; justify-content: flex-end; align-items: center;
-  border-bottom: none; padding: 8px 0 10px; min-height: 40px;
-  background: var(--background-primary, #fff);
-  backdrop-filter: saturate(180%) blur(12px);
-  -webkit-backdrop-filter: saturate(180%) blur(12px);
-  margin: -8px 0 0; /* 抵消上方 padding，保持视觉起点不变 */
+  border-bottom: none; padding: 0; min-height: 40px;
+  background: transparent;
+  pointer-events: none; /* 胶囊本身不拦截，只有按钮可点 */
 }
 .ai-layout-welcome .ai-top-actions,
 .ai-layout-focus .ai-top-actions,
-.ai-layout-chat .ai-top-actions { gap: 16px; min-width: 0; }
+.ai-layout-chat .ai-top-actions {
+  gap: 8px; min-width: 0; pointer-events: auto;
+  padding: 5px 7px; border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: 0 4px 14px rgba(16, 24, 40, .07);
+}
 
 /* 手机端：三个功能键固定为顶部 App Bar（玻璃胶囊），与左侧悬浮菜单键并排。
    不随 welcome 居中、不随 chat 跳位，任何布局模式都钉在视口顶部右侧——原生 App 手感 */
@@ -405,9 +410,12 @@
 .ai-layout-focus .ai-shell { justify-content: center; }
 .ai-layout-welcome .ai-messages,
 .ai-layout-focus .ai-messages { flex: 0 0 auto; padding: 0; overflow: visible; }
-/* 聊天模式：顶栏 sticky 占文档流，消息区无需额外顶部补白 */
-.ai-layout-chat .ai-messages { flex: 1 1 auto; overflow-y: auto; padding-top: 8px; }
+/* 聊天模式：顶栏 absolute 占右上角，消息区留顶部补白避免从按钮下方滑过 */
+.ai-layout-chat .ai-messages { flex: 1 1 auto; overflow-y: auto; padding-top: 54px; }
 .ai-layout-chat .ai-compose { flex-shrink: 0; }
+/* 顶栏脱离文档流后，welcome/focus 的欢迎区补回顶部空间 */
+.ai-layout-welcome .ai-shell,
+.ai-layout-focus .ai-shell { padding-top: 52px; }
 .ai-layout-welcome .ai-compose,
 .ai-layout-focus .ai-compose { border-top: none; padding-top: 0; }
 /* welcome/focus：输入框与欢迎语保持适度距离，不紧贴 */
