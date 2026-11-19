@@ -11,13 +11,24 @@ import {
 import { chooseBackupFolder } from '../core/keyBackup'
 import { isDesktopApp } from '../core/openExternal'
 import {
-  readFilesFromPaths, readFilesFromDataTransfer, onTauriFileDrop,
+  readFilesFromPaths, readFilesFromDataTransfer, readOneFile, onTauriFileDrop,
   type ImportedFile,
 } from '../core/fileImport'
 import { detectModelCapability, capabilityChatCapable } from '../core/modelCapability'
 import { isVoiceConfigAccount } from '../core/modelCategories'
 import { isAccountServiceEnabled } from '../core/localServicesSettings'
+import { needsBinaryParse, parseBinaryDocument } from '../core/documentParse'
+import { buildDocxBlob, DOCX_MIME } from '../core/docxExport'
+import { ocrImage, ocrToParagraphs, renderTranslatedImage } from '../core/imageOcr'
 import type { Account, AppSettings } from '../core/types'
+
+interface TransResult {
+  name: string
+  source: string
+  translated: string
+  isImage?: boolean
+  originalImage?: string  // 原图 data URL（图片 OCR 用）
+}
 
 interface Props {
   accounts: Account[]
@@ -38,11 +49,11 @@ export function TranslationView({ accounts, notify, settings }: Props) {
   const [target, setTarget] = useState('zh-CN')
   const [bilingual, setBilingual] = useState(true)
   const [layouts, setLayouts] = useState<BilingualLayout[]>(['side-by-side'])
-  const [format, setFormat] = useState<ExportFormat | 'pdf'>('html')
+  const [format, setFormat] = useState<ExportFormat | 'pdf' | 'docx'>('html')
   const [exportDir, setExportDir] = useState<string | null>(null)
   const [translating, setTranslating] = useState(false)
   const [progress, setProgress] = useState('')
-  const [results, setResults] = useState<{ name: string; source: string; translated: string }[]>([])
+  const [results, setResults] = useState<TransResult[]>([])
   const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -60,17 +71,35 @@ export function TranslationView({ accounts, notify, settings }: Props) {
     if (usableAccounts.length && !usableAccounts.some(a => a.id === accountId)) setAccountId(usableAccounts[0].id)
   }, [usableAccounts, accountId])
 
-  // 统一导入：给文件分类、给出跳过提示，加入待翻译列表
-  const ingestFiles = (imported: ImportedFile[]) => {
+  // 统一导入：纯文本直读；docx/pdf 本地解析；图片存 dataUrl 待 OCR；压缩包跳过
+  const ingestFiles = async (imported: ImportedFile[]) => {
     const added: TranslateFile[] = []
     for (const f of imported) {
       const category = categorizeFile(f.name)
-      if (category !== 'document') {
-        notify(`「${f.name}」${category === 'image' ? '是图片，OCR 翻译将在第二阶段支持' : category === 'archive' ? '是压缩包，需先解压再导入' : '暂不支持'}，本次跳过`)
+      if (category === 'archive' || category === 'other') {
+        notify(`「${f.name}」${category === 'archive' ? '是压缩包，需先解压再导入' : '暂不支持'}，本次跳过`)
         continue
       }
-      added.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name: f.name, category, text: f.text })
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      if (category === 'image') {
+        if (!f.dataUrl) { notify(`「${f.name}」图片读取失败，跳过`); continue }
+        added.push({ id, name: f.name, category, text: '', source: f.dataUrl })
+      } else if (needsBinaryParse(f.name)) {
+        setProgress(`解析文档 ${f.name}…`)
+        try {
+          if (!f.arrayBuffer) throw new Error('未读到文件内容')
+          const parsed = await parseBinaryDocument(f.name, f.arrayBuffer)
+          if (!parsed.text) { notify(`「${f.name}」未提取到文字（可能是扫描件），跳过`); continue }
+          added.push({ id, name: f.name, category, text: parsed.text })
+        } catch (e) {
+          notify(`「${f.name}」解析失败：${(e as Error)?.message ?? String(e)}`)
+          continue
+        }
+      } else {
+        added.push({ id, name: f.name, category, text: f.text })
+      }
     }
+    setProgress('')
     if (added.length) {
       setFiles(prev => [...prev, ...added])
       notify(`已导入 ${added.length} 个文件`)
@@ -80,8 +109,10 @@ export function TranslationView({ accounts, notify, settings }: Props) {
   // Web/手机：从点击选择的 input 读取
   const addFiles = async (fileList: FileList | File[]) => {
     const added: ImportedFile[] = []
-    for (const f of Array.from(fileList)) added.push({ name: f.name, text: await f.text() })
-    ingestFiles(added)
+    for (const f of Array.from(fileList)) {
+      try { added.push(await readOneFile(f)) } catch { notify(`「${f.name}」读取失败`) }
+    }
+    void ingestFiles(added)
   }
 
   const doTranslate = async () => {
@@ -89,11 +120,28 @@ export function TranslationView({ accounts, notify, settings }: Props) {
     if (engine === 'account' && !accountId) { notify('请先在 API Key 管理添加模型账户'); return }
     const account = usableAccounts.find(a => a.id === accountId)
     setTranslating(true)
-    const out: { name: string; source: string; translated: string }[] = []
+    const out: TransResult[] = []
     try {
       for (let i = 0; i < files.length; i++) {
         const f = files[i]
         setProgress(`翻译中 ${i + 1}/${files.length}：${f.name}`)
+        if (f.category === 'image' && f.source) {
+          // 图片：云端视觉模型 OCR → 翻译识别出的文字
+          try {
+            const ocrText = await ocrImage(f.source, 'auto')
+            const paras = ocrToParagraphs(ocrText)
+            if (!paras.length) { notify(`「${f.name}」未识别到文字，跳过`); continue }
+            const srcText = paras.join('\n\n')
+            const translated = await translateText(srcText, {
+              engine, account, target, source, freeEngine,
+              onProgress: (done, total) => setProgress(`翻译中 ${i + 1}/${files.length}：${f.name}（${done}/${total} 段）`),
+            })
+            out.push({ name: f.name, source: srcText, translated, isImage: true, originalImage: f.source })
+          } catch (e) {
+            notify(`「${f.name}」OCR 失败，已跳过：${(e as Error)?.message ?? String(e)}`)
+          }
+          continue
+        }
         const translated = await translateText(f.text, {
           engine, account, target, source, freeEngine,
           onProgress: (done, total) => setProgress(`翻译中 ${i + 1}/${files.length}：${f.name}（${done}/${total} 段）`),
@@ -113,6 +161,9 @@ export function TranslationView({ accounts, notify, settings }: Props) {
     setLayouts(prev => prev.includes(l) ? prev.filter(x => x !== l) : [...prev, l])
   }
 
+  // 图片译文图跟随当前布局选择
+  const activeLayoutsForImage: BilingualLayout[] = bilingual ? layouts : ['side-by-side']
+
   // 保存文件：桌面指定目录走 Tauri 写入，否则浏览器下载
   const saveFile = async (filename: string, content: string) => {
     if (isDesktopApp() && exportDir) {
@@ -128,6 +179,29 @@ export function TranslationView({ accounts, notify, settings }: Props) {
     const a = document.createElement('a'); a.href = url; a.download = filename; a.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
     return filename
+  }
+
+  // 保存二进制文件（docx / 图片）：桌面走 write_binary_to_dir，否则 Blob 下载
+  const saveBinary = async (filename: string, bytes: Uint8Array, mime: string) => {
+    if (isDesktopApp() && exportDir) {
+      const w = window as unknown as { __TAURI_INTERNALS__?: { invoke?: (cmd: string, args: Record<string, unknown>) => Promise<string> } }
+      const invoke = w.__TAURI_INTERNALS__?.invoke
+      if (invoke) {
+        let bin = ''
+        for (const b of bytes) bin += String.fromCharCode(b)
+        await invoke('write_binary_to_dir', { dir: exportDir, filename, content_base64: btoa(bin) })
+        return
+      }
+    }
+    const blob = new Blob([bytes as BlobPart], { type: mime })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = filename; a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  // 下载图片译文图（Canvas 生成，data URL）
+  const downloadImage = (dataUrl: string, filename: string) => {
+    const a = document.createElement('a'); a.href = dataUrl; a.download = filename; a.click()
   }
 
   const pickDir = async () => {
@@ -152,6 +226,10 @@ export function TranslationView({ accounts, notify, settings }: Props) {
           if (format === 'html') await saveFile(`${base}-译文${suffix}.html`, buildHtml(r.name, pairs, [layout]))
           else if (format === 'md') await saveFile(`${base}-译文${suffix}.md`, buildPlain(r.name, pairs, [layout], 'md'))
           else if (format === 'txt') await saveFile(`${base}-译文${suffix}.txt`, buildPlain(r.name, pairs, [layout], 'txt'))
+          else if (format === 'docx') {
+            const bytes = await buildDocxBlob(r.name, pairs, layout)
+            await saveBinary(`${base}-译文${suffix}.docx`, bytes, DOCX_MIME)
+          }
           count++
         }
       }
@@ -186,7 +264,7 @@ export function TranslationView({ accounts, notify, settings }: Props) {
         e.preventDefault()
         const r = await readFilesFromDataTransfer(dt)
         if (r.skipped.length) notify(`已跳过 ${r.skipped.length} 个不支持的文件（仅纯文本文档可翻译）`)
-        ingestFiles(r.files)
+        void ingestFiles(r.files)
         return
       }
       // 纯文本粘贴
@@ -209,7 +287,7 @@ export function TranslationView({ accounts, notify, settings }: Props) {
       const r = await readFilesFromPaths(paths)
       if (cancelled) return
       if (r.skipped.length) notify(`已跳过 ${r.skipped.length} 个不支持的文件（仅纯文本文档可翻译）`)
-      ingestFiles(r.files)
+      void ingestFiles(r.files)
     }).then(fn => { if (cancelled) fn(); else unlisten = fn })
     return () => { cancelled = true; unlisten?.() }
   }, [notify])
@@ -218,7 +296,7 @@ export function TranslationView({ accounts, notify, settings }: Props) {
     <div className="translate-page">
       <div className="translate-intro">
         <Info size={14} />
-        <span>导入文档拖入或粘贴文本，选择翻译引擎与目标语言，即可生成双语对照文件。第一阶段支持纯文本文档；图片 OCR 与二进制文档解析将在第二阶段支持。</span>
+        <span>拖入/粘贴文件（txt/md/docx/pdf/图片）或直接粘贴文本，选择翻译引擎与目标语言，即可生成双语对照文件。docx/pdf 在本机解析，图片由云端视觉模型 OCR 识别文字后翻译（失败自动跳过）。</span>
       </div>
 
       <div
@@ -232,17 +310,17 @@ export function TranslationView({ accounts, notify, settings }: Props) {
           if (e.dataTransfer.files.length) {
             void readFilesFromDataTransfer(e.dataTransfer).then(r => {
               if (r.skipped.length) notify(`已跳过 ${r.skipped.length} 个不支持的文件`)
-              ingestFiles(r.files)
+              void ingestFiles(r.files)
             })
           }
         }}
         onClick={() => fileRef.current?.click()}
       >
-        <input ref={fileRef} type="file" multiple accept=".txt,.md,.markdown,.csv,.json,.log,.text,.xml,.yaml,.yml,.html,.htm,.png,.jpg,.jpeg,.webp,.zip,.rar,.7z" style={{ display: 'none' }}
+        <input ref={fileRef} type="file" multiple accept=".txt,.md,.markdown,.csv,.json,.log,.text,.xml,.yaml,.yml,.html,.htm,.docx,.pdf,.png,.jpg,.jpeg,.gif,.webp,.bmp" style={{ display: 'none' }}
           onChange={e => { if (e.target.files) void addFiles(e.target.files); e.target.value = '' }} />
         <Upload size={22} />
         <b>拖入文件，或点击选择</b>
-        <span>支持文档 / 图片 / 压缩包；也可直接粘贴文本</span>
+        <span>支持 txt/md/docx/pdf/图片；也可直接粘贴文本或文件</span>
       </div>
 
       {files.length > 0 && (
@@ -323,8 +401,9 @@ export function TranslationView({ accounts, notify, settings }: Props) {
               <label className="tr-check"><input type="checkbox" checked={bilingual} onChange={e => setBilingual(e.target.checked)} /> 双语对照</label>
               <div className="tr-field">
                 <label>导出格式</label>
-                <select className="select" value={format} onChange={e => setFormat(e.target.value as ExportFormat | 'pdf')}>
+                <select className="select" value={format} onChange={e => setFormat(e.target.value as ExportFormat | 'pdf' | 'docx')}>
                   <option value="html">HTML（排版最全）</option>
+                  <option value="docx">DOCX（Word 文档）</option>
                   <option value="md">Markdown</option>
                   <option value="txt">TXT 纯文本</option>
                   <option value="pdf">PDF（浏览器打印另存）</option>
@@ -361,10 +440,25 @@ export function TranslationView({ accounts, notify, settings }: Props) {
           <div className="translate-section">
             <div className="translate-section-title">翻译结果 <span className="hint">{results.length}</span></div>
             <div className="translate-results">
-              {results.map(r => (
-                <div className="translate-result" key={r.name}>
-                  <div className="tr-result-name"><FileText size={14} /> {r.name}</div>
+              {results.map((r, ri) => (
+                <div className="translate-result" key={`${r.name}-${ri}`}>
+                  <div className="tr-result-name">
+                    {r.isImage ? <ImageIcon size={14} /> : <FileText size={14} />} {r.name}
+                    {r.isImage && <span className="tag blue" style={{ marginLeft: 6 }}>图片 OCR</span>}
+                  </div>
                   <div className="tr-result-preview" title={r.translated}>{r.translated.slice(0, 160) || '（无译文）'}</div>
+                  {r.isImage && activeLayoutsForImage.length > 0 && (
+                    <div className="tr-image-downloads">
+                      <span>下载译文图：</span>
+                      {activeLayoutsForImage.map(l => (
+                        <button key={l} className="btn sm" onClick={() => {
+                          const pairs = alignPairs(r.source, r.translated)
+                          const dataUrl = renderTranslatedImage(pairs, l, r.name)
+                          downloadImage(dataUrl, `${r.name.replace(/\.[^.]+$/, '')}-译文图-${layoutSuffix(l)}.png`)
+                        }}>{layoutSuffix(l)}</button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

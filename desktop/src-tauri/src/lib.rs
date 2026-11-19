@@ -228,6 +228,17 @@ async fn write_file_to_dir(dir: String, filename: String, content: String) -> Re
     Ok(path.to_string_lossy().to_string())
 }
 
+/// 写二进制文件到指定目录（content 为 base64），用于 docx / 图片等
+#[tauri::command]
+async fn write_binary_to_dir(dir: String, filename: String, content_base64: String) -> Result<String, String> {
+    use std::io::Write;
+    let bytes = base64_decode(&content_base64)?;
+    let path = std::path::Path::new(&dir).join(&filename);
+    let mut f = std::fs::File::create(&path).map_err(|e| format!("创建文件失败：{}", e))?;
+    f.write_all(&bytes).map_err(|e| format!("写入失败：{}", e))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 async fn open_url(url: String) -> Result<(), String> {
     if !url.starts_with("https://") && !url.starts_with("http://") {
@@ -791,6 +802,34 @@ fn base64_encode(data: &[u8]) -> String {
     out
 }
 
+/// base64 解码字符串为字节（无外部依赖，与 base64_encode 配套）
+fn base64_decode(s: &str) -> Result<Vec<u8>, String> {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
+    let mut buf: u32 = 0;
+    let mut bits = 0u32;
+    for &c in bytes {
+        if c == b'=' { break }
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            b'\n' | b'\r' | b' ' => continue,
+            _ => return Err("非法 base64 字符".into()),
+        } as u32;
+        buf = (buf << 6) | v;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((buf >> bits) as u8);
+            buf &= (1u32 << bits) - 1;
+        }
+    }
+    Ok(out)
+}
+
 /// 校验 API Key 有效性：调用 list_voice，成功即有效
 #[tauri::command]
 async fn tts_test_direct(api_key: String) -> Result<String, String> {
@@ -1012,7 +1051,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service, stop_local_service, is_service_app_managed, tts_test_direct, tts_clone_direct, tts_synthesize_direct, fetch_local_models, choose_model_file, ollama_embed, stop_service_by_port])
+        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, write_binary_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service, stop_local_service, is_service_app_managed, tts_test_direct, tts_clone_direct, tts_synthesize_direct, fetch_local_models, choose_model_file, ollama_embed, stop_service_by_port])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
