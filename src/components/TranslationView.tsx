@@ -2,12 +2,13 @@
 // 双语布局（3 种，可多选）→ 导出（TXT / MD / HTML / PDF打印）。全平台适用。
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Languages, Upload, FileText, Image as ImageIcon, Archive, Loader2, Download, Printer, Check, Info } from 'lucide-react'
+import { Languages, Upload, FileText, Image as ImageIcon, Archive, Loader2, Download, Printer, Check, Info, RefreshCw } from 'lucide-react'
 import {
   categorizeFile, translateText, alignPairs,
   buildHtml, buildPlain, buildPrintHtml, layoutName, layoutSuffix, TARGET_LANGUAGES, SOURCE_LANGUAGES, FREE_ENGINES,
   type TranslateFile, type TranslateEngine, type FreeEngine, type BilingualLayout, type ExportFormat,
 } from '../core/translate'
+import { fetchLocalChatModels } from '../core/providerCall'
 import { HoldToConfirm } from './HoldToConfirm'
 import { chooseBackupFolder } from '../core/keyBackup'
 import { isDesktopApp } from '../core/openExternal'
@@ -16,7 +17,7 @@ import {
   type ImportedFile,
 } from '../core/fileImport'
 import { detectModelCapability, capabilityChatCapable } from '../core/modelCapability'
-import { isVoiceConfigAccount } from '../core/modelCategories'
+import { isVoiceConfigAccount, categoryFromNote } from '../core/modelCategories'
 import { isAccountServiceEnabled } from '../core/localServicesSettings'
 import { needsBinaryParse, parseBinaryDocument } from '../core/documentParse'
 import { buildDocxBlob, DOCX_MIME } from '../core/docxExport'
@@ -62,10 +63,32 @@ export function TranslationView({ accounts, notify, settings, serviceController 
   const fileRef = useRef<HTMLInputElement>(null)
   const printRef = useRef<HTMLIFrameElement>(null)
 
-  // 可用于翻译的账户：与 AI 助手同一套标准——排除语音配置账户、非文本模型（嵌入/图像/音频）、服务已关闭的本地账户
+  // 本地翻译引擎配置：地址 + 文本模型（只列可翻译模型）
+  const [localBase, setLocalBase] = useState(() => localStorage.getItem('acm.translate.localBase') || 'http://127.0.0.1:11434')
+  const [localModels, setLocalModels] = useState<string[]>([])
+  const [localModel, setLocalModel] = useState('')
+  const [loadingLocalModels, setLoadingLocalModels] = useState(false)
+  useEffect(() => { localStorage.setItem('acm.translate.localBase', localBase) }, [localBase])
+  const loadLocalModels = async () => {
+    setLoadingLocalModels(true)
+    try {
+      const ids = await fetchLocalChatModels(localBase)
+      setLocalModels(ids)
+      setLocalModel(prev => ids.includes(prev) ? prev : (ids[0] ?? ''))
+      notify(`已找到 ${ids.length} 个可用于翻译的本地文本模型`)
+    } catch (e) { notify(`拉取本地模型失败：${(e as Error)?.message ?? String(e)}`) }
+    finally { setLoadingLocalModels(false) }
+  }
+
+  // 可用于翻译的账户：排除语音配置、非文本模型、以及备注分类为生图型/视频型的账户
+  // （同一服务商下不同用途的账户，按「备注/用途」分类过滤，避免把生图/视频账户混进翻译下拉）
   const usableAccounts = useMemo(() => accounts
     .filter(a => !!a.encryptedKey)
     .filter(a => !isVoiceConfigAccount(a.providerId, a.note))
+    .filter(a => {
+      const cat = categoryFromNote(a.note)
+      return cat === '对话型' || cat === '通用型'  // 只留文本用途
+    })
     .filter(a => {
       const stored = a.modelCapability
       const live = detectModelCapability(a.label).capability
@@ -123,7 +146,9 @@ export function TranslationView({ accounts, notify, settings, serviceController 
   const doTranslate = async () => {
     if (!files.length) { notify('请先导入文件'); return }
     if (engine === 'account' && !accountId) { notify('请先在 API Key 管理添加模型账户'); return }
+    if (engine === 'local' && (!localBase.trim() || !localModel.trim())) { notify('请先设置本地服务地址并拉取/填写翻译模型'); return }
     const account = usableAccounts.find(a => a.id === accountId)
+    const localOpts = { localBase: localBase.trim(), localModel: localModel.trim() }
     setTranslating(true)
     const out: TransResult[] = []
     try {
@@ -138,7 +163,7 @@ export function TranslationView({ accounts, notify, settings, serviceController 
             if (!paras.length) { notify(`「${f.name}」未识别到文字，跳过`); continue }
             const srcText = paras.join('\n\n')
             const translated = await translateText(srcText, {
-              engine, account, target, source, freeEngine,
+              engine, account, target, source, freeEngine, ...localOpts,
               onProgress: (done, total) => setProgress(`翻译中 ${i + 1}/${files.length}：${f.name}（${done}/${total} 段）`),
             })
             out.push({ name: f.name, source: srcText, translated, isImage: true, originalImage: f.source })
@@ -148,7 +173,7 @@ export function TranslationView({ accounts, notify, settings, serviceController 
           continue
         }
         const translated = await translateText(f.text, {
-          engine, account, target, source, freeEngine,
+          engine, account, target, source, freeEngine, ...localOpts,
           onProgress: (done, total) => setProgress(`翻译中 ${i + 1}/${files.length}：${f.name}（${done}/${total} 段）`),
         })
         out.push({ name: f.name, source: f.text, translated })
@@ -366,6 +391,7 @@ export function TranslationView({ accounts, notify, settings, serviceController 
             <select className="select" value={engine} onChange={e => setEngine(e.target.value as TranslateEngine)} disabled={translating}>
               <option value="free">免费公共 API（无需 Key）</option>
               <option value="account">我的模型账户</option>
+              <option value="local">本地服务（Ollama）</option>
             </select>
           </div>
           {engine === 'free' && (
@@ -385,6 +411,29 @@ export function TranslationView({ accounts, notify, settings, serviceController 
               </select>
             </div>
           )}
+          {engine === 'local' && (
+            <>
+              <div className="tr-field">
+                <label>本地服务地址</label>
+                <div className="tr-local-row">
+                  <input className="input" value={localBase} onChange={e => setLocalBase(e.target.value)} placeholder="http://127.0.0.1:11434" disabled={translating} />
+                  <button className="btn sm ghost" onClick={() => void loadLocalModels()} disabled={loadingLocalModels || translating} title="拉取本地文本模型">
+                    {loadingLocalModels ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />} 拉取
+                  </button>
+                </div>
+              </div>
+              <div className="tr-field">
+                <label>翻译模型（仅文本模型）</label>
+                {localModels.length > 0 ? (
+                  <select className="select" value={localModel} onChange={e => setLocalModel(e.target.value)} disabled={translating}>
+                    {localModels.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                ) : (
+                  <input className="input" value={localModel} onChange={e => setLocalModel(e.target.value)} placeholder="先点「拉取」或手填模型名" disabled={translating} />
+                )}
+              </div>
+            </>
+          )}
           <div className="tr-field">
             <label>源语言</label>
             <select className="select" value={source} onChange={e => setSource(e.target.value)} disabled={translating}>
@@ -401,7 +450,9 @@ export function TranslationView({ accounts, notify, settings, serviceController 
         <div className="tr-engine-note">
           {engine === 'account'
             ? '使用你在「API Key 管理」添加的模型账户（如 hy-mt2 翻译模型）翻译，走你自己的 Key，不消耗公共额度。'
-            : FREE_ENGINES.find(f => f.id === freeEngine)?.desc}
+            : engine === 'local'
+              ? '使用本机 Ollama 的文本模型翻译（无需联网、不消耗额度）。需先在顶部开启 Ollama 服务，且本机已拉取文本模型（如 qwen2.5:3b）。'
+              : FREE_ENGINES.find(f => f.id === freeEngine)?.desc}
           {engine === 'free' && <span className="tr-engine-note-extra">源语言选「自动检测」时，Google 会自动识别，MyMemory 会按英文处理。文本按段落分块发送，失败块保留原文。</span>}
         </div>
         <button className="btn primary" onClick={() => void doTranslate()} disabled={translating || !files.length}>

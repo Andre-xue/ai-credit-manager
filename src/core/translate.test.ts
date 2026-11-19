@@ -207,3 +207,13 @@ describe('打印PDF用HTML', () => {
     expect(html).toContain('</html>')
   })
 })
+
+describe('本地翻译模型筛选', () => {
+  it('只保留文本对话模型，排除视觉/嵌入/生图/视频/语音模型', async () => {
+    const { isChatCapableLocalModel } = await import('./providerCall')
+    const textModels = ['qwen2.5:3b', 'llama3.2:3b', 'deepseek-v4-pro:4b', 'gemma3:4b-text', 'hy-mt2:1.8b']
+    const nonText = ['nomic-embed-text:latest', 'qwen2.5-vl:7b', 'gemma3:4b-vision', 'stable-diffusion-xl', 'flux1-schnell', 'whisper-large', 'video-llama', 'bge-reranker']
+    textModels.forEach(m => expect(isChatCapableLocalModel(m), m).toBe(true))
+    nonText.forEach(m => expect(isChatCapableLocalModel(m), m).toBe(false))
+  })
+})

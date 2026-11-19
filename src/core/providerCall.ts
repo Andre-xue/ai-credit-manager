@@ -357,6 +357,38 @@ export async function fetchLocalMediaModels(base: string): Promise<string[]> {
   return ids
 }
 
+/** 本地模型名是否像文本对话模型（排除视觉/嵌入/生图/视频/语音/重排类） */
+export function isChatCapableLocalModel(id: string): boolean {
+  const exclude = /(embed|vision|vl[-_]|-vl\b|image|draw|diffusion|sd[-_]|flux|tts|whisper|asr|audio|video|ocr|rerank|clip)/i
+  return !exclude.test(id)
+}
+
+/**
+ * 拉取本地服务中「可用于对话/翻译」的文本模型列表。
+ * 按模型名排除视觉/嵌入/生图/视频/语音类模型，只保留文本模型（如 llama/qwen/gemma/deepseek 等）。
+ */
+export async function fetchLocalChatModels(base: string): Promise<string[]> {
+  const all = await fetchLocalMediaModels(base)
+  const chat = all.filter(isChatCapableLocalModel)
+  if (chat.length === 0) throw new Error('本地服务中未找到可用于翻译的文本模型')
+  return chat
+}
+
+/** 本地对话调用（OpenAI 兼容 /chat/completions，无需账户 Key；供 AI 翻译本地引擎用） */
+export async function callLocalChat(
+  base: string, model: string, messages: { role: string; content: string }[],
+): Promise<ProviderCallResult> {
+  try {
+    const url = `${localBase(base)}/chat/completions`
+    const body = { model, messages, stream: false, temperature: 0.3 }
+    const raw = isDesktopApp() ? await invokeApi(url, 'local', body) : await directFetch(url, 'local', body)
+    const json = JSON.parse(raw)
+    const text = json.choices?.[0]?.message?.content ?? json.choices?.[0]?.text ?? ''
+    if (!text) return { ok: false, text: '', error: `本地模型 ${model} 未返回文本，请确认模型支持对话` }
+    return { ok: true, text: String(text).trim() }
+  } catch (e) { return toError(e) }
+}
+
 /** 本地生图：POST {base}/images/generations */
 export async function callLocalImage(base: string, model: string, prompt: string, opts?: ImageOptions): Promise<ProviderCallResult> {
   try {

@@ -13,13 +13,15 @@ import { HoldToConfirm } from './HoldToConfirm'
 import { extractTaskId } from '../core/mediaAdapters'
 import { isComfyUIBase, fetchComfyCheckpoints } from '../core/comfyui'
 import { fetchLocalModels, detectLocalServices } from '../core/localServices'
+import { ServiceSwitch } from './ServiceSwitch'
+import type { ServiceController } from '../core/useServiceController'
 import { GenProgressBar, useGenProgress } from './GenProgressBar'
 
 const RESOLUTIONS = ['480p', '576p', '720p', '768p', '1080p']
 const RATIOS = ['1:1', '3:4', '4:3', '9:16', '16:9', '21:9']
 const DEFAULT_BASE = 'http://127.0.0.1:11434'
 
-export function LocalVideoView({ notify }: { notify: (m: string) => void }) {
+export function LocalVideoView({ notify, serviceController }: { notify: (m: string) => void; serviceController?: ServiceController }) {
   const [base, setBase] = useState(() => {
     if (localStorage.getItem('acm.local.vid.migrated')) return localStorage.getItem('acm.local.vid.base') || DEFAULT_BASE
     const old = localStorage.getItem('acm.local.vid.base')
@@ -166,12 +168,15 @@ export function LocalVideoView({ notify }: { notify: (m: string) => void }) {
     <div className="sd-page">
       <div className="sd-topbar">
         <div className="sd-brand"><span className="sd-brand-mark"><Workflow size={17} /></span><div><b>AI 视频 · 本地</b><small>ComfyUI 风格工作流 · 全流程本机运行</small></div></div>
-        <div className="sd-conn">
+        <div className="sd-top-actions">
+          {serviceController && <ServiceSwitch controller={serviceController} serviceKey="comfyui" />}
+          <div className="sd-conn">
           {detected && <span className="sd-detected-tag">已探测：{detected}</span>}
           <span className="sd-conn-label">本地服务</span>
           <input className="input" value={base} onChange={e => setBase(e.target.value)} placeholder="自动探测或手填地址" />
           <button className="btn sm ghost" onClick={() => void autoDetect()} disabled={detecting} title="自动探测本机服务"><Radar size={14} className={detecting ? 'spin' : ''} /> 探测</button>
           <button className="btn sm ghost" onClick={() => void loadModels()} disabled={loadingModels}><RefreshCw size={14} className={loadingModels ? 'spin' : ''} /> 连接</button>
+          </div>
         </div>
       </div>
 

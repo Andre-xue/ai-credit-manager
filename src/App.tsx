@@ -21,7 +21,7 @@ import { saveTtsConfig } from './core/voice-download'
 import { detectModelCapability, shouldHideFromChat } from './core/modelCapability'
 import { VOICE_PROVIDERS } from './core/voiceProviders'
 import {
-  LOCAL_SERVICE_KEYS, providerToService, memoryToTier, tierAdvice, maxServicesForTier,
+  LOCAL_SERVICE_KEYS, memoryToTier, tierAdvice, maxServicesForTier,
   isServiceEnabled, toggleService, notifyLocalServiceChanged, initServicesForTier,
 } from './core/localServicesSettings'
 import type { LocalServiceKey, MemoryTier } from './core/types'
@@ -653,13 +653,13 @@ function App() {
 
           {tab === 'benefits' && <TranslationView accounts={state.accounts} notify={notify} settings={state.settings} serviceController={serviceController} />}
 
-          {tab === 'image' && <ImageView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} settings={state.settings} onOpenLocal={() => openTab('local-image')} serviceController={serviceController} />}
+          {tab === 'image' && <ImageView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} settings={state.settings} onOpenLocal={() => openTab('local-image')} />}
 
-          {tab === 'video' && <VideoView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} settings={state.settings} onOpenLocal={() => openTab('local-video')} serviceController={serviceController} />}
+          {tab === 'video' && <VideoView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} settings={state.settings} onOpenLocal={() => openTab('local-video')} />}
 
-          {tab === 'local-image' && <div className="set-content"><button className="btn sm ghost sd-back" onClick={() => openTab('image')}><X size={15} /> 返回 AI 图像</button><LocalImageView notify={notify} /></div>}
+          {tab === 'local-image' && <div className="set-content"><button className="btn sm ghost sd-back" onClick={() => openTab('image')}><X size={15} /> 返回 AI 图像</button><LocalImageView notify={notify} serviceController={serviceController} /></div>}
 
-          {tab === 'local-video' && <div className="set-content"><button className="btn sm ghost sd-back" onClick={() => openTab('video')}><X size={15} /> 返回 AI 视频</button><LocalVideoView notify={notify} /></div>}
+          {tab === 'local-video' && <div className="set-content"><button className="btn sm ghost sd-back" onClick={() => openTab('video')}><X size={15} /> 返回 AI 视频</button><LocalVideoView notify={notify} serviceController={serviceController} /></div>}
 
           {tab === 'keys' && <KeysView
             state={state} notify={notify}
@@ -808,11 +808,7 @@ function App() {
       {addOpen && <PlatformPickerModal
         onClose={() => setAddOpen(false)}
         onPick={(pid) => {
-          const localKey = providerToService(pid)
-          if (localKey && !isServiceEnabled(state.settings, localKey)) {
-            notify(`请先在「设置 → 本地模型服务」开启 ${localKey === 'ollama' ? 'Ollama' : localKey === 'comfyui' ? 'ComfyUI' : 'LM Studio'} 后再添加`)
-            return
-          }
+          // 本地服务账户可直接添加，无需先在设置页开启开关（开关只控制功能可用性，不限制添加）
           setAddOpen(false); setFormProviderId(pid)
         }}
       />}

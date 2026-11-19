@@ -10,6 +10,8 @@ import {
 import { callLocalImage, fetchLocalMediaModels } from '../core/providerCall'
 import { isComfyUIBase, comfyGenerate, fetchComfyCheckpoints } from '../core/comfyui'
 import { fetchLocalModels, detectLocalServices } from '../core/localServices'
+import { ServiceSwitch } from './ServiceSwitch'
+import type { ServiceController } from '../core/useServiceController'
 import { saveMedia, loadHistory, addHistory, removeHistory, clearHistory, newMediaId, errTextSafe, urlToThumb, type MediaHistoryItem } from '../core/mediaGeneration'
 import { HoldToConfirm } from './HoldToConfirm'
 import { GenProgressBar, useGenProgress } from './GenProgressBar'
@@ -22,7 +24,7 @@ const RATIOS = [
 ]
 const DEFAULT_BASE = 'http://127.0.0.1:8188'  // ComfyUI 默认端口
 
-export function LocalImageView({ notify }: { notify: (m: string) => void }) {
+export function LocalImageView({ notify, serviceController }: { notify: (m: string) => void; serviceController?: ServiceController }) {
   // 一次性迁移：旧版默认 11434（Ollama 端口）导致连不上 ComfyUI，升级后自动切到 8188
   const [base, setBase] = useState(() => {
     if (localStorage.getItem('acm.local.img.migrated')) return localStorage.getItem('acm.local.img.base') || DEFAULT_BASE
@@ -177,12 +179,15 @@ export function LocalImageView({ notify }: { notify: (m: string) => void }) {
       {/* 顶部服务栏 */}
       <div className="sd-topbar">
         <div className="sd-brand"><span className="sd-brand-mark"><Sparkles size={17} /></span><div><b>AI 图像 · 本地</b><small>Stable Diffusion 风格 · 全流程本机运行</small></div></div>
-        <div className="sd-conn">
+        <div className="sd-top-actions">
+          {serviceController && <ServiceSwitch controller={serviceController} serviceKey="comfyui" />}
+          <div className="sd-conn">
           {detected && <span className="sd-detected-tag">已探测：{detected}</span>}
           <span className="sd-conn-label">本地服务</span>
           <input className="input" value={base} onChange={e => setBase(e.target.value)} placeholder="自动探测或手填地址" />
           <button className="btn sm ghost" onClick={() => void autoDetect()} disabled={detecting} title="自动探测本机服务"><Radar size={14} className={detecting ? 'spin' : ''} /> 探测</button>
           <button className="btn sm ghost" onClick={() => void loadModels()} disabled={loadingModels}><RefreshCw size={14} className={loadingModels ? 'spin' : ''} /> 连接</button>
+          </div>
         </div>
       </div>
 
