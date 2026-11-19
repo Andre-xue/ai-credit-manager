@@ -5,12 +5,14 @@ import {
   Wallet, Flame, Clock, TrendingUp, Lock, Unlock, Download, X, Copy, CircleHelp,
   Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Gift, Eye, Pencil, Fingerprint,
   Film, Layers, Monitor, PanelLeftOpen,
-  Cloud, Database, Volume2, HardDrive, Palette, RotateCcw, Menu,
+  Cloud, Database, Volume2, HardDrive, Palette, RotateCcw, Menu, FileText,
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { isLocalProvider } from './core/types'
 import { detectLocalServices, getSystemMemoryGb, checkLocalService, startLocalService, stopLocalService, isServiceAppManaged, fetchLocalModels, chooseModelFile, type LocalService } from './core/localServices'
+import { DocQAView } from './components/DocQAView'
 import { syncVoiceAccounts } from './core/voiceKey'
+import { detectModelCapability, shouldHideFromChat } from './core/modelCapability'
 import {
   LOCAL_SERVICE_KEYS, providerToService, memoryToTier, tierAdvice, maxServicesForTier,
   isServiceEnabled, toggleService, notifyLocalServiceChanged, initServicesForTier,
@@ -61,7 +63,7 @@ type CsvImportPreview =
   | { kind: 'quotas'; quotas: ReturnType<typeof parseQuotasCsv> }
   | { kind: 'usage'; events: UsageEventInput[] }
 
-type Tab = 'ai' | 'dashboard' | 'checkin' | 'benefits' | 'keys' | 'usage' | 'voice' | 'settings'
+type Tab = 'ai' | 'dashboard' | 'checkin' | 'benefits' | 'keys' | 'usage' | 'voice' | 'docs' | 'settings'
 
 const UNIT_LABEL: Record<CreditUnit, string> = {
   credit: '积分', token: 'Tokens', request: '次', currency: '元', day: '天',
@@ -105,7 +107,7 @@ function App() {
   const isPhone = isNativeApp() || phonePreview
   const [tab, setTab] = useState<Tab>(() => {
     const t = new URLSearchParams(location.search).get('tab')
-    if (t && ['ai', 'dashboard', 'checkin', 'benefits', 'keys', 'usage', 'voice', 'settings'].includes(t)) return t as Tab
+    if (t && ['ai', 'dashboard', 'checkin', 'benefits', 'keys', 'usage', 'voice', 'docs', 'settings'].includes(t)) return t as Tab
     return isPhone ? 'ai' : 'dashboard'
   })
   const [sidebarVisible, setSidebarVisible] = useState<boolean>(() => {
@@ -512,6 +514,7 @@ function App() {
     { id: 'keys', label: 'API Key 管理', icon: KeyRound },
     { id: 'usage', label: '用量与费用', icon: BarChart3 },
     { id: 'voice', label: '语音配置', icon: Volume2 },
+    { id: 'docs', label: '文档问答', icon: FileText },
     { id: 'settings', label: '设置', icon: Settings },
   ]
 
@@ -519,7 +522,7 @@ function App() {
   const bottomTabs: Tab[] = ['dashboard', 'checkin', 'benefits', 'ai', 'keys', 'usage', 'voice', 'settings']
   const shortLabel: Record<Tab, string> = {
     ai: 'AI', dashboard: '看板', checkin: '签到', benefits: '福利',
-    keys: '密钥', usage: '用量', voice: '语音', settings: '设置',
+    keys: '密钥', usage: '用量', voice: '语音', docs: '文档', settings: '设置',
   }
 
   // 手机端侧栏：AI 主页面置顶，其后依次为 看板 / 签到 / 福利 / 密钥 / 用量 / 设置
@@ -663,6 +666,14 @@ function App() {
           {tab === 'voice' && <div className="set-content">
             <SettingsSection title="语音配置" desc="朗读音色、方言、语速与声音克隆 · 所有配置仅保存在此设备" icon={Volume2} tone="blue">
               <div style={{ padding: '4px 2px 2px' }}><VoiceSettings notify={notify} accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} /></div>
+            </SettingsSection>
+          </div>}
+
+          {tab === 'docs' && <div className="set-content">
+            <SettingsSection title="本地文档问答" desc="导入文档，基于本机模型问答 · 文档与向量只存此设备" icon={FileText} tone="indigo">
+              <div style={{ padding: '4px 2px 2px' }}>
+                <DocQAView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} />
+              </div>
             </SettingsSection>
           </div>}
 
@@ -2144,10 +2155,12 @@ function LocalAccountFormModal({ provider, sessionPwd, onClose, onSave, notify }
       // Key 值 = 模型路径地址；apiUrl = 探测到的本机网关（不可改）
       const enc = await encryptSecret(path.trim(), pwd)
       const now = new Date().toISOString()
+      const capability = detectModelCapability(path.trim())
       const account: AppState['accounts'][number] = {
         id: uid('acc'), providerId: provider.id, label: path.trim().split(/[\\/]/).pop() || provider.shortName,
         mode: 'api', encryptedKey: enc, keyFingerprint: fingerprint(path.trim()),
         apiUrl: selected.url, note: note.trim() || `本地 ${selected.service}`,
+        modelCapability: capability.capability,
         createdAt: now, updatedAt: now,
       }
       onSave(account, pwd)
@@ -2190,11 +2203,14 @@ function LocalAccountFormModal({ provider, sessionPwd, onClose, onSave, notify }
             <label className="form-label">选择模型
               <span style={{ fontWeight: 400, color: 'var(--text-3)', fontSize: 11 }}>（作为标识加密保存）</span>
             </label>
-            {/* 主入口：从服务已加载的模型列表选择 */}
+            {/* 主入口：从服务已加载的模型列表选择（自动标注能力类型） */}
             {availModels.length > 0 ? (
               <select className="select" value={path} onChange={e => setPath(e.target.value)} disabled={busy} style={{ width: '100%' }}>
                 <option value="">请选择模型…</option>
-                {availModels.map(m => <option key={m} value={m}>{m}</option>)}
+                {availModels.map(m => {
+                  const cap = detectModelCapability(m)
+                  return <option key={m} value={m}>{m}　[{cap.label}]</option>
+                })}
               </select>
             ) : (
               <div className="local-model-hint">
@@ -2202,6 +2218,23 @@ function LocalAccountFormModal({ provider, sessionPwd, onClose, onSave, notify }
                   : modelsErr ? `未能自动读取模型列表：${modelsErr}` : '本机服务暂无可读取的模型列表'}
               </div>
             )}
+            {/* 选中模型的能力标注与提示 */}
+            {path.trim() && (() => {
+              const cap = detectModelCapability(path.trim())
+              const hidden = shouldHideFromChat(cap)
+              return (
+                <div className={`model-cap-hint ${hidden ? 'warn' : ''}`}>
+                  <span className="cap-badge">{cap.label}</span>
+                  <span>{hidden
+                    ? `${cap.reason}识别为「${cap.label}」模型，不能用于 AI 聊天对话；添加后会在聊天列表自动隐藏。`
+                    : cap.capability === 'translation'
+                      ? '翻译专用模型，可走对话接口但更适合翻译任务。'
+                      : cap.capability === 'unknown'
+                        ? '未识别类型，默认允许聊天；如实际不能对话请留意。'
+                        : '识别为对话模型，可用于 AI 聊天。'}</span>
+                </div>
+              )
+            })()}
             <div className="local-model-actions">
               <button className="btn sm" disabled={busy || modelsLoading} onClick={() => { if (selected) void loadModels(selected) }}>
                 {modelsLoading ? '读取中…' : '刷新模型列表'}

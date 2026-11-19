@@ -22,6 +22,7 @@ import { VoiceCall } from './VoiceCall'
 import {
   MODEL_CATEGORIES, CATEGORY_META, categoryForModel, isVoiceConfigAccount, type ModelCategory,
 } from '../core/modelCategories'
+import { detectModelCapability, capabilityChatCapable } from '../core/modelCapability'
 import { callByCategory, fetchProviderModels } from '../core/providerCall'
 import type { Account } from '../core/types'
 import { isAccountServiceEnabled, LOCAL_SERVICE_CHANGED_EVENT } from '../core/localServicesSettings'
@@ -191,6 +192,11 @@ export function AIView({ notify, accounts, settings }: {
   const ownOptions = useMemo(() => accounts
     // 语音配置(APP)账户只服务语音模块，不在 AI 聊天列表展示、不参与调用
     .filter(a => !isVoiceConfigAccount(a.providerId, a.note))
+    // 嵌入/图像/音频模型不能聊天，自动隐藏（老账户无字段时按名称实时识别兜底）
+    .filter(a => {
+      const cap = a.modelCapability ?? detectModelCapability(a.label).capability
+      return capabilityChatCapable(cap)
+    })
     // App 内本地服务开关关闭时，隐藏对应本地模型账户（账户数据本身保留）
     .filter(a => isAccountServiceEnabled(settings, a.providerId))
     .map(a => ({

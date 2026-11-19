@@ -1,6 +1,8 @@
 // 统一数据模型 —— 各端（Web / 桌面 / 安卓 / 小程序）共享的核心类型
 // 设计原则：本地优先、只读官方接口、跳转由本人操作、不模拟登录、不自动领取
 
+import type { ModelCapability } from './modelCapability'
+
 export type CreditUnit =
   | 'credit'      // 通用积分
   | 'token'       // Token 额度
@@ -63,6 +65,8 @@ export interface Account {
   apiUrl?: string
   /** 备注（用途） */
   note?: string
+  /** 模型能力分类（添加时自动识别：chat/translation/embedding/image/audio/unknown） */
+  modelCapability?: ModelCapability
   createdAt: string
   updatedAt: string
 }

@@ -893,6 +893,39 @@ async fn fetch_local_models(key: String, url: String) -> Result<Vec<String>, Str
     Ok(parser(&json))
 }
 
+/// 从 Ollama /api/embed 响应解析向量（兼容 embeddings[0] 数组与 embedding 单数组）
+fn parse_embed_vector(json: &serde_json::Value) -> Option<Vec<f64>> {
+    let arr = json.get("embeddings")
+        .and_then(|e| e.get(0))
+        .or_else(|| json.get("embedding"))
+        .and_then(|v| v.as_array())?;
+    arr.iter().map(|n| n.as_f64()).collect()
+}
+
+/// 调用本机 Ollama 的嵌入接口生成文本向量（供本地文档问答/RAG 使用）。
+/// base_url: 探测到的网关（如 http://127.0.0.1:11434）；model: 嵌入模型名（如 nomic-embed-text）
+#[tauri::command]
+async fn ollama_embed(base_url: String, model: String, input: String) -> Result<Vec<f64>, String> {
+    let base = base_url.trim().trim_end_matches('/');
+    if base.is_empty() { return Err("未配置 Ollama 服务地址".to_string()) }
+    if input.trim().is_empty() { return Err("待嵌入文本为空".to_string()) }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build().map_err(|e| format!("客户端错误：{}", e))?;
+    let body = serde_json::json!({ "model": model, "input": input });
+    let resp = client.post(format!("{}/api/embed", base))
+        .header("Content-Type", "application/json")
+        .json(&body).send().await
+        .map_err(|e| format!("嵌入请求失败：{}", e))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let t = resp.text().await.unwrap_or_default();
+        return Err(format!("嵌入失败（HTTP {}）：{}", status.as_u16(), t.chars().take(160).collect::<String>()))
+    }
+    let json: serde_json::Value = resp.json().await.map_err(|e| format!("响应格式异常：{}", e))?;
+    parse_embed_vector(&json).ok_or_else(|| format!("响应中未找到向量：{}", json.to_string().chars().take(160).collect::<String>()))
+}
+
 /// 弹出系统文件选择器，让用户选择本地模型文件（不读取内容，仅返回完整路径供前端取文件名）
 #[tauri::command]
 fn choose_model_file() -> Result<Option<String>, String> {
@@ -918,7 +951,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service, stop_local_service, is_service_app_managed, tts_test_direct, tts_clone_direct, tts_synthesize_direct, fetch_local_models, choose_model_file])
+        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service, stop_local_service, is_service_app_managed, tts_test_direct, tts_clone_direct, tts_synthesize_direct, fetch_local_models, choose_model_file, ollama_embed])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -963,6 +996,17 @@ mod local_service_tests {
         let gb = parse_meminfo_linux(meminfo).unwrap();
         assert!(gb > 15.0 && gb < 17.0, "解析结果 {} 应接近 16GB", gb);
         assert_eq!(parse_meminfo_linux("no mem here"), None);
+    }
+
+    #[test]
+    fn parse_embed_vector_ok() {
+        let j = serde_json::json!({"model":"nomic-embed-text","embeddings":[[0.1, -0.2, 0.3]]});
+        let v = parse_embed_vector(&j).unwrap();
+        assert_eq!(v.len(), 3);
+        assert!((v[1] + 0.2).abs() < 1e-9);
+        let j2 = serde_json::json!({"embedding":[1.0, 2.0]});
+        assert_eq!(parse_embed_vector(&j2).unwrap().len(), 2);
+        assert!(parse_embed_vector(&serde_json::json!({})).is_none());
     }
 
     #[test]
