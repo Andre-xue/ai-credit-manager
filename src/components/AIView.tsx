@@ -455,7 +455,7 @@ export function AIView({ notify, accounts, settings }: {
     <button className="ai-model-btn" onClick={() => { setCategoryOpen(v => !v); setModelOpen(false) }} title="模型分类">
       <Layers size={13} /> {category} <ChevronDown size={13} />
     </button>
-    {categoryOpen && <div className="ai-model-menu">
+    {categoryOpen && <div className="ai-model-menu me-panel-in" key={`cat-${category}`}>
       {MODEL_CATEGORIES.filter(c => {
         // 本地服务全关时隐藏「本地型」分类；开启任一服务则显示
         if (c === '本地型' && !shouldShowLocalCategory(settings)) return false
@@ -477,7 +477,7 @@ export function AIView({ notify, accounts, settings }: {
     <button className="ai-model-btn" onClick={() => { setModelOpen(v => !v); setCategoryOpen(false) }} title="切换模型">
       {currentModel} <ChevronDown size={13} />
     </button>
-    {modelOpen && <div className="ai-model-menu">
+    {modelOpen && <div className="ai-model-menu me-panel-in" key={`model-${category}`}>
       {visibleOptions.length === 0 && <div className="ai-model-empty">该分类暂无模型，请到 API Key 管理页添加</div>}
       {visibleOptions.map(o => (
         <button key={o.key} className={`ai-model-option ${o.key === model ? 'active' : ''}`}

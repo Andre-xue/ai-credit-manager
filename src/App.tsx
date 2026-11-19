@@ -953,7 +953,7 @@ function StatCard({ icon, color, label, value, hint }: { icon: React.ReactNode; 
         <div className="stat-icon" style={{ background: c.bg, color: c.fg }}>{icon}</div>
         <span className="stat-label">{label}</span>
       </div>
-      <div className="stat-value">{value}</div>
+      <div className="stat-value"><span className="me-num" key={value}>{value}</span></div>
       <div className="stat-hint">{hint}</div>
     </div>
   )
@@ -1089,10 +1089,10 @@ function DashboardView({ views, onAdd, onRemove, onRemoveMany, onEditQuota, noti
   const pageViews = views.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE)
   if (views.length === 0) {
     return (
-      <div className="empty">
+      <div className="empty me-stack">
         <div className="stat-icon" style={{ background: 'var(--primary-soft)', color: 'var(--primary)', margin: '0 auto' }}><Wallet size={22} /></div>
-        <h3>还没有账户</h3>
-        <p>添加一个你自己的 AI 平台账户，开始统一管理积分与额度</p>
+        <h3 className="me-text-layer">还没有账户</h3>
+        <p className="me-text-layer">添加一个你自己的 AI 平台账户，开始统一管理积分与额度</p>
         <button className="btn primary" onClick={onAdd}><Plus size={15} /> 添加第一个账户</button>
       </div>
     )
@@ -1152,7 +1152,7 @@ function DashboardView({ views, onAdd, onRemove, onRemoveMany, onEditQuota, noti
                 <>
                   <div className="ac-quota">
                     <div className="ac-quota-num">
-                      {(v.quota!.total - v.quota!.used).toLocaleString()}
+                      <span className="me-num" key={`q-${v.account.id}-${v.quota!.used}`}>{(v.quota!.total - v.quota!.used).toLocaleString()}</span>
                       <small>{UNIT_LABEL[v.quota!.unit]}</small>
                     </div>
                     <div className="ac-quota-label">剩余 / 共 {v.quota!.total.toLocaleString()}</div>
@@ -2249,10 +2249,15 @@ function LocalAccountFormModal({ provider, sessionPwd, onClose, onSave, notify }
                   return <option key={m} value={m}>{m}　[{cap.label}]</option>
                 })}
               </select>
+            ) : modelsLoading ? (
+              <div className="me-skeleton-stack" aria-label="正在从本机服务读取模型列表">
+                <div className="me-skeleton" style={{ height: 14, width: '72%' }} />
+                <div className="me-skeleton" style={{ height: 14, width: '55%', marginTop: 8 }} />
+                <div className="me-skeleton" style={{ height: 14, width: '63%', marginTop: 8 }} />
+              </div>
             ) : (
               <div className="local-model-hint">
-                {modelsLoading ? '正在从本机服务读取模型列表…'
-                  : modelsErr ? `未能自动读取模型列表：${modelsErr}` : '本机服务暂无可读取的模型列表'}
+                {modelsErr ? `未能自动读取模型列表：${modelsErr}` : '本机服务暂无可读取的模型列表'}
               </div>
             )}
             {/* 选中模型的能力标注与提示 */}
