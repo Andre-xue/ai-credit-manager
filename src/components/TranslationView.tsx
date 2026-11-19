@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Languages, Upload, FileText, Image as ImageIcon, Archive, Trash2, Loader2, Download, Printer, Check, Info } from 'lucide-react'
 import {
   categorizeFile, translateText, alignPairs,
-  buildHtml, buildPlain, layoutName, layoutSuffix, TARGET_LANGUAGES, SOURCE_LANGUAGES, FREE_ENGINES,
+  buildHtml, buildPlain, buildPrintHtml, layoutName, layoutSuffix, TARGET_LANGUAGES, SOURCE_LANGUAGES, FREE_ENGINES,
   type TranslateFile, type TranslateEngine, type FreeEngine, type BilingualLayout, type ExportFormat,
 } from '../core/translate'
 import { chooseBackupFolder } from '../core/keyBackup'
@@ -56,6 +56,7 @@ export function TranslationView({ accounts, notify, settings }: Props) {
   const [results, setResults] = useState<TransResult[]>([])
   const [dragOver, setDragOver] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const printRef = useRef<HTMLIFrameElement>(null)
 
   // 可用于翻译的账户：与 AI 助手同一套标准——排除语音配置账户、非文本模型（嵌入/图像/音频）、服务已关闭的本地账户
   const usableAccounts = useMemo(() => accounts
@@ -182,7 +183,8 @@ export function TranslationView({ accounts, notify, settings }: Props) {
   }
 
   // 保存二进制文件（docx / 图片）：桌面走 write_binary_to_dir，否则 Blob 下载
-  const saveBinary = async (filename: string, bytes: Uint8Array, mime: string) => {
+  const saveBinary = async (filename: string, data: Uint8Array | ArrayBuffer, mime: string) => {
+    const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : data
     if (isDesktopApp() && exportDir) {
       const w = window as unknown as { __TAURI_INTERNALS__?: { invoke?: (cmd: string, args: Record<string, unknown>) => Promise<string> } }
       const invoke = w.__TAURI_INTERNALS__?.invoke
@@ -242,16 +244,21 @@ export function TranslationView({ accounts, notify, settings }: Props) {
   const doPrintPdf = () => {
     if (!results.length) { notify('请先翻译'); return }
     const activeLayouts: BilingualLayout[] = bilingual ? layouts : ['side-by-side']
-    // 每个布局单独一节，各自分页；用户可分别另存，或一次性打印成多页 PDF
-    const html = results.flatMap(r => activeLayouts.map(layout =>
-      `<div style="page-break-after:always">${buildHtml(`${r.name} · ${layoutName(layout)}`, alignPairs(r.source, r.translated), [layout])}</div>`
-    )).join('')
-    const win = window.open('', '_blank')
-    if (!win) { notify('打印窗口被拦截，请允许弹出窗口后重试'); return }
-    win.document.write(html)
-    win.document.close()
-    setTimeout(() => win.print(), 400)
-    notify('已打开打印窗口（每种布局独立分页），可选择「另存为 PDF」')
+    const docs = results.map(r => ({ name: r.name, pairs: alignPairs(r.source, r.translated) }))
+    const html = buildPrintHtml(docs, activeLayouts)
+    // 用隐藏 iframe 打印：Tauri WebView 会拦截 window.open，但 iframe.contentWindow.print() 可用
+    const iframe = printRef.current
+    if (!iframe) return
+    iframe.onload = () => {
+      try {
+        iframe.contentWindow?.focus()
+        iframe.contentWindow?.print()
+        notify('已打开打印对话框，请在目标里选「另存为 PDF」')
+      } catch {
+        notify('打印失败：当前环境不支持直接打印，请改导出 HTML 后用浏览器打开打印')
+      }
+    }
+    iframe.srcdoc = html
   }
 
   // 粘贴导入：文本 或 文件（剪贴板里的文件）
@@ -465,6 +472,8 @@ export function TranslationView({ accounts, notify, settings }: Props) {
           </div>
         </>
       )}
+      {/* 隐藏 iframe：打印生成 PDF（Tauri WebView 拦截 window.open，改用 iframe） */}
+      <iframe ref={printRef} style={{ position: 'absolute', width: 0, height: 0, border: 0, opacity: 0 }} title="打印" />
     </div>
   )
 }

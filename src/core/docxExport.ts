@@ -5,7 +5,7 @@
 import { alignPairs, layoutName, type TranslatePair, type BilingualLayout } from './translate'
 
 /** 生成 DOCX 二进制（三种布局各一份，调用方每次传一种 layout） */
-export async function buildDocxBlob(title: string, pairs: TranslatePair[], layout: BilingualLayout): Promise<Uint8Array> {
+export async function buildDocxBlob(title: string, pairs: TranslatePair[], layout: BilingualLayout): Promise<ArrayBuffer> {
   const {
     Document, Paragraph, TextRun, Table, TableRow, TableCell,
     Packer, HeadingLevel, WidthType,
@@ -63,7 +63,8 @@ export async function buildDocxBlob(title: string, pairs: TranslatePair[], layou
       children: [heading(title), ...body],
     }],
   })
-  return Packer.toBuffer(doc)
+  // 用 toArrayBuffer 而非 toBuffer：后者在浏览器/WebView 会触发 "nodebuffer is not supported"
+  return Packer.toArrayBuffer(doc)
 }
 
 /** DOCX 的 MIME 类型 */

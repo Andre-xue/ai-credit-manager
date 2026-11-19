@@ -22,8 +22,10 @@ async function parseDocx(data: ArrayBuffer): Promise<ParsedDoc> {
 /** 解析 pdf（pdfjs-dist 逐页提取文字） */
 async function parsePdf(data: ArrayBuffer): Promise<ParsedDoc> {
   const pdfjs = await import('pdfjs-dist')
-  // worker 用 CDN 兜底：本地打包 worker 在 Tauri/WebView 下路径易失效，用稳定公共 CDN
-  pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs'
+  // worker 必须本地打包：CDN 在 Tauri WebView 下加载 ESM 模块会失败（Importing a module script failed）
+  // 用 ?url 让 Vite 把 worker 作为本地资源产出，随应用分发，无需联网
+  const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default
+  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
   const pdf = await pdfjs.getDocument({ data: new Uint8Array(data) }).promise
   const texts: string[] = []
   for (let i = 1; i <= pdf.numPages; i++) {

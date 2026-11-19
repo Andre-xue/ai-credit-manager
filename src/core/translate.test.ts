@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   categorizeFile, chunkForTranslate, alignPairs, renderPairHtml,
-  buildHtml, buildPlain, layoutName, layoutSuffix, freeTranslateUrl, FREE_ENGINES, SOURCE_LANGUAGES, type TranslatePair,
+  buildHtml, buildPlain, buildPrintHtml, layoutName, layoutSuffix, freeTranslateUrl, FREE_ENGINES, SOURCE_LANGUAGES, type TranslatePair,
 } from './translate'
 
 const pairs: TranslatePair[] = [
@@ -188,5 +188,22 @@ describe('免费翻译引擎与源语言', () => {
   it('MyMemory 指定源语言时不兜底', () => {
     const url = freeTranslateUrl('こんにちは', 'zh-CN', 'ja', 'mymemory')
     expect(decodeURIComponent(url)).toContain('ja|zh-CN')
+  })
+})
+
+describe('打印PDF用HTML', () => {
+  it('多文档多布局独立分页', () => {
+    const html = buildPrintHtml([
+      { name: 'A', pairs },
+      { name: 'B', pairs },
+    ], ['side-by-side', 'stacked'])
+    expect(html).toContain('A · 左右对照')
+    expect(html).toContain('B · 上下结构')
+    expect(html.split('page-break-after').length - 1).toBeGreaterThanOrEqual(3)
+  })
+  it('是完整HTML文档', () => {
+    const html = buildPrintHtml([{ name: 'A', pairs }], ['interleaved'])
+    expect(html.startsWith('<!DOCTYPE html>')).toBe(true)
+    expect(html).toContain('</html>')
   })
 })

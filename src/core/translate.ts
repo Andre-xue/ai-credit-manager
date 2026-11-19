@@ -258,6 +258,19 @@ export function buildPlain(title: string, pairs: TranslatePair[], layouts: Bilin
   return parts.join('\n')
 }
 
+/** 生成用于打印的完整 HTML 文档：多文档 × 多布局，每项独立分页 */
+export function buildPrintHtml(docs: { name: string; pairs: TranslatePair[] }[], layouts: BilingualLayout[]): string {
+  const sections = docs.flatMap(d => layouts.map(layout => {
+    const body = layout === 'side-by-side'
+      ? `<div class="tr-whole-side"><div class="tr-col"><p class="tr-col-label">原文</p><div class="tr-src">${nl2br(wholeSource(d.pairs))}</div></div><div class="tr-col"><p class="tr-col-label">译文</p><div class="tr-dst">${nl2br(wholeTarget(d.pairs))}</div></div></div>`
+      : layout === 'stacked'
+        ? `<div class="tr-whole-stack"><div><p class="tr-col-label">原文</p><div class="tr-src">${nl2br(wholeSource(d.pairs))}</div></div><div><p class="tr-col-label">译文</p><div class="tr-dst">${nl2br(wholeTarget(d.pairs))}</div></div></div>`
+        : d.pairs.map(p => renderPairHtml(p, 'interleaved')).join('\n')
+    return `<section class="tr-section" data-layout="${layout}"><h2>${esc(d.name)} · ${layoutName(layout)}</h2>${body}</section>`
+  })).join('<div style="page-break-after:always"></div>')
+  return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>译文打印</title><style>${bilingualCss()}</style></head><body>${sections}</body></html>`
+}
+
 export function layoutName(layout: BilingualLayout): string {
   switch (layout) {
     case 'side-by-side': return '左右对照（左原文 · 右译文）'
