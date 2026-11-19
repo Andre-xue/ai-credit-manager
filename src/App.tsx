@@ -3,14 +3,15 @@ import {
   LayoutDashboard, CalendarCheck2, KeyRound, BarChart3, Plus, ShieldCheck,
   ExternalLink, Trash2, RefreshCw, AlertTriangle, Info, Check,
   Wallet, Flame, Clock, TrendingUp, Lock, Unlock, Download, X, Copy, CircleHelp,
-  Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Gift, Eye, Pencil, Fingerprint,
+  Code2, Sparkles, Search, Image, Mic, PenTool, Settings, Eye, Pencil, Fingerprint,
   Film, Layers, Monitor, PanelLeftOpen,
-  Cloud, Database, Volume2, HardDrive, Palette, RotateCcw, Menu, FileText,
+  Cloud, Database, Volume2, HardDrive, Palette, RotateCcw, Menu, FileText, Languages,
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { isLocalProvider } from './core/types'
 import { detectLocalServices, getSystemMemoryGb, checkLocalService, startLocalService, stopLocalService, stopServiceByPort, isServiceAppManaged, fetchLocalModels, chooseModelFile, type LocalService } from './core/localServices'
 import { DocQAView } from './components/DocQAView'
+import { TranslationView } from './components/TranslationView'
 import { syncVoiceAccounts, setVoiceSessionPwd } from './core/voiceKey'
 import { saveTtsConfig } from './core/voice-download'
 import { detectModelCapability, shouldHideFromChat } from './core/modelCapability'
@@ -23,9 +24,8 @@ import type { LocalServiceKey, MemoryTier } from './core/types'
 import { PROVIDERS, PROVIDER_MAP, CATEGORY_LABEL, CATEGORY_ORDER } from './data/providers'
 import {
   loadState, saveStateDebounced, flushState, uid, updateAccount, removeAccount, upsertQuota, latestQuota, toggleCheckin,
-  importState, mergeState, addUsageEvent, updateSettings, clearAllData, markBenefit,
+  importState, mergeState, addUsageEvent, updateSettings, clearAllData,
 } from './core/store'
-import { BENEFITS, BENEFIT_KIND_LABEL, type BenefitItem } from './data/benefits'
 import {
   AGENT_TOOLS, CHECKIN_TOOLS, CATEGORY_TAGS, PLATFORM_TAGS,
   type AgentTool, type AgentRegion, type AgentCategory, type AgentPlatform,
@@ -512,7 +512,7 @@ function App() {
     { id: 'ai', label: 'AI 助手', icon: Sparkles },
     { id: 'dashboard', label: '额度看板', icon: LayoutDashboard },
     { id: 'checkin', label: 'AI 工具大全', icon: CalendarCheck2 },
-    { id: 'benefits', label: '福利中心', icon: Gift },
+    { id: 'benefits', label: 'AI 翻译', icon: Languages },
     { id: 'keys', label: 'API Key 管理', icon: KeyRound },
     { id: 'usage', label: '用量与费用', icon: BarChart3 },
     { id: 'voice', label: '语音配置', icon: Volume2 },
@@ -520,14 +520,14 @@ function App() {
     { id: 'settings', label: '设置', icon: Settings },
   ]
 
-  // 移动端底部导航：AI 置于正中间（看板/签到/福利 · AI · 密钥/用量/设置）
+  // 移动端底部导航：AI 置于正中间（看板/签到/翻译 · AI · 密钥/用量/设置）
   const bottomTabs: Tab[] = ['dashboard', 'checkin', 'benefits', 'ai', 'keys', 'usage', 'voice', 'settings']
   const shortLabel: Record<Tab, string> = {
-    ai: 'AI', dashboard: '看板', checkin: '签到', benefits: '福利',
+    ai: 'AI', dashboard: '看板', checkin: '签到', benefits: '翻译',
     keys: '密钥', usage: '用量', voice: '语音', docs: '文档', settings: '设置',
   }
 
-  // 手机端侧栏：AI 主页面置顶，其后依次为 看板 / 签到 / 福利 / 密钥 / 用量 / 设置
+  // 手机端侧栏：AI 主页面置顶，其后依次为 看板 / 签到 / 翻译 / 密钥 / 用量 / 设置
   const drawerTabs: Tab[] = ['ai', 'dashboard', 'checkin', 'benefits', 'keys', 'usage', 'settings']
 
   // 界面风格：全平台统一极简留白风（已移除其他风格选项，强制 claude）
@@ -631,10 +631,7 @@ function App() {
             onToggle={(pid, aid) => setState(s => toggleCheckin(s, pid, aid))}
           />}
 
-          {tab === 'benefits' && <BenefitsView
-            state={state} notify={notify}
-            onMark={(id, kind) => { setState(s => markBenefit(s, id, kind)); notify('已标记为本人处理') }}
-          />}
+          {tab === 'benefits' && <TranslationView accounts={state.accounts} notify={notify} />}
 
           {tab === 'keys' && <KeysView
             state={state} notify={notify}
@@ -3009,110 +3006,6 @@ function ImportModal({ incoming, current, onClose, onImport }: {
   )
 }
 
-/** 福利中心：聚合各平台公开免费层/试用信息，仅跳转官方页面由本人操作 */
-function BenefitsView({ state, notify, onMark }: {
-  state: AppState; notify: (m: string) => void; onMark: (id: string, kind: 'daily' | 'other') => void
-}) {
-  const [filter, setFilter] = useState<'all' | 'owned'>('all')
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [page, setPage] = useState(1)
-  const PAGE_SIZE = 3
-  useEffect(() => { setPage(1) }, [filter])
-  const today = todayISO()
-  const ownedIds = new Set(state.accounts.map(a => a.providerId))
-
-  const items = BENEFITS.filter(b => filter === 'all' || ownedIds.has(b.providerId))
-  const cur = Math.min(page, Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
-  const pageItems = items.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE)
-  const isMarked = (b: BenefitItem) => state.benefitMarks.some(
-    m => m.benefitId === b.id && (b.kind === 'daily' ? m.date === today : true),
-  )
-  const markedCount = items.filter(isMarked).length
-  const pendingCount = items.length - markedCount
-  const freeTierCount = BENEFITS.filter(b => b.kind === 'free-tier').length
-  const trialCount = BENEFITS.filter(b => b.kind === 'trial').length
-  const coveredPlatforms = new Set(BENEFITS.map(b => b.providerId)).size
-
-  return (
-    <>
-      <div className="stats-grid">
-        <StatCard icon={<Gift size={17} />} color="blue" label="收录福利" value={String(BENEFITS.length)} hint={`覆盖 ${coveredPlatforms} 个平台`} />
-        <StatCard icon={<Sparkles size={17} />} color="green" label="长期免费" value={String(freeTierCount)} hint="永久免费层，无需付费" />
-        <StatCard icon={<Clock size={17} />} color="amber" label="限时试用" value={String(trialCount)} hint="新用户试用额度" />
-        <StatCard icon={<Check size={17} />} color="blue" label={pendingCount > 0 ? '待处理' : '已处理'} value={String(pendingCount > 0 ? pendingCount : markedCount)} hint={pendingCount > 0 ? `还有 ${pendingCount} 项未标记` : '全部已标记'} />
-      </div>
-
-      <div className="section-head">
-        <h2>福利清单 <span className="hint">{items.length} 项</span></h2>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button className={`btn sm ${filter === 'all' ? 'primary' : ''}`} onClick={() => setFilter('all')}>全部平台</button>
-          <button className={`btn sm ${filter === 'owned' ? 'primary' : ''}`} onClick={() => setFilter('owned')}>仅我的平台</button>
-        </div>
-      </div>
-
-      <SelectionBar
-        selectedCount={selected.size} totalOnPage={pageItems.length}
-        allSelected={pageItems.length > 0 && pageItems.every(b => selected.has(b.id))}
-        onToggleAll={() => {
-          const next = new Set(selected)
-          const allOn = pageItems.every(b => next.has(b.id))
-          if (allOn) pageItems.forEach(b => next.delete(b.id)); else pageItems.forEach(b => next.add(b.id))
-          setSelected(next)
-        }}
-        onClear={() => setSelected(new Set())}
-        actions={<button className="btn sm primary" onClick={() => {
-          selected.forEach(id => { const b = items.find(x => x.id === id); if (b && !isMarked(b)) onMark(id, b.kind === 'daily' ? 'daily' : 'other') })
-          notify(`已标记 ${selected.size} 项`)
-          setSelected(new Set())
-        }}><Check size={13} /> 批量标记已处理</button>}
-      />
-      <div className="account-grid">
-        {pageItems.map(b => {
-          const provider = PROVIDER_MAP[b.providerId]
-          const marked = isMarked(b)
-          return (
-            <div className={`account-card selectable ${selected.has(b.id) ? 'selected' : ''}`} key={b.id}>
-              <input className="item-check" type="checkbox" title="选择此福利"
-                checked={selected.has(b.id)} onChange={e => {
-                  const next = new Set(selected)
-                  if (e.target.checked) next.add(b.id); else next.delete(b.id)
-                  setSelected(next)
-                }} />
-              <div className="ac-head">
-                {provider ? <ProviderLogo provider={provider} size={36} /> : <div className="ac-logo" style={{ background: 'var(--text-3)' }}>?</div>}
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div className="ac-title" style={{ fontSize: 13 }}>{b.title}</div>
-                  <div className="ac-mode">{provider?.name ?? b.providerId}</div>
-                </div>
-                <span className={`tag ${BENEFIT_KIND_COLORS[b.kind]}`}>{BENEFIT_KIND_LABEL[b.kind]}</span>
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.65, minHeight: 60 }}>{b.desc}</div>
-              <div className="ac-foot" style={{ marginTop: 12 }}>
-                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>核对 {b.updatedAt}</span>
-                {marked && <span className="tag green"><Check size={11} /> 已处理</span>}
-              </div>
-              <div className="row" style={{ gap: 8, marginTop: 14 }}>
-                <OutLink url={b.url} label="查看官方政策" className="btn sm" notify={notify}
-                  title={`打开 ${provider?.shortName ?? b.providerId} 官方页面，由你本人确认`} />
-                <button className="btn sm ghost" onClick={() => onMark(b.id, b.kind === 'daily' ? 'daily' : 'other')}>
-                  {marked ? '撤销标记' : '标记已处理'}
-                </button>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-      <Pager total={items.length} page={page} pageSize={PAGE_SIZE} onChange={setPage} />
-      <p style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 16 }}>
-        "标记已处理"仅用于个人记录，不会向任何平台发送数据。每日签到类工具请在「AI Agent工具（签到）」页记录。
-      </p>
-    </>
-  )
-}
-
-const BENEFIT_KIND_COLORS: Record<BenefitItem['kind'], string> = {
-  'free-tier': 'green', trial: 'blue', daily: 'amber', education: 'gray', other: 'gray',
-}
 
 /** 通用分页控件（每页 3 条），各列表页复用 */
 function Pager({ total, page, pageSize, onChange }: {
