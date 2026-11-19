@@ -590,7 +590,7 @@ function App() {
         </header>
 
         <div className={`content ${tab === 'ai' ? 'content-ai' : ''}`}>
-          {tab === 'ai' && <AIView notify={notify} accounts={state.accounts} settings={state.settings} />}
+          {tab === 'ai' && <AIView notify={notify} accounts={state.accounts} />}
           {tab === 'dashboard' && <>
           <div className="stats-grid">
             <StatCard icon={<Wallet size={17} />} color="blue" label="资源总估值" value={`¥${portfolioValue.toFixed(0)}`} hint={`${state.accounts.length} 个账户 · 单价可校准`} />
@@ -601,17 +601,26 @@ function App() {
 
           <DashboardView views={views} onAdd={() => setAddOpen(true)} onRemove={(id) => {
             const acc = state.accounts.find(a => a.id === id)
-            requestBackup([id], '删除前必须备份', '确认删除', () => {
+            const doRemove = () => {
               scheduleUndo(stateRef.current, '账户已移除')
               setState(s => removeAccount(s, id))
               notify(`账户「${acc?.label ?? ''}」及关联数据已移除（5 秒内可撤回）`)
-            })
+            }
+            // 本地模型删除无需备份（仅存本机、无密钥价值）
+            if (acc && isLocalProvider(acc.providerId)) doRemove()
+            else requestBackup([id], '删除前必须备份', '确认删除', doRemove)
           }} onRemoveMany={(ids) => {
-            requestBackup(ids, '删除前必须备份', '确认删除', () => {
+            const localOnly = ids.every(id => {
+              const a = state.accounts.find(x => x.id === id)
+              return a && isLocalProvider(a.providerId)
+            })
+            const doRemove = () => {
               scheduleUndo(stateRef.current, `已删除 ${ids.length} 个账户`)
               setState(s => ids.reduce((acc, id) => removeAccount(acc, id), s))
-              notify(`已备份并删除 ${ids.length} 个账户（5 秒内可撤回）`)
-            })
+              notify(`已删除 ${ids.length} 个账户（5 秒内可撤回）`)
+            }
+            if (localOnly) doRemove()
+            else requestBackup(ids, '删除前必须备份', '确认删除', doRemove)
           }} onEditQuota={(accountId) => setQuotaTarget(accountId)} notify={notify} />
           </>}
 
@@ -638,9 +647,17 @@ function App() {
                 ? `已删除「${state.accounts.find(a => a.id === ids[0])?.label ?? '账户'}」`
                 : `已删除 ${ids.length} 个账户`)
               setState(s => ids.reduce((acc, id) => removeAccount(acc, id), s))
-              notify(`已完成备份并删除 ${ids.length} 个账户及关联数据（5 秒内可撤回）`)
+              notify(`已删除 ${ids.length} 个账户及关联数据（5 秒内可撤回）`)
             }}
-            onRequestBackup={requestBackup}
+            onRequestBackup={(ids, title, confirmLabel, after, backupOnly) => {
+              // 本地模型删除跳过备份门禁；真 API Key 保持原流程
+              const localOnly = !backupOnly && ids.length > 0 && ids.every(id => {
+                const a = state.accounts.find(x => x.id === id)
+                return a && isLocalProvider(a.providerId)
+              })
+              if (localOnly) { after(); return }
+              requestBackup(ids, title, confirmLabel, after, backupOnly)
+            }}
             onUpdateAccount={(id, patch) => setState(s => updateAccount(s, id, patch))}
             onUnlocked={(pwd) => setSessionPwd(pwd)}
             initialPwd={keyPageInitialPwd}
@@ -1543,7 +1560,7 @@ function KeysView({ state, notify, onOpenVault, onRemoveKeys, onRequestBackup, o
                           notify(`查询成功：已用 ${r.used.toLocaleString()} ${r.unit}`)
                         } catch (e: any) { notify(e.message ?? '查询失败') }
                       }}><RefreshCw size={13} /> 查询</button>}
-                      <button className="key-action danger" title="删除前必须先备份" onClick={() => onRequestBackup([a.id], '删除前必须备份', '确认删除', () => {
+                      <button className="key-action danger" title={isLocalProvider(a.providerId) ? '删除本地模型' : '删除前必须先备份'} onClick={() => onRequestBackup([a.id], '删除前必须备份', '确认删除', () => {
                         onRemoveKeys([a.id])
                         setSelectedKeys(prev => { const n = new Set(prev); n.delete(a.id); return n })
                         setRevealed(prev => { const n = { ...prev }; delete n[a.id]; return n })

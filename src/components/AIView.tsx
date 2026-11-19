@@ -25,7 +25,7 @@ import {
 import { detectModelCapability, capabilityChatCapable } from '../core/modelCapability'
 import { callByCategory, fetchProviderModels } from '../core/providerCall'
 import type { Account } from '../core/types'
-import { isAccountServiceEnabled, LOCAL_SERVICE_CHANGED_EVENT } from '../core/localServicesSettings'
+import { LOCAL_SERVICE_CHANGED_EVENT } from '../core/localServicesSettings'
 import { decryptSecret, getBiometricPassword, verifyVault } from '../core/crypto'
 import { PROVIDER_MAP } from '../data/providers'
 import {
@@ -60,10 +60,9 @@ function welcomeText(userNick?: string): string {
   return `${greet}，${name}`
 }
 
-export function AIView({ notify, accounts, settings }: {
+export function AIView({ notify, accounts }: {
   notify: (m: string) => void
   accounts: Account[]
-  settings?: import('../core/types').AppSettings
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadHistory())
   const [input, setInput] = useState('')
@@ -197,15 +196,15 @@ export function AIView({ notify, accounts, settings }: {
       const cap = a.modelCapability ?? detectModelCapability(a.label).capability
       return capabilityChatCapable(cap)
     })
-    // App 内本地服务开关关闭时，隐藏对应本地模型账户（账户数据本身保留）
-    .filter(a => isAccountServiceEnabled(settings, a.providerId))
+    // 本地账户只要在 API Key 管理页存在，就在 AI 页可见；服务开关只影响系统服务启停，
+    // 不再隐藏已保存账户（否则用户会遇到"Key 页有、AI 页却没有"的困惑）
     .map(a => ({
       key: `own:${a.id}`,
       label: `${a.label}${a.note ? ` · ${a.note.replace(/^\[[^\]]+\]\s*/, '')}` : ''}`,
       account: a,
       category: categoryForModel(a.note) as ModelCategory,
       free: false,
-    })), [accounts, settings])
+    })), [accounts])
   const allOptions = useMemo(() => [...freeOptions, ...ownOptions], [freeOptions, ownOptions])
   const visibleOptions = useMemo(() => allOptions.filter(o => o.category === category), [category, allOptions])
   const selectedOption = allOptions.find(o => o.key === model) ?? null
