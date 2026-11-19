@@ -691,6 +691,67 @@ fn stop_local_service(key: String) -> Result<String, String> {
     else { Err(format!("停止进程 {} 失败", pid)) }
 }
 
+/// 服务默认端口映射（用于按端口定位并停止外部启动的服务进程）
+fn service_port(key: &str) -> Option<u16> {
+    match key {
+        "ollama" => Some(11434),
+        "comfyui" => Some(8188),
+        "lmstudio" => Some(1234),
+        _ => None,
+    }
+}
+
+/// 停止占用服务端口的进程（无论由谁启动），用于关闭开关时真正释放端口与内存。
+/// 通过 lsof 精确定位监听该端口的 PID；若 App 曾启动该服务则一并清理 PID 记录。
+#[tauri::command]
+fn stop_service_by_port(key: String) -> Result<String, String> {
+    use std::process::Command;
+    let port = service_port(&key).ok_or_else(|| "未知服务".to_string())?;
+    #[cfg(unix)]
+    let pids_out = Command::new("lsof")
+        .args(["-ti", &format!("tcp:{}", port), "-sTCP:LISTEN"])
+        .output()
+        .map_err(|e| format!("查找端口进程失败：{}（请确认已安装 lsof）", e))?;
+    #[cfg(not(unix))]
+    let pids_out = Command::new("netstat")
+        .args(["-ano", "-p", "TCP"])
+        .output()
+        .map_err(|e| format!("查找端口进程失败：{}", e))?;
+
+    #[cfg(unix)]
+    let pids: Vec<u32> = String::from_utf8_lossy(&pids_out.stdout)
+        .lines().filter_map(|l| l.trim().parse().ok()).collect();
+    #[cfg(not(unix))]
+    let pids: Vec<u32> = Vec::new(); // Windows 端保守处理：仅靠 managed PID 停止
+
+    if pids.is_empty() {
+        // 端口无监听进程，仍需清理 App 的 PID 记录
+        let mut m = load_managed_pids();
+        m.remove(&key);
+        save_managed_pids(&m);
+        return Ok(format!("{} 服务端口 {} 当前无进程监听", key, port))
+    }
+    let mut stopped = Vec::new();
+    let mut failed = Vec::new();
+    for pid in &pids {
+        #[cfg(unix)]
+        let ok = Command::new("kill").arg(pid.to_string()).status().map(|s| s.success()).unwrap_or(false);
+        #[cfg(not(unix))]
+        let ok = Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).status().map(|s| s.success()).unwrap_or(false);
+        if ok { stopped.push(*pid) } else { failed.push(*pid) }
+    }
+    let mut m = load_managed_pids();
+    m.remove(&key);
+    save_managed_pids(&m);
+    if failed.is_empty() {
+        Ok(format!("已停止 {} 服务端口 {} 上的进程（PID {}），内存已释放", key, port,
+            stopped.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", ")))
+    } else {
+        Err(format!("部分进程停止失败（PID {}），可能需要管理员权限",
+            failed.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", ")))
+    }
+}
+
 // ==================== 阿里云百炼 TTS 直连 ====================
 // 用户只需填 API Key，App 后端直调官方 REST API（规避浏览器 CORS、免部署代理）。
 
@@ -951,7 +1012,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service, stop_local_service, is_service_app_managed, tts_test_direct, tts_clone_direct, tts_synthesize_direct, fetch_local_models, choose_model_file, ollama_embed])
+        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service, stop_local_service, is_service_app_managed, tts_test_direct, tts_clone_direct, tts_synthesize_direct, fetch_local_models, choose_model_file, ollama_embed, stop_service_by_port])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -1021,6 +1082,14 @@ mod local_service_tests {
         let j = serde_json::json!({"data":[{"id":"model-a"},{"id":"model-b"}]});
         assert_eq!(parse_openai_models(&j), vec!["model-a", "model-b"]);
         assert!(parse_openai_models(&serde_json::json!({"data":[]})).is_empty());
+    }
+
+    #[test]
+    fn service_port_ok() {
+        assert_eq!(service_port("ollama"), Some(11434));
+        assert_eq!(service_port("comfyui"), Some(8188));
+        assert_eq!(service_port("lmstudio"), Some(1234));
+        assert_eq!(service_port("unknown"), None);
     }
 
     #[test]

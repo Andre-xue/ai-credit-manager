@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { isLocalProvider } from './core/types'
-import { detectLocalServices, getSystemMemoryGb, checkLocalService, startLocalService, stopLocalService, isServiceAppManaged, fetchLocalModels, chooseModelFile, type LocalService } from './core/localServices'
+import { detectLocalServices, getSystemMemoryGb, checkLocalService, startLocalService, stopLocalService, stopServiceByPort, isServiceAppManaged, fetchLocalModels, chooseModelFile, type LocalService } from './core/localServices'
 import { DocQAView } from './components/DocQAView'
 import { syncVoiceAccounts } from './core/voiceKey'
 import { detectModelCapability, shouldHideFromChat } from './core/modelCapability'
@@ -3268,8 +3268,8 @@ function SettingsView({ state, onChange, notify, onOpenVault, onClear, onChangeP
     } finally { setBusyKey(null) }
   }
 
-  /** 切换本地服务开关：8G 硬限制 + 关闭时立即派发清理缓存事件 */
-  const onToggleLocalService = (key: LocalServiceKey) => {
+  /** 切换本地服务开关：8G 硬限制；开启拉起服务进程，关闭停止端口进程释放内存 */
+  const onToggleLocalService = async (key: LocalServiceKey) => {
     const next = toggleService(s, key, memTier)
     if (!next) {
       notify(`内存档位限制：${memTier === 8 ? '8G 电脑最多同时开启 1 个本地服务，请先关闭其他服务' : '已达上限'}`)
@@ -3277,7 +3277,35 @@ function SettingsView({ state, onChange, notify, onOpenVault, onClear, onChangeP
     }
     onChange({ localServices: next })
     const enabled = next[key] !== false
-    notify(`已在 App 内${enabled ? '开启' : '关闭'}本地服务：${key === 'ollama' ? 'Ollama' : key === 'comfyui' ? 'ComfyUI' : 'LM Studio'}${enabled ? '' : '（相关缓存已清理，不影响其他软件调用本机服务）'}`)
+    const name = key === 'ollama' ? 'Ollama' : key === 'comfyui' ? 'ComfyUI' : 'LM Studio'
+    if (enabled) {
+      // 开启：若端口已有服务在跑则直接复用，否则拉起进程（LM Studio 无 CLI，跳过）
+      const already = await checkLocalService(key)
+      if (already) {
+        setServiceStatus(prev => ({ ...prev, [key]: already }))
+        notify(`${name} 服务已在运行，已直接启用（${already}）`)
+      } else if (key !== 'lmstudio') {
+        const r = await startLocalService(key)
+        notify(`${name}：${r.message}`)
+        if (r.ok) {
+          let tries = 0
+          const poll = window.setInterval(() => {
+            void checkLocalService(key).then(addr => {
+              if (addr) { setServiceStatus(prev => ({ ...prev, [key]: addr })); window.clearInterval(poll) }
+              else if (++tries >= 15) window.clearInterval(poll)
+            })
+          }, 2000)
+        }
+      } else {
+        notify(`${name} 无 CLI 后台启动方式，请在 LM Studio 应用内手动开启本地服务器`)
+      }
+    } else {
+      // 关闭：停止端口上的进程（含外部启动的），真正释放端口与内存
+      const r = await stopServiceByPort(key)
+      notify(`${name}：${r.ok ? r.message : `停止失败：${r.message}`}`)
+      setServiceStatus(prev => ({ ...prev, [key]: '' }))
+      setManagedKeys(prev => ({ ...prev, [key]: false }))
+    }
     notifyLocalServiceChanged(key, enabled)
   }
 
@@ -3353,37 +3381,39 @@ function SettingsView({ state, onChange, notify, onOpenVault, onClear, onChangeP
                   <div className="local-service-main">
                     <div className="local-service-title">
                       <span>允许 App 使用 {label}</span>
-                      <span className={`local-status-badge ${running ? 'running' : ''}`}>
-                        {status === undefined || status === null ? '未检测' : running ? (managed ? '运行中 · App启动' : '运行中 · 外部') : '未运行'}
+                      <span className={`local-status-badge ${enabled && running ? 'running' : ''}`}>
+                        {!enabled ? '已停用' : status === undefined || status === null ? '未检测' : running ? (managed ? '运行中 · App启动' : '运行中 · 外部') : '未运行'}
                       </span>
                     </div>
                     <div className="local-service-desc">
-                      {running
-                        ? `服务地址 ${status} · ${managed ? '由本 App 启动，可点「停止」' : '由你或其他软件启动，App 不会停止它'}`
-                        : '本机后台服务未启动，点右侧「启动」仅起服务进程、不开图形界面'}
+                      {!enabled
+                        ? '已停用：端口进程已停止、内存已释放。打开开关将重新启动服务。'
+                        : running
+                          ? `服务地址 ${status} · ${managed ? '由本 App 启动' : '由你或其他软件启动'}`
+                          : '本机后台服务未启动，打开开关或点「启动」将拉起服务进程（不开图形界面）'}
                     </div>
                   </div>
                   <div className="local-service-actions">
-                    {!running && (
+                    {enabled && !running && (
                       <button className="btn sm" disabled={busyKey === key}
                         onClick={() => void onStartService(key)} title="仅启动后台服务进程，不打开 GUI">
                         {busyKey === key ? '处理中…' : '启动'}
                       </button>
                     )}
-                    {running && managed && (
+                    {enabled && running && managed && (
                       <button className="btn sm" disabled={busyKey === key}
-                        onClick={() => void onStopService(key)} title="仅停止由本 App 启动的进程">
+                        onClick={() => void onStopService(key)} title="停止由本 App 启动的进程">
                         {busyKey === key ? '处理中…' : '停止'}
                       </button>
                     )}
-                    {running && <button className="btn sm" onClick={refreshServiceStatus} title="刷新运行状态">刷新</button>}
-                    <Toggle checked={enabled} onChange={() => onToggleLocalService(key)} />
+                    {enabled && running && <button className="btn sm" onClick={refreshServiceStatus} title="刷新运行状态">刷新</button>}
+                    <Toggle checked={enabled} onChange={() => void onToggleLocalService(key)} />
                   </div>
                 </div>
               )
             })}
             <div className="local-mem-note">
-              「允许 App 使用」只控制本 App 是否调用（关闭会清理缓存，不影响其他软件）；「启动/停止」只管理由本 App 拉起的后台服务进程（不开图形界面、不改系统自启），不会碰你或其他软件启动的服务。LM Studio 无 CLI 后台启动方式，需在其应用内手动开启。
+              「允许 App 使用」开启会拉起服务进程，关闭会停止该服务端口上的进程（含其他软件启动的）并释放内存；「启动/停止」单独管理服务进程（不开图形界面、不改系统自启）。LM Studio 无 CLI 后台启动方式，需在其应用内手动开启。
             </div>
           </SettingsSection>
 

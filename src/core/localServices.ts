@@ -106,6 +106,22 @@ export async function stopLocalService(key: 'ollama' | 'comfyui' | 'lmstudio'): 
   }
 }
 
+/** 停止占用服务端口的进程（含外部启动的），关闭开关时真正释放端口与内存 */
+export async function stopServiceByPort(key: 'ollama' | 'comfyui' | 'lmstudio'): Promise<{ ok: boolean; message: string }> {
+  if (!isDesktopApp()) return { ok: false, message: '仅桌面端支持' }
+  try {
+    const w = window as unknown as {
+      __TAURI_INTERNALS__?: { invoke?: (cmd: string, args?: Record<string, unknown>) => Promise<string> }
+    }
+    const invoke = w.__TAURI_INTERNALS__?.invoke
+    if (!invoke) return { ok: false, message: '桌面接口不可用' }
+    const message = await invoke('stop_service_by_port', { key })
+    return { ok: true, message }
+  } catch (e) {
+    return { ok: false, message: (e as Error)?.message ?? String(e) }
+  }
+}
+
 /** 某服务是否由本 App 启动且仍在运行（决定是否显示停止按钮） */
 export async function isServiceAppManaged(key: 'ollama' | 'comfyui' | 'lmstudio'): Promise<boolean> {
   if (!isDesktopApp()) return false
