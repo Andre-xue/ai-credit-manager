@@ -324,7 +324,9 @@
 .ai-layout-focus .ai-shell { justify-content: center; }
 .ai-layout-welcome .ai-messages,
 .ai-layout-focus .ai-messages { flex: 0 0 auto; padding: 0; overflow: visible; }
-.ai-layout-chat .ai-messages { flex: 1 1 auto; overflow-y: auto; }
+/* 聊天模式：顶栏是 absolute 固定在右上角，消息区需留出顶部空间，
+   否则第一条用户消息（靠右）会与右上角功能图标重叠 */
+.ai-layout-chat .ai-messages { flex: 1 1 auto; overflow-y: auto; padding-top: 56px; }
 .ai-layout-chat .ai-compose { flex-shrink: 0; }
 .ai-layout-welcome .ai-compose,
 .ai-layout-focus .ai-compose { border-top: none; padding-top: 0; }
