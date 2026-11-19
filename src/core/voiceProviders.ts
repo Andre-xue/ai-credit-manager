@@ -1,7 +1,7 @@
 // 语音服务目录：按"免费优先"排序，供设置页展示与选择。
 // 说明：真正的密钥必须放在用户自己的服务端代理，客户端只保存端点地址。
 
-export type VoiceProviderId = 'system' | 'local' | 'aliyun' | 'volcengine' | 'tencent' | 'minimax' | 'elevenlabs'
+export type VoiceProviderId = 'system' | 'local' | 'voicestudio' | 'aliyun' | 'volcengine' | 'tencent' | 'minimax' | 'elevenlabs'
 
 export interface VoiceProviderDef {
   id: VoiceProviderId
@@ -29,6 +29,13 @@ export const VOICE_PROVIDERS: VoiceProviderDef[] = [
     desc: '自己部署开源模型，浏览器/App 通过本地代理调用；隐私最好。',
     free: '模型开源免费，需自备机器（约 8GB 显存）', paid: '仅电费/硬件',
     docs: 'https://github.com/FunAudioLLM/CosyVoice',
+    recommended: true,
+  },
+  {
+    id: 'voicestudio', name: 'VoiceStudio（全本地开源）', short: 'VoiceStudio', rank: 2,
+    desc: '开源 ElevenLabs 替代：声音克隆/语音合成全在本机。需先在本机运行 VoiceStudio 服务（端口 3900），可复用已克隆的音色。',
+    free: '软件开源免费(AGPL-3.0)，模型下载后离线可用', paid: '仅电费/硬件，GPU 更佳',
+    docs: 'https://github.com/debpalash/VoiceStudio',
     recommended: true,
   },
   {

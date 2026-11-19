@@ -20,7 +20,7 @@ export interface VoiceFile {
 
 export interface TtsProviderConfig {
   /** 第三方 TTS 服务类型；未配置为空 */
-  provider: '' | 'local' | 'aliyun' | 'volcengine' | 'tencent' | 'minimax' | 'elevenlabs'
+  provider: '' | 'local' | 'voicestudio' | 'aliyun' | 'volcengine' | 'tencent' | 'minimax' | 'elevenlabs'
   /** 服务端点（自建代理模式使用） */
   endpoint: string
   /** 配置模式：direct=官方 API Key 直连(免部署,推荐)；proxy=自建服务端代理 */

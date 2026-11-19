@@ -919,6 +919,123 @@ async fn tts_synthesize_direct(api_key: String, voice: String, text: String) -> 
     Ok(format!("data:audio/mp3;base64,{}", base64_encode(&bytes)))
 }
 
+// ==================== VoiceStudio 本地语音服务（OpenAI 兼容 :3900） ====================
+
+/// 规范化 VoiceStudio 基址：默认 http://127.0.0.1:3900，去掉末尾斜杠
+fn vs_base(endpoint: &str) -> String {
+    let e = endpoint.trim();
+    if e.is_empty() { "http://127.0.0.1:3900".to_string() } else { e.trim_end_matches('/').to_string() }
+}
+
+/// 解析 data URI 为 (mime, bytes)
+fn parse_data_uri(uri: &str) -> Result<(String, Vec<u8>), String> {
+    let (head, data) = uri.split_once(',').ok_or_else(|| "音频不是有效的 Data URI".to_string())?;
+    let mime = head.strip_prefix("data:").and_then(|h| h.split(';').next()).unwrap_or("audio/wav").to_string();
+    let bytes = base64_decode(data).map_err(|e| format!("音频解码失败：{}", e))?;
+    if bytes.is_empty() { return Err("音频数据为空".to_string()) }
+    Ok((mime, bytes))
+}
+
+/// 测试 VoiceStudio 连接：GET /health
+#[tauri::command]
+async fn voicestudio_test(endpoint: String, api_key: String) -> Result<String, String> {
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(15))
+        .build().map_err(|e| format!("客户端错误：{}", e))?;
+    let mut req = client.get(format!("{}/health", vs_base(&endpoint)));
+    if !api_key.trim().is_empty() { req = req.header("Authorization", format!("Bearer {}", api_key.trim())) }
+    let resp = req.send().await.map_err(|e| format!("连接失败（请确认 VoiceStudio 已启动）：{}", e))?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() { return Err(format!("连接失败（HTTP {}）：{}", status.as_u16(), text.chars().take(160).collect::<String>())) }
+    Ok("连接成功，VoiceStudio 服务可用".to_string())
+}
+
+/// 列出 VoiceStudio 已保存的音色：GET /profiles → [{id,name,...}]
+#[tauri::command]
+async fn voicestudio_list(endpoint: String, api_key: String) -> Result<Vec<serde_json::Value>, String> {
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(30))
+        .build().map_err(|e| format!("客户端错误：{}", e))?;
+    let mut req = client.get(format!("{}/profiles", vs_base(&endpoint)));
+    if !api_key.trim().is_empty() { req = req.header("Authorization", format!("Bearer {}", api_key.trim())) }
+    let resp = req.send().await.map_err(|e| format!("请求失败：{}", e))?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() { return Err(format!("获取音色失败（HTTP {}）：{}", status.as_u16(), text.chars().take(200).collect::<String>())) }
+    // 兼容返回数组或 {profiles:[...]} / {data:[...]}
+    let json: serde_json::Value = serde_json::from_str(&text).map_err(|_| format!("响应格式异常：{}", text.chars().take(160).collect::<String>()))?;
+    let arr = if let Some(a) = json.as_array() { a.clone() }
+        else if let Some(a) = json.get("profiles").and_then(|v| v.as_array()) { a.clone() }
+        else if let Some(a) = json.get("data").and_then(|v| v.as_array()) { a.clone() }
+        else { vec![] };
+    Ok(arr)
+}
+
+/// VoiceStudio 克隆：POST /profiles（multipart: name/kind=clone/ref_audio）
+#[tauri::command]
+async fn voicestudio_clone(endpoint: String, api_key: String, name: String, audio_data_url: String) -> Result<String, String> {
+    let (mime, bytes) = parse_data_uri(&audio_data_url)?;
+    let boundary = format!("----VoiceStudioBoundary{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos());
+    let ext = match mime.as_str() { "audio/mpeg" | "audio/mp3" => "mp3", "audio/ogg" => "ogg", "audio/flac" => "flac", "audio/webm" => "webm", _ => "wav" };
+    let mut body: Vec<u8> = Vec::new();
+    let mut part = |field: &str, value: &str| {
+        body.extend_from_slice(format!("--{}\r\nContent-Disposition: form-data; name=\"{}\"\r\n\r\n{}\r\n", boundary, field, value).as_bytes());
+    };
+    part("name", &name);
+    part("kind", "clone");
+    part("language", "Auto");
+    body.extend_from_slice(format!("--{}\r\nContent-Disposition: form-data; name=\"ref_audio\"; filename=\"ref_audio.{}\"\r\nContent-Type: {}\r\n\r\n", boundary, ext, mime).as_bytes());
+    body.extend_from_slice(&bytes);
+    body.extend_from_slice(format!("\r\n--{}--\r\n", boundary).as_bytes());
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(180))
+        .build().map_err(|e| format!("客户端错误：{}", e))?;
+    let mut req = client.post(format!("{}/profiles", vs_base(&endpoint)))
+        .header("Content-Type", format!("multipart/form-data; boundary={}", boundary));
+    if !api_key.trim().is_empty() { req = req.header("Authorization", format!("Bearer {}", api_key.trim())) }
+    let resp = req.body(body).send().await.map_err(|e| format!("克隆请求失败：{}", e))?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() { return Err(format!("克隆失败（HTTP {}）：{}", status.as_u16(), text.chars().take(200).collect::<String>())) }
+    let json: serde_json::Value = serde_json::from_str(&text).map_err(|_| format!("响应格式异常：{}", text.chars().take(160).collect::<String>()))?;
+    // 兼容 {id:...} / {profile_id:...} / 直接字符串
+    let id = json.get("id").and_then(|v| v.as_str())
+        .or_else(|| json.get("profile_id").and_then(|v| v.as_str()))
+        .or_else(|| json.as_str())
+        .ok_or_else(|| format!("服务未返回音色 ID：{}", text.chars().take(200).collect::<String>()))?;
+    Ok(id.to_string())
+}
+
+/// VoiceStudio 合成：POST /v1/audio/speech → 返回 data URI
+#[tauri::command]
+async fn voicestudio_synthesize(endpoint: String, api_key: String, voice: String, text: String) -> Result<String, String> {
+    let body = serde_json::json!({
+        "model": "tts-1",
+        "voice": voice,
+        "input": text,
+        "response_format": "wav"
+    });
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(180))
+        .build().map_err(|e| format!("客户端错误：{}", e))?;
+    let mut req = client.post(format!("{}/v1/audio/speech", vs_base(&endpoint)))
+        .header("Content-Type", "application/json");
+    if !api_key.trim().is_empty() { req = req.header("Authorization", format!("Bearer {}", api_key.trim())) }
+    let resp = req.json(&body).send().await.map_err(|e| format!("合成请求失败：{}", e))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let t = resp.text().await.unwrap_or_default();
+        return Err(format!("合成失败（HTTP {}）：{}", status.as_u16(), t.chars().take(200).collect::<String>()))
+    }
+    let content_type = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    let bytes = resp.bytes().await.map_err(|e| format!("读取音频失败：{}", e))?;
+    // 防止误把 JSON 错误当成音频
+    if content_type.contains("application/json") || bytes.starts_with(b"{\"") {
+        return Err(format!("合成返回非音频：{}", String::from_utf8_lossy(&bytes).chars().take(200).collect::<String>()))
+    }
+    let mime = if content_type.contains("audio/") { content_type.split(';').next().unwrap_or("audio/wav").to_string() }
+        else if bytes.starts_with(b"ID3") || content_type.contains("mpeg") { "audio/mpeg".to_string() }
+        else { "audio/wav".to_string() };
+    Ok(format!("data:{};base64,{}", mime, base64_encode(&bytes)))
+}
+
 // ==================== 本地模型列表与文件选择 ====================
 
 /// 从 Ollama /api/tags 响应解析模型名列表
@@ -1051,7 +1168,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, write_binary_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service, stop_local_service, is_service_app_managed, tts_test_direct, tts_clone_direct, tts_synthesize_direct, fetch_local_models, choose_model_file, ollama_embed, stop_service_by_port])
+        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, write_binary_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service, stop_local_service, is_service_app_managed, tts_test_direct, tts_clone_direct, tts_synthesize_direct, voicestudio_test, voicestudio_list, voicestudio_clone, voicestudio_synthesize, fetch_local_models, choose_model_file, ollama_embed, stop_service_by_port])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

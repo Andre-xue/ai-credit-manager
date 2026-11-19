@@ -3,7 +3,7 @@
 // 支持保存多个克隆音色，可命名、切换、删除；每个音色在本机独立记录其云端 voiceId。
 
 import { getTtsConfig } from './voice-download'
-import { isDirectMode, ttsCloneDirect } from './ttsDirect'
+import { isDirectMode, ttsCloneDirect, voicestudioClone } from './ttsDirect'
 
 const DB_NAME = 'acm-voice-sample-db'
 const STORE = 'samples'
@@ -284,6 +284,17 @@ export async function cloneVoiceFromSample(sample: VoiceSample, name?: string): 
   const cfg = getTtsConfig()
   if (!cfg.provider) {
     return { ok: false, error: '请先在下方配置第三方语音服务' }
+  }
+  // VoiceStudio：桌面端直连本机 :3900，无需官方 Key
+  if (cfg.provider === 'voicestudio') {
+    try {
+      const voiceId = await voicestudioClone(cfg, name || sample.name, sample.dataUrl)
+      if (!voiceId) return { ok: false, error: 'VoiceStudio 未返回音色 ID' }
+      addClonedVoice(name || sample.name.replace(/\.[^.]+$/, ''), voiceId, sample.name)
+      return { ok: true, voiceId }
+    } catch (e) {
+      return { ok: false, error: friendlyCloneError(`VoiceStudio 克隆失败：${(e as Error)?.message ?? String(e)}`) }
+    }
   }
   // 直连模式：桌面端调 Rust 后端直连官方 API，无需自建代理
   if (isDirectMode(cfg)) {

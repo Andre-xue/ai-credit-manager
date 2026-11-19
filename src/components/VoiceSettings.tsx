@@ -10,7 +10,7 @@ import {
 } from '../core/tts'
 import {
   loadVoiceSample, saveVoiceSample, deleteVoiceSample, recordVoiceSample,
-  cloneVoiceFromSample, getClonedVoiceId, listClonedVoices, removeClonedVoice,
+  cloneVoiceFromSample, getClonedVoiceId, listClonedVoices, removeClonedVoice, addClonedVoice,
   setActiveClonedVoice, renameClonedVoice, blobToWav, type VoiceSample, type ClonedVoice,
 } from '../core/voiceClone'
 import { isDesktopApp } from '../core/openExternal'
@@ -22,7 +22,7 @@ import {
 import {
   getVolcConfig, saveVolcConfig, clearVolcConfig, type VolcConfig,
 } from '../core/volcConfig'
-import { ttsTestDirect } from '../core/ttsDirect'
+import { ttsTestDirect, voicestudioTest, voicestudioList } from '../core/ttsDirect'
 import { verifyVault, getBiometricPassword } from '../core/crypto'
 import { voiceNeedsUnlock, setVoiceSessionPwd, hasVoiceCredential } from '../core/voiceKey'
 import type { Account } from '../core/types'
@@ -38,6 +38,7 @@ export function VoiceSettings({ notify, accounts, sessionPwd, onUnlock }: {
   const [config, setConfig] = useState<TtsProviderConfig>(() => getTtsConfig())
   const [configOpen, setConfigOpen] = useState(false)
   const [testingKey, setTestingKey] = useState(false)
+  const [importingVoices, setImportingVoices] = useState(false)
   // 语音配置账户解锁（生物识别免密 / 本次会话密码）
   const [voicePwdInput, setVoicePwdInput] = useState('')
   const [voiceUnlocking, setVoiceUnlocking] = useState(false)
@@ -88,24 +89,57 @@ export function VoiceSettings({ notify, accounts, sessionPwd, onUnlock }: {
   const changeRate = (r: number) => { setRate(r); saveRate(r) }
 
   const isDirect = (config.mode ?? 'direct') === 'direct'
+  const isVoiceStudio = config.provider === 'voicestudio'
   const saveConfig = () => {
     if (!config.provider) { saveTtsConfig({ provider: '', endpoint: '', mode: 'direct' }); setTtsConfigured(false); setConfigOpen(false); notify('已清除语音服务配置'); return }
-    if (isDirect) {
+    if (isVoiceStudio) {
+      // VoiceStudio：本机回环无需 Key，端点留空默认 http://127.0.0.1:3900
+      saveTtsConfig({ ...config, mode: 'direct' })
+    } else if (isDirect) {
       if (!config.apiKey?.trim()) { notify('请填写阿里云百炼 API Key'); return }
-    } else if (!config.endpoint?.trim()) { notify('请填写服务端点'); return }
-    saveTtsConfig(config)
+      saveTtsConfig(config)
+    } else {
+      if (!config.endpoint?.trim()) { notify('请填写服务端点'); return }
+      saveTtsConfig(config)
+    }
     setTtsConfigured(true)
     setConfigOpen(false)
     notify('语音服务配置已保存')
   }
 
   const testDirect = async () => {
-    if (!config.apiKey?.trim()) { notify('请先填写 API Key'); return }
     setTestingKey(true)
     try {
-      const r = await ttsTestDirect(config.apiKey.trim(), config.provider || undefined)
-      notify(r.message)
+      if (isVoiceStudio) {
+        const r = await voicestudioTest(config)
+        notify(r.message)
+      } else {
+        if (!config.apiKey?.trim()) { notify('请先填写 API Key'); return }
+        const r = await ttsTestDirect(config.apiKey.trim(), config.provider || undefined)
+        notify(r.message)
+      }
     } finally { setTestingKey(false) }
+  }
+
+  /** 从 VoiceStudio 导入已克隆好的音色（按 profile_id 建立本机引用，不重复导入） */
+  const importVoiceStudioVoices = async () => {
+    if (getTtsConfig().provider !== 'voicestudio') { notify('请先把服务商设为 VoiceStudio'); return }
+    setImportingVoices(true)
+    try {
+      const profiles = await voicestudioList(config)
+      if (!profiles.length) { notify('VoiceStudio 里还没有音色，请先在其中克隆一个'); return }
+      const existing = new Set(listClonedVoices().map(v => v.voiceId))
+      let added = 0
+      for (const p of profiles) {
+        if (existing.has(p.id)) continue
+        addClonedVoice(p.name, p.id, `VoiceStudio: ${p.name}`)
+        added++
+      }
+      syncClonedVoices()
+      notify(added ? `已导入 ${added} 个 VoiceStudio 音色` : 'VoiceStudio 音色都已导入过')
+    } catch (e) {
+      notify('导入失败：' + ((e as Error)?.message ?? String(e)))
+    } finally { setImportingVoices(false) }
   }
 
   const doRecord = async () => {
@@ -302,7 +336,14 @@ export function VoiceSettings({ notify, accounts, sessionPwd, onUnlock }: {
       {desktop && <div className="voice-hint"><Info size={13} /> 桌面 WebView 不提供浏览器录音接口；请用「选择音频文件」导入样本（可先用 QuickTime 等工具录音）。</div>}
 
       {/* 已保存的克隆音色列表：可命名、切换、删除 */}
-      <div className="voice-section-label dialect" style={{ marginTop: 14 }}>已保存的克隆音色（{clonedVoices.length}）· 点击切换</div>
+      <div className="voice-section-label dialect" style={{ marginTop: 14 }}>
+        已保存的克隆音色（{clonedVoices.length}）· 点击切换
+        {config.provider === 'voicestudio' && (
+          <button className="btn sm ghost" style={{ marginLeft: 8 }} onClick={() => void importVoiceStudioVoices()} disabled={importingVoices}>
+            {importingVoices ? '导入中…' : '从 VoiceStudio 导入'}
+          </button>
+        )}
+      </div>
       {clonedVoices.length > 0 ? (
         <div className="cloned-voice-list">
           {clonedVoices.map(v => {
@@ -358,7 +399,25 @@ export function VoiceSettings({ notify, accounts, sessionPwd, onUnlock }: {
           </select>
         </label>
 
-        {isDirect ? (
+        {isVoiceStudio ? (
+          <>
+            <div className="voice-direct-guide">
+              1. 在本机运行 <a href="https://github.com/debpalash/VoiceStudio" target="_blank" rel="noreferrer">VoiceStudio ↗</a>（桌面端或 Docker，服务端口 3900）<br />
+              2. 在 VoiceStudio 里下载语音模型；克隆好的音色可直接选用<br />
+              3. 端点留空即默认 <code>http://127.0.0.1:3900</code>；若设了 API Key，填入下方，点「测试连接」
+            </div>
+            <label className="form-label">VoiceStudio 服务地址
+              <input className="input" value={config.endpoint} onChange={e => setConfig({ ...config, endpoint: e.target.value, provider: 'voicestudio' })} placeholder="http://127.0.0.1:3900（留空即用默认）" />
+            </label>
+            <label className="form-label">API Key（可选，本机回环可不填）
+              <input className="input" type="password" value={config.apiKey ?? ''} onChange={e => setConfig({ ...config, apiKey: e.target.value, provider: 'voicestudio' })} placeholder="设置了 OMNIVOICE_API_KEY 才需要" />
+            </label>
+            <div className="voice-config-actions">
+              <button className="btn sm" onClick={() => void testDirect()} disabled={testingKey}>{testingKey ? '测试中…' : '测试连接'}</button>
+            </div>
+            <div className="voice-config-note">VoiceStudio 开源免费(AGPL-3.0)，克隆与合成全在本机。音色 ID 由 VoiceStudio 管理，App 只保存引用。克隆他人声音需获得授权。</div>
+          </>
+        ) : isDirect ? (
           <>
             <div className="voice-direct-guide">
               1. 打开 <a href="https://bailian.console.aliyun.com/?tab=model#/api-key" target="_blank" rel="noreferrer">阿里云百炼控制台 → API Key 管理 ↗</a><br />

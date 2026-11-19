@@ -214,14 +214,19 @@ export function unlockTts(): void {
 
 import { getTtsConfig } from './voice-download'
 import { getClonedVoiceId, listClonedVoices } from './voiceClone'
-import { isDirectMode, ttsSynthesizeDirect } from './ttsDirect'
+import { isDirectMode, ttsSynthesizeDirect, voicestudioSynthesize } from './ttsDirect'
+
+/** 是否使用本机 VoiceStudio 作为语音服务 */
+function isVoiceStudio(cfg: ReturnType<typeof getTtsConfig>): boolean {
+  return cfg.provider === 'voicestudio'
+}
 
 let activeCallback: ((state: 'start' | 'end' | 'error') => void) | null = null
 
 /** 当前 AI 朗读会走哪种音色：clone=克隆音色，system=系统音色。界面标识与 speakAsync 行为共用此判断。 */
 export function getSpeakSource(): 'clone' | 'system' {
   const cfg = getTtsConfig()
-  return getClonedVoiceId() && (isDirectMode(cfg) || !!cfg.endpoint) ? 'clone' : 'system'
+  return getClonedVoiceId() && (isDirectMode(cfg) || isVoiceStudio(cfg) || !!cfg.endpoint) ? 'clone' : 'system'
 }
 
 export function isSpeaking(): boolean {
@@ -288,14 +293,24 @@ export async function speakAsync(
   )
   const cfg = getTtsConfig()
   const direct = isDirectMode(cfg)
-  if (cloned && (direct || cfg.endpoint)) {
+  const voiceStudio = isVoiceStudio(cfg)
+  if (cloned && (direct || voiceStudio || cfg.endpoint)) {
     let lastErr = ''
     try {
       stopSpeak()
       const speakText = cleanForSpeech(text)
       if (!speakText) throw new Error('朗读内容为空')
       let arrayBuf: ArrayBuffer
-      if (direct) {
+      if (voiceStudio) {
+        // VoiceStudio：Rust 后端直连本机 :3900 返回音频 data URI
+        const dataUri = await voicestudioSynthesize(cfg, cloned, speakText)
+        const b64 = dataUri.split(',')[1] ?? ''
+        if (!b64) throw new Error('VoiceStudio 合成音频为空')
+        const bin = atob(b64)
+        const bytes = new Uint8Array(bin.length)
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+        arrayBuf = bytes.buffer
+      } else if (direct) {
         // 直连模式：Rust 后端调官方 API 返回音频 data URI
         const dataUri = await ttsSynthesizeDirect(cfg, cloned, speakText)
         const b64 = dataUri.split(',')[1] ?? ''
