@@ -4,14 +4,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Image as ImageIcon, Sparkles, Loader2, Download, Trash2, Info, KeyRound,
-  ExternalLink, History, ChevronDown,
+  ExternalLink, History, HardDrive, RefreshCw, ChevronDown,
 } from 'lucide-react'
-import { callImage, extractModelId } from '../core/providerCall'
+import { callImage, callLocalImage, extractModelId, fetchLocalMediaModels } from '../core/providerCall'
 import { decryptSecret, getBiometricPassword } from '../core/crypto'
+import { isDesktopApp } from '../core/openExternal'
 import { PROVIDER_MAP } from '../data/providers'
 import { categoryFromNote } from '../core/modelCategories'
 import {
-  addHistory, clearHistory, loadHistory, newMediaId, removeHistory, saveMedia,
+  addHistory, clearHistory, loadHistory, newMediaId, removeHistory, saveMedia, errTextSafe,
   type MediaHistoryItem,
 } from '../core/mediaGeneration'
 import { HoldToConfirm } from './HoldToConfirm'
@@ -35,6 +36,24 @@ export function ImageView({ accounts, sessionPwd, onUnlock, notify }: {
   const [accountId, setAccountId] = useState('')
   const account = usable.find(a => a.id === accountId) ?? usable[0]
 
+  // 模型来源：cloud=自有账户 / local=本机模型服务（Ollama/ComfyUI/LM Studio 等）
+  const [source, setSource] = useState<'cloud' | 'local'>('cloud')
+  const [localBase, setLocalBase] = useState('http://127.0.0.1:11434')
+  const [localModels, setLocalModels] = useState<string[]>([])
+  const [localModel, setLocalModel] = useState('')
+  const [loadingModels, setLoadingModels] = useState(false)
+
+  const loadLocalModels = async () => {
+    setLoadingModels(true)
+    try {
+      const ids = await fetchLocalMediaModels(localBase)
+      setLocalModels(ids)
+      setLocalModel(prev => ids.includes(prev) ? prev : (ids[0] ?? ''))
+      notify(`已找到 ${ids.length} 个本地模型`)
+    } catch (e) { notify(`拉取本地模型失败：${(e as Error)?.message ?? String(e)}`) }
+    finally { setLoadingModels(false) }
+  }
+
   const [prompt, setPrompt] = useState('')
   const [size, setSize] = useState('1024x1024')
   const [quality, setQuality] = useState('')
@@ -49,32 +68,36 @@ export function ImageView({ accounts, sessionPwd, onUnlock, notify }: {
 
   useEffect(() => { setHistory(loadHistory('image')) }, [])
 
+  const isLocal = source === 'local'
   const model = account ? extractModelId(account) : ''
-  const needPwd = !!account && !!account.encryptedKey && !getBiometricPassword() && !sessionPwd
+  const activeModel = isLocal ? (localModel || '本地模型') : model
+  const needPwd = !isLocal && !!account && !!account.encryptedKey && !getBiometricPassword() && !sessionPwd
 
   const generate = async () => {
-    if (!account) { notify('请先在「API Key 管理」添加带生图 API 地址的账户'); return }
     if (!prompt.trim()) { notify('请先输入画面描述'); return }
+    if (isLocal && !localModel) { notify('请先填写/拉取本地模型名称'); return }
+    if (!isLocal && !account) { notify('请先在「API Key 管理」添加带生图 API 地址的账户，或切换到本地模型'); return }
     const pwd = getBiometricPassword() || sessionPwd
-    if (!pwd) { notify('请先解锁密钥库（本页下方输入主密码）'); return }
+    if (!isLocal && !pwd) { notify('请先解锁密钥库（本页下方输入主密码）'); return }
     setBusy(true); setResults([]); setLastNote('')
     try {
-      const apiKey = await decryptSecret(account.encryptedKey!, pwd)
-      const r = await callImage(account, apiKey, prompt.trim(), {
-        size, n: count, quality: quality || undefined, style: style || undefined,
-      })
+      const opts = { size, n: count, quality: quality || undefined, style: style || undefined }
+      const r = isLocal
+        ? await callLocalImage(localBase, localModel, prompt.trim(), opts)
+        : await callImage(account!, await decryptSecret(account!.encryptedKey!, pwd), prompt.trim(), opts)
       if (!r.ok) { setLastNote(r.error ?? '生成失败'); notify(r.error ?? '生成失败'); return }
       const imgs = r.images ?? []
       setResults(imgs)
       setLastNote(r.text)
       const params = [size, quality || '', style || '', `${count}张`].filter(Boolean).join(' · ')
       setHistory(addHistory('image', {
-        id: newMediaId(), kind: 'image', prompt: prompt.trim(), accountLabel: account.label,
-        model, createdAt: Date.now(), results: imgs, params,
+        id: newMediaId(), kind: 'image', prompt: prompt.trim(),
+        accountLabel: isLocal ? `本地 · ${localModel}` : account!.label,
+        model: activeModel, createdAt: Date.now(), results: imgs, params,
       }))
       notify(imgs.length ? `已生成 ${imgs.length} 张图片` : r.text)
     } catch (e) {
-      const msg = (e as Error)?.message ?? String(e)
+      const msg = errTextSafe(e)
       setLastNote(msg); notify(msg)
     } finally { setBusy(false) }
   }
@@ -95,19 +118,46 @@ export function ImageView({ accounts, sessionPwd, onUnlock, notify }: {
         <section className="gen-panel">
           <div className="gen-panel-head"><span className="gen-head-icon"><ImageIcon size={18} /></span><div><h3>AI 图像生成</h3><p>输入画面描述，用你自己的生图账户生成图片</p></div></div>
           <div className="gen-body">
-            <label className="gen-label">生图账户</label>
-            {usable.length === 0 ? (
-              <div className="gen-empty-hint"><KeyRound size={16} /> 还没有可用的生图账户。请到「API Key 管理」添加账户并填写 OpenAI 兼容的 API 地址；模型 ID 写在账户备注里即可。</div>
+            <div className="gen-source-tabs">
+              <button className={source === 'cloud' ? 'active' : ''} onClick={() => setSource('cloud')}><KeyRound size={14} /> 云端账户</button>
+              <button className={source === 'local' ? 'active' : ''} onClick={() => setSource('local')}><HardDrive size={14} /> 本地模型</button>
+            </div>
+            {source === 'cloud' ? (
+              <>
+                <label className="gen-label">生图账户</label>
+                {usable.length === 0 ? (
+                  <div className="gen-empty-hint"><KeyRound size={16} /> 还没有可用的生图账户。请到「API Key 管理」添加账户并填写 OpenAI 兼容的 API 地址；模型 ID 写在账户备注里即可。</div>
+                ) : (
+                  <div className="gen-select-wrap">
+                    <select className="input" value={account?.id ?? ''} onChange={e => setAccountId(e.target.value)}>
+                      {usable.map(a => <option key={a.id} value={a.id}>{a.label} · {PROVIDER_MAP[a.providerId]?.shortName ?? a.providerId}</option>)}
+                    </select>
+                    {account && <span className="gen-model-tag">模型：{model || '未识别（请在备注填模型ID）'}</span>}
+                  </div>
+                )}
+              </>
             ) : (
-              <div className="gen-select-wrap">
-                <select className="input" value={account?.id ?? ''} onChange={e => setAccountId(e.target.value)}>
-                  {usable.map(a => <option key={a.id} value={a.id}>{a.label} · {PROVIDER_MAP[a.providerId]?.shortName ?? a.providerId}</option>)}
-                </select>
-                {account && <span className="gen-model-tag">模型：{model || '未识别（请在备注填模型ID）'}</span>}
-              </div>
+              <>
+                <label className="gen-label">本地服务地址</label>
+                <div className="gen-local-row">
+                  <input className="input" placeholder="http://127.0.0.1:11434" value={localBase} onChange={e => setLocalBase(e.target.value)} />
+                  <button className="btn sm ghost" onClick={() => void loadLocalModels()} disabled={loadingModels} title="拉取模型列表">
+                    {loadingModels ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} 拉取
+                  </button>
+                </div>
+                <label className="gen-label" style={{ marginTop: 10 }}>本地模型</label>
+                {localModels.length > 0 ? (
+                  <select className="input" value={localModel} onChange={e => setLocalModel(e.target.value)}>
+                    {localModels.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                ) : (
+                  <input className="input" placeholder="手动填写模型名，如dreamshaper / flux1-schnell" value={localModel} onChange={e => setLocalModel(e.target.value)} />
+                )}
+                <div className="gen-tip"><Info size={13} /> <span>本地服务需支持 OpenAI 兼容 <code>/v1/images/generations</code>（如 ComfyUI + 插件、LocalAI、LM Studio 图像模型）。Ollama 主要用于文本，生图需相应插件。{!isDesktopApp() && ' 当前非桌面端，直连本地地址可能受浏览器跨域限制。'}</span></div>
+              </>
             )}
 
-            <label className="gen-label">画面描述（Prompt）</label>
+            <label className="gen-label" style={{ marginTop: 15 }}>画面描述（Prompt）</label>
             <textarea className="input gen-prompt" rows={4} placeholder="例如：赛博朋克风格的城市夜景，霓虹灯倒映在雨后的街道，电影质感"
               value={prompt} onChange={e => setPrompt(e.target.value)} disabled={busy} />
 
@@ -152,10 +202,10 @@ export function ImageView({ accounts, sessionPwd, onUnlock, notify }: {
               </div>
             )}
 
-            <button className="btn primary gen-generate" onClick={() => void generate()} disabled={busy || !prompt.trim() || !account}>
+            <button className="btn primary gen-generate" onClick={() => void generate()} disabled={busy || !prompt.trim() || (!isLocal && !account) || (isLocal && !localModel)}>
               {busy ? <><Loader2 size={16} className="spin" /> 正在生成…</> : <><Sparkles size={16} /> 生成图片</>}
             </button>
-            <div className="gen-tip"><Info size={13} /> <span>生图走账户 API 地址对应的 OpenAI 兼容 images/generations 接口；若平台为私有协议会返回错误提示，请改用官方页面生成。</span></div>
+            {!isLocal && <div className="gen-tip"><Info size={13} /> <span>生图走账户 API 地址对应的 OpenAI 兼容 images/generations 接口；若平台为私有协议会返回错误提示，请改用官方页面生成。</span></div>}
           </div>
         </section>
 

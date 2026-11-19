@@ -243,11 +243,11 @@ export async function callVideo(
       if (videoUrl) return { ok: true, text: '视频已生成', images: [videoUrl] }
       if (id) return { ok: true, text: `视频任务已提交（ID: ${String(id).slice(0, 20)}）。生成需数分钟，结果请到官方平台查看。` }
       lastErr = '接口已响应但未返回任务信息'
-    } catch (e) { lastErr = (e as Error).message }
+    } catch (e) { lastErr = errText(e) }
   }
   return {
     ok: false, text: '',
-    error: `${account.label} 的视频接口暂未能自动调用（${lastErr.slice(0, 80)}）。这类平台多为私有异步协议，建议到官方页面生成后在此记录。`,
+    error: `${account.label} 的视频接口暂未能自动调用（${lastErr.slice(0, 120)}）。这类平台多为私有异步协议，建议到官方页面生成后在此记录。`,
   }
 }
 
@@ -296,15 +296,108 @@ export async function callByCategory(
   }
 }
 
+/**
+ * 本地模型调用（Ollama / ComfyUI / LM Studio 等本机 OpenAI 兼容服务）。
+ * 本地服务无需真实 Key；桌面端仍走 invokeApi 让 Tauri 代理 bypass CORS（localhost 通常也可直连）。
+ * base 为本地服务地址（如 http://127.0.0.1:11434），自动补 /v1。
+ */
+function localBase(base: string): string {
+  let b = base.trim().replace(/\/+$/, '')
+  if (!b) throw new Error('未填写本地服务地址')
+  if (!/\/v\d+/.test(b)) b += '/v1'
+  return b
+}
+
+/** 拉取本地服务的模型列表（GET {base}/models） */
+export async function fetchLocalMediaModels(base: string): Promise<string[]> {
+  const url = `${localBase(base)}/models`
+  const raw = isDesktopApp()
+    ? await invokeApi(url, 'local', undefined, 'GET')
+    : await (async () => {
+      const res = await fetch(url)
+      const text = await res.text()
+      if (!res.ok) throw new Error(`接口返回 ${res.status}：${text.slice(0, 120)}`)
+      return text
+    })()
+  const json = JSON.parse(raw)
+  const list: unknown[] = Array.isArray(json?.data) ? json.data : (Array.isArray(json?.models) ? json.models : (Array.isArray(json) ? json : []))
+  const ids = list.map((m: unknown): string => {
+    if (typeof m === 'string') return m
+    const o = m as { id?: unknown; name?: unknown }
+    return typeof o?.id === 'string' ? o.id : (typeof o?.name === 'string' ? o.name : '')
+  }).filter(Boolean)
+  if (ids.length === 0) throw new Error('本地服务未返回模型')
+  return ids
+}
+
+/** 本地生图：POST {base}/images/generations */
+export async function callLocalImage(base: string, model: string, prompt: string, opts?: ImageOptions): Promise<ProviderCallResult> {
+  try {
+    const url = `${localBase(base)}/images/generations`
+    const body: Record<string, unknown> = {
+      model, prompt, n: opts?.n ?? 1, size: opts?.size ?? '1024x1024', response_format: 'url',
+    }
+    if (opts?.quality) body.quality = opts.quality
+    if (opts?.style) body.style = opts.style
+    const raw = isDesktopApp() ? await invokeApi(url, 'local', body) : await directFetch(url, 'local', body)
+    const json = JSON.parse(raw)
+    const images: string[] = (json.data ?? []).map((d: { url?: string; b64_json?: string }) => d.url ?? (d.b64_json ? `data:image/png;base64,${d.b64_json}` : '')).filter(Boolean)
+    if (images.length === 0) return { ok: false, text: '', error: '本地服务未返回图片。请确认模型支持文生图（如 ComfyUI 生图工作流 / LocalAI 图像模型）。' }
+    return { ok: true, text: `本地生成 ${images.length} 张图片`, images }
+  } catch (e) { return toError(e) }
+}
+
+/** 本地生视频：POST {base}/videos/generations（尽力而为） */
+export async function callLocalVideo(base: string, model: string, prompt: string, opts?: VideoOptions): Promise<ProviderCallResult> {
+  try {
+    const url = `${localBase(base)}/videos/generations`
+    const body: Record<string, unknown> = { model, prompt, duration: opts?.duration ?? 5 }
+    if (opts?.ratio) body.ratio = opts.ratio
+    if (opts?.image) body.image = opts.image
+    const raw = isDesktopApp() ? await invokeApi(url, 'local', body) : await directFetch(url, 'local', body)
+    const json = JSON.parse(raw)
+    const videoUrl = json.url ?? json.data?.url ?? json.output?.url ?? json.data?.[0]?.url
+    if (videoUrl) return { ok: true, text: '本地视频已生成', images: [videoUrl] }
+    const id = json.id ?? json.task_id ?? json.data?.id
+    if (id) return { ok: true, text: `本地视频任务已提交（ID: ${String(id).slice(0, 20)}）` }
+    return { ok: false, text: '', error: '本地服务已响应但未返回视频地址，请确认该服务支持视频生成接口。' }
+  } catch (e) { return toError(e) }
+}
+
+/** 本地视频任务查询：GET {base}/videos/{id} */
+export async function queryLocalVideoTask(base: string, taskId: string): Promise<ProviderCallResult> {
+  const url = `${localBase(base)}/videos/${encodeURIComponent(taskId)}`
+  try {
+    const raw = isDesktopApp()
+      ? await invokeApi(url, 'local', undefined, 'GET')
+      : await (async () => { const res = await fetch(url); const text = await res.text(); if (!res.ok) throw new Error(`接口返回 ${res.status}`); return text })()
+    const json = JSON.parse(raw)
+    const videoUrl = json.url ?? json.video_url ?? json.output?.url ?? json.data?.url
+    if (videoUrl) return { ok: true, text: '视频已生成', images: [videoUrl] }
+    return { ok: true, text: json.status ? `任务状态：${json.status}` : '任务处理中' }
+  } catch (e) { return toError(e) }
+}
+
+/** 安全提取任意抛出值（Error / 字符串 / Tauri 命令 reject 的非标准对象）的文本 */
+function errText(e: unknown): string {
+  if (e == null) return '未知错误'
+  if (typeof e === 'string') return e
+  if (typeof e === 'object') {
+    const o = e as { message?: unknown }
+    if (typeof o.message === 'string' && o.message) return o.message
+    try { return JSON.stringify(e) } catch { return '未知错误' }
+  }
+  return String(e)
+}
+
 function toError(e: unknown): ProviderCallResult {
-  const err = e as Error & { cors?: boolean }
-  const msg = err?.message ?? String(e)
-  const cors = err?.cors === true || /cors|failed to fetch|networkerror/i.test(msg)
+  const cors = typeof e === 'object' && e != null && (e as { cors?: boolean }).cors === true
+  const msg = errText(e)
   return {
     ok: false, text: '',
-    cors,
-    error: cors
+    cors: cors || /cors|failed to fetch|networkerror/i.test(msg),
+    error: cors || /cors|failed to fetch|networkerror/i.test(msg)
       ? '浏览器直连被跨域策略拦截。请在桌面客户端使用（桌面端走本地代理），或检查平台是否开放 API。'
-      : `调用失败：${msg.slice(0, 160)}`,
+      : `调用失败：${msg.slice(0, 300)}`,
   }
 }

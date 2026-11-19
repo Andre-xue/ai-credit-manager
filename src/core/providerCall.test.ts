@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Account } from './types'
-import { callChat, callImage, callVideo, queryVideoTask, normalizeReasoningEffort, usesFixedSampling, extractModelId } from './providerCall'
+import { callChat, callImage, callVideo, callLocalImage, callLocalVideo, queryVideoTask, fetchLocalMediaModels, normalizeReasoningEffort, usesFixedSampling, extractModelId } from './providerCall'
 
 const acct = (providerId: string): Account => ({
   id: 'a1', providerId, label: 'test', mode: 'api',
@@ -135,5 +135,38 @@ describe('AI 图像/视频模块参数化调用', () => {
     }))
     const fail = await queryVideoTask(a, 'key', 'task-2')
     expect(fail.ok).toBe(false)
+  })
+})
+
+describe('本地模型媒体调用与错误兜底', () => {
+  it('callLocalImage 通过本地 base 调用并返回图片', async () => {
+    const bodies: unknown[] = []
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((_url, init) => {
+      bodies.push(JSON.parse(init.body))
+      return Promise.resolve({ ok: true, text: async () => JSON.stringify({ data: [{ url: 'http://127.0.0.1:1/img.png' }] }) })
+    }))
+    const r = await callLocalImage('http://127.0.0.1:11434', 'flux', '一只猫', { size: '1024x1024' })
+    expect(r.ok).toBe(true)
+    expect(r.images).toEqual(['http://127.0.0.1:1/img.png'])
+    expect((bodies[0] as Record<string, unknown>).model).toBe('flux')
+  })
+  it('callLocalVideo 返回任务 ID 文本', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify({ id: 'local-task' }) }))
+    const r = await callLocalVideo('http://127.0.0.1:8080', 'svd', '海浪')
+    expect(r.ok).toBe(true)
+    expect(r.text).toContain('local-task')
+  })
+  it('fetchLocalMediaModels 兼容 data/字符串/name 三种模型格式', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, text: async () => JSON.stringify({ data: [{ id: 'm1' }, { name: 'm2' }, 'm3'] }),
+    }))
+    expect(await fetchLocalMediaModels('http://127.0.0.1:11434')).toEqual(['m1', 'm2', 'm3'])
+  })
+  it('回归：Tauri reject 字符串时 callVideo 不崩溃、返回错误文本', async () => {
+    // 模拟桌面端 invoke 抛出字符串（真实 bug：lastErr undefined → .slice 崩溃）
+    vi.stubGlobal('window', { __TAURI_INTERNALS__: { invoke: () => Promise.reject('boom string error') } })
+    const r = await callVideo(acct('kling'), 'key', 'test')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('boom string error')
   })
 })

@@ -139,3 +139,11 @@ export async function saveMedia(url: string, kind: MediaKind, filenameBase: stri
 export function newMediaId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
+
+/** 安全提取任意抛出值的文本（兼容 Tauri 命令 reject 字符串 / 非标准对象） */
+export function errTextSafe(e: unknown): string {
+  if (e == null) return '未知错误'
+  if (typeof e === 'string') return e
+  if (typeof e === 'object' && e && typeof (e as { message?: unknown }).message === 'string') return String((e as { message: string }).message)
+  try { return JSON.stringify(e) ?? String(e) } catch { return String(e) }
+}

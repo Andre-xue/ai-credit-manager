@@ -1710,3 +1710,16 @@ html, body { touch-action: manipulation; }
   .gen-results { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
   .gen-result-actions .btn { min-width: 0; font-size: 11px; padding: 6px 8px; }
 }
+
+/* AI 图像/视频：模型来源切换（云端账户 / 本地模型） */
+.gen-source-tabs { display: flex; gap: 6px; padding: 4px; margin-bottom: 16px; background: var(--panel-2); border-radius: 10px; }
+.gen-source-tabs button {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 8px 10px; border: none; border-radius: 7px; background: transparent;
+  color: var(--text-3); font-size: 12.5px; cursor: pointer; transition: .18s;
+}
+.gen-source-tabs button:hover { color: var(--text); }
+.gen-source-tabs button.active { background: var(--panel); color: var(--primary); font-weight: 600; box-shadow: 0 2px 8px rgba(16,24,40,.08); }
+.gen-local-row { display: flex; gap: 8px; align-items: center; }
+.gen-local-row .input { flex: 1; min-width: 0; }
+.gen-local-row .btn { flex-shrink: 0; }
