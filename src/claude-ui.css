@@ -322,21 +322,52 @@
 .ai-layout-focus .ai-top-actions,
 .ai-layout-chat .ai-top-actions { gap: 16px; min-width: 0; }
 
-/* 手机端：同样 sticky 吸顶，左上有悬浮菜单按钮，靠 padding-left 避让 */
-.phone-shell .ai-layout-welcome .ai-topbar,
-.phone-shell .ai-layout-focus .ai-topbar,
-.phone-shell .ai-layout-chat .ai-topbar {
-  position: sticky;
-  top: 0;
-  right: auto; left: auto;
-  width: 100%; max-width: none; padding: 8px 0 10px;
-  overflow: visible; gap: 0;
-  z-index: 60;
-  margin: 0;
+/* 手机端：三个功能键固定为顶部 App Bar（玻璃胶囊），与左侧悬浮菜单键并排。
+   不随 welcome 居中、不随 chat 跳位，任何布局模式都钉在视口顶部右侧——原生 App 手感 */
+.phone-shell .ai-page.ai-layout-welcome .ai-topbar,
+.phone-shell .ai-page.ai-layout-focus .ai-topbar,
+.phone-shell .ai-page.ai-layout-chat .ai-topbar {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+  left: 62px; right: 12px;
+  width: auto; max-width: none;
+  height: 42px; min-height: 42px;
+  padding: 0; margin: 0;
+  justify-content: flex-end; align-items: center;
+  background: transparent;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  border: none;
+  overflow: visible;
+  z-index: 46;
 }
-.phone-shell .ai-layout-welcome .ai-top-actions,
-.phone-shell .ai-layout-focus .ai-top-actions,
-.phone-shell .ai-layout-chat .ai-top-actions { gap: 16px; }
+/* 经典风格：实色胶囊 */
+.phone-shell:not(.liquid-ui) .ai-topbar {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 4px 14px rgba(16, 24, 40, .08);
+}
+/* 液态风格：玻璃胶囊（与悬浮菜单键同质感） */
+.phone-shell.liquid-ui .ai-topbar {
+  background: rgba(255, 255, 255, .55);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  backdrop-filter: blur(18px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, .6);
+  border-radius: 14px;
+  box-shadow: 0 6px 20px rgba(31, 41, 55, .12), inset 0 1px 0 rgba(255, 255, 255, .7);
+}
+/* 按钮区：不再拉伸占满（那是按钮跑到最左边的根源），右对齐、不裁剪 */
+.phone-shell .ai-page .ai-top-actions {
+  flex: 0 0 auto; min-width: 0;
+  overflow: visible;
+  gap: 6px;
+}
+/* 胶囊内按钮去边框、加大触控区 */
+.phone-shell .ai-topbar .ai-icon-btn {
+  width: 36px; height: 36px;
+  border: none; background: transparent;
+}
+.phone-shell .ai-topbar .ai-icon-btn:active { background: rgba(100, 116, 139, .14); }
 
 /* 欢迎区：只留图标+欢迎语，屏幕正中间；去掉描述与快捷卡（JSX 已删） */
 .ai-layout-welcome .ai-welcome,
@@ -435,4 +466,81 @@
   padding: 14px 16px;
   margin-bottom: 0;
   font-size: 14.5px;
+}
+
+/* ============================================================
+   手机端 AI 页：下拉菜单 → 底部弹层（Bottom Sheet，原生 App 手感）
+   修复：模型列表伸出屏幕外、要滑动整页才能看到的问题
+   ============================================================ */
+/* 遮罩：桌面端默认隐藏，仅 phone-shell 显示 */
+.ai-menu-backdrop { display: none; }
+.phone-shell .ai-menu-backdrop {
+  display: block;
+  position: fixed; inset: 0; z-index: 290;
+  background: rgba(17, 24, 39, .35);
+  animation: ai-sheet-fade .2s ease both;
+}
+@keyframes ai-sheet-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* 三种下拉统一改为固定底部弹层：不再受父容器裁剪/伸出屏幕 */
+.phone-shell .ai-model-menu,
+.phone-shell .reasoning-menu {
+  position: fixed;
+  left: 10px; right: 10px; top: auto; bottom: 0;
+  max-width: none; max-height: 62vh;
+  overflow-y: auto; -webkit-overflow-scrolling: touch;
+  border-radius: 18px 18px 0 0;
+  border: none;
+  padding: 26px 12px calc(14px + env(safe-area-inset-bottom, 0px)) !important;
+  box-shadow: 0 -12px 44px rgba(16, 24, 40, .22);
+  z-index: 300;
+  animation: ai-sheet-up .3s cubic-bezier(.22, 1, .36, 1) both !important;
+}
+@keyframes ai-sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+/* 顶部抓手指示条 */
+.phone-shell .ai-model-menu::before,
+.phone-shell .reasoning-menu::before {
+  content: '';
+  position: absolute; top: 9px; left: 50%; transform: translateX(-50%);
+  width: 42px; height: 4.5px; border-radius: 3px;
+  background: rgba(100, 116, 139, .35);
+}
+/* 液态风格：玻璃弹层 */
+.phone-shell.liquid-ui .ai-model-menu,
+.phone-shell.liquid-ui .reasoning-menu {
+  background: rgba(255, 255, 255, .92);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+}
+/* 选项加大触控区，左右分布（名称 | 分组标签） */
+.phone-shell .ai-model-option {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 13px 14px !important;
+  font-size: 14.5px; border-radius: 12px;
+}
+.phone-shell .ai-model-option small { font-size: 11px; flex-shrink: 0; }
+.phone-shell .ai-model-empty { padding: 26px 14px; font-size: 13.5px; text-align: center; }
+.phone-shell .reasoning-option { padding: 12px 14px !important; }
+.phone-shell .reasoning-option-label { font-size: 14.5px; }
+.phone-shell .reasoning-option small { font-size: 12px; }
+/* 动态效果关闭时不播弹层动画 */
+@media (prefers-reduced-motion: reduce) {
+  .phone-shell .ai-model-menu,
+  .phone-shell .reasoning-menu { animation: none !important; }
+  .phone-shell .ai-menu-backdrop { animation: none; }
+}
+
+/* 手机端 AI 页：禁用页面级入场动画残留的 transform。
+   关键：transform 会把 position:fixed 的基准从视口变成 ai-page，
+   导致顶部 App Bar 与底部弹层全部错位（transform: none 是修复的根基） */
+.phone-shell .ai-page { transform: none !important; animation: none !important; }
+
+/* 手机端 AI 页：恢复内容区 padding（claude-ui 的 .content-ai padding:0!important 加载更晚，
+   会覆盖 liquid-glass 的让位规则，故必须在文件末尾以同优先级重申），
+   同时清掉桌面端的居中窄栏 margin/max-width */
+.phone-shell .content-ai {
+  padding: calc(env(safe-area-inset-top, 0px) + 58px) 14px calc(env(safe-area-inset-bottom, 0px) + 8px) !important;
+  margin: 0 !important;
+  max-width: 100% !important;
+  width: auto !important;
 }

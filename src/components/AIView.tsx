@@ -499,6 +499,10 @@ export function AIView({ notify, accounts, settings }: {
 
   return (
     <div className={`ai-page ai-layout-${layoutMode}`}>
+      {/* 手机端底部弹层遮罩：任一下拉打开时出现，点空白处关闭（桌面端 CSS 隐藏） */}
+      {(categoryOpen || modelOpen || reasoningOpen) && (
+        <div className="ai-menu-backdrop" onClick={() => { setCategoryOpen(false); setModelOpen(false); setReasoningOpen(false) }} />
+      )}
       <div className="ai-shell">
         {/* 顶部栏：朗读开关 / 电话 / 刷新，靠右间距适中 */}
         <div className="ai-topbar">
