@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { isLocalProvider } from './core/types'
-import { detectLocalServices, getSystemMemoryGb, checkLocalService, startLocalService, stopLocalService, isServiceAppManaged, type LocalService } from './core/localServices'
+import { detectLocalServices, getSystemMemoryGb, checkLocalService, startLocalService, stopLocalService, isServiceAppManaged, fetchLocalModels, chooseModelFile, type LocalService } from './core/localServices'
 import {
   LOCAL_SERVICE_KEYS, providerToService, memoryToTier, tierAdvice, maxServicesForTier,
   isServiceEnabled, toggleService, notifyLocalServiceChanged, initServicesForTier,
@@ -2092,6 +2092,26 @@ function LocalAccountFormModal({ provider, sessionPwd, onClose, onSave, notify }
   const [detecting, setDetecting] = useState(true)
   const [detectErr, setDetectErr] = useState('')
   const [busy, setBusy] = useState(false)
+  // 从本地服务拉取的已加载模型列表（选择式输入主入口）
+  const [availModels, setAvailModels] = useState<string[]>([])
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const [modelsErr, setModelsErr] = useState('')
+
+  const serviceKey = provider.id === 'local-ollama' ? 'ollama'
+    : provider.id === 'local-comfyui' ? 'comfyui' : 'lmstudio'
+  /** 拉取当前服务的模型列表 */
+  const loadModels = async (svc: LocalService) => {
+    setModelsLoading(true); setModelsErr('')
+    const r = await fetchLocalModels(serviceKey, svc.url)
+    setAvailModels(r.models)
+    setModelsErr(r.error ?? '')
+    setModelsLoading(false)
+  }
+  // 选中服务变化时拉取模型列表
+  useEffect(() => {
+    if (selected) void loadModels(selected)
+    else { setAvailModels([]); setModelsErr('') }
+  }, [selected?.url])
 
   // 当前弹窗期望的服务类型（用于过滤探测结果，避免把别的本地服务混进来）
   const expectService = provider.id === 'local-ollama' ? 'Ollama'
@@ -2111,7 +2131,7 @@ function LocalAccountFormModal({ provider, sessionPwd, onClose, onSave, notify }
 
   const submit = async () => {
     if (!selected) { notify('请先选择本机探测到的服务'); return }
-    if (!path.trim()) { notify('请填写模型路径地址'); return }
+    if (!path.trim()) { notify('请选择或输入模型'); return }
     if (!isVaultInitialized()) { notify('请先在「设置 → 安全」创建保险箱'); return }
     const pwd = sessionPwd || getBiometricPassword() || ''
     if (!pwd) { notify('请先在「API Key 管理」页解锁保险箱后再添加'); return }
@@ -2164,8 +2184,36 @@ function LocalAccountFormModal({ provider, sessionPwd, onClose, onSave, notify }
             <button className="btn sm" style={{ marginTop: 8 }} onClick={() => void detect()} disabled={detecting}>重新探测</button>
           </div>
           <div className="form-row" style={{ marginTop: 12 }}>
-            <label className="form-label">模型路径地址（作为 Key 值加密保存）</label>
-            <input className="input" value={path} onChange={e => setPath(e.target.value)} placeholder="如 /models/llama3 或 C:\models\xxx.gguf" disabled={busy} />
+            <label className="form-label">选择模型
+              <span style={{ fontWeight: 400, color: 'var(--text-3)', fontSize: 11 }}>（作为标识加密保存）</span>
+            </label>
+            {/* 主入口：从服务已加载的模型列表选择 */}
+            {availModels.length > 0 ? (
+              <select className="select" value={path} onChange={e => setPath(e.target.value)} disabled={busy} style={{ width: '100%' }}>
+                <option value="">请选择模型…</option>
+                {availModels.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            ) : (
+              <div className="local-model-hint">
+                {modelsLoading ? '正在从本机服务读取模型列表…'
+                  : modelsErr ? `未能自动读取模型列表：${modelsErr}` : '本机服务暂无可读取的模型列表'}
+              </div>
+            )}
+            <div className="local-model-actions">
+              <button className="btn sm" disabled={busy || modelsLoading} onClick={() => { if (selected) void loadModels(selected) }}>
+                {modelsLoading ? '读取中…' : '刷新模型列表'}
+              </button>
+              <button className="btn sm" disabled={busy} onClick={async () => {
+                const picked = await chooseModelFile()
+                if (picked) setPath(picked.split(/[\\/]/).pop() || picked)
+              }}>浏览本地文件…</button>
+            </div>
+            {/* 兜底：手动输入 */}
+            <input className="input" style={{ marginTop: 8 }} value={path} onChange={e => setPath(e.target.value)}
+              placeholder="也可手动输入模型名，如 llama3:latest" disabled={busy} />
+            <div className="local-model-note">
+              优先从服务已加载的模型中选择；「浏览本地文件」仅取文件名作标识。支持格式：Ollama 用自身管理的模型（如 llama3、qwen2.5:7b）；ComfyUI 支持 .gguf / .safetensors / .ckpt / .bin（需放在 ComfyUI 的 models 目录）；LM Studio 支持 .gguf。App 不直接加载文件，实际调用由本机服务完成。
+            </div>
           </div>
           <div className="form-row" style={{ marginTop: 12 }}>
             <label className="form-label">备注（可选）</label>

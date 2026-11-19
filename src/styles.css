@@ -1491,3 +1491,8 @@ html, body { touch-action: manipulation; }
 }
 .voice-direct-guide a { color: var(--primary); text-decoration: none; font-weight: 600; }
 .voice-direct-guide a:hover { text-decoration: underline; }
+
+/* 添加本地模型：选择式输入 */
+.local-model-hint { font-size: 12px; color: var(--text-3); padding: 8px 10px; background: var(--panel-2); border-radius: 8px; line-height: 1.5; }
+.local-model-actions { display: flex; gap: 8px; margin-top: 8px; }
+.local-model-note { font-size: 11px; color: var(--text-3); line-height: 1.6; margin-top: 8px; }

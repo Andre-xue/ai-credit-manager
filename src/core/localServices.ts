@@ -32,6 +32,33 @@ export async function detectLocalServices(): Promise<{ ok: boolean; services: Lo
   }
 }
 
+/** 拉取本地服务已加载/已安装的模型列表（供选择式输入） */
+export async function fetchLocalModels(key: 'ollama' | 'comfyui' | 'lmstudio', url: string): Promise<{ ok: boolean; models: string[]; error?: string }> {
+  if (!isDesktopApp()) return { ok: false, models: [], error: '仅桌面端支持拉取本地模型列表' }
+  try {
+    const w = window as unknown as {
+      __TAURI_INTERNALS__?: { invoke?: (cmd: string, args?: Record<string, unknown>) => Promise<string[]> }
+    }
+    const invoke = w.__TAURI_INTERNALS__?.invoke
+    if (!invoke) return { ok: false, models: [], error: '桌面接口不可用' }
+    const models = await invoke('fetch_local_models', { key, url })
+    return { ok: true, models: models ?? [] }
+  } catch (e) {
+    return { ok: false, models: [], error: (e as Error)?.message ?? String(e) }
+  }
+}
+
+/** 弹出系统文件选择器选择本地模型文件，返回完整路径；取消返回 null */
+export async function chooseModelFile(): Promise<string | null> {
+  if (!isDesktopApp()) return null
+  try {
+    const w = window as unknown as {
+      __TAURI_INTERNALS__?: { invoke?: (cmd: string) => Promise<string | null> }
+    }
+    return await w.__TAURI_INTERNALS__?.invoke?.('choose_model_file') ?? null
+  } catch { return null }
+}
+
 /** 检测单个本地服务是否运行，返回其实际地址；未运行/非桌面端返回 null */
 export async function checkLocalService(key: 'ollama' | 'comfyui' | 'lmstudio'): Promise<string | null> {
   if (!isDesktopApp()) return null

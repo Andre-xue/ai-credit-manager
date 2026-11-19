@@ -819,13 +819,106 @@ async fn tts_synthesize_direct(api_key: String, voice: String, text: String) -> 
     Ok(format!("data:audio/mp3;base64,{}", base64_encode(&bytes)))
 }
 
+// ==================== 本地模型列表与文件选择 ====================
+
+/// 从 Ollama /api/tags 响应解析模型名列表
+fn parse_ollama_models(json: &serde_json::Value) -> Vec<String> {
+    json.get("models").and_then(|m| m.as_array()).map(|arr| arr.iter()
+        .filter_map(|x| x.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+        .collect()).unwrap_or_default()
+}
+
+/// 从 LM Studio /v1/models 响应解析模型 id 列表
+fn parse_openai_models(json: &serde_json::Value) -> Vec<String> {
+    json.get("data").and_then(|m| m.as_array()).map(|arr| arr.iter()
+        .filter_map(|x| x.get("id").and_then(|n| n.as_str()).map(|s| s.to_string()))
+        .collect()).unwrap_or_default()
+}
+
+/// 支持的本地模型文件扩展名（用于文件选择器过滤与扫描）
+const MODEL_FILE_EXTS: &[&str] = &["gguf", "safetensors", "ckpt", "bin", "model", "pth"];
+
+/// 扫描 ComfyUI models 目录下支持的模型文件（递归一层），返回相对 models 的路径
+fn scan_comfyui_models() -> Vec<String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let root = std::path::Path::new(&home).join("ComfyUI").join("models");
+    let mut out = Vec::new();
+    fn walk(dir: &std::path::Path, rel: &str, out: &mut Vec<String>) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    let next = if rel.is_empty() { name } else { format!("{}/{}", rel, name) };
+                    walk(&p, &next, out);
+                } else if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+                    if MODEL_FILE_EXTS.contains(&ext.to_ascii_lowercase().as_str()) {
+                        let name = e.file_name().to_string_lossy().to_string();
+                        out.push(if rel.is_empty() { name } else { format!("{}/{}", rel, name) });
+                    }
+                }
+            }
+        }
+    }
+    walk(&root, "", &mut out);
+    out.sort();
+    out
+}
+
+/// 拉取本地服务已加载/已安装的模型列表，供添加本地模型弹窗选择。
+/// key: ollama / comfyui / lmstudio；url 为探测到的服务网关地址。
+#[tauri::command]
+async fn fetch_local_models(key: String, url: String) -> Result<Vec<String>, String> {
+    let base = url.trim().trim_end_matches('/');
+    if key == "comfyui" {
+        // ComfyUI 无标准已加载模型 API，扫描 models 目录下的模型文件
+        let models = scan_comfyui_models();
+        if models.is_empty() {
+            return Err("未在 ~/ComfyUI/models 下找到模型文件（支持 gguf/safetensors/ckpt/bin）".to_string())
+        }
+        return Ok(models)
+    }
+    let (path, parser): (&str, fn(&serde_json::Value) -> Vec<String>) = match key.as_str() {
+        "ollama" => ("/api/tags", parse_ollama_models),
+        "lmstudio" => ("/v1/models", parse_openai_models),
+        _ => return Err("未知服务".to_string()),
+    };
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build().map_err(|e| format!("客户端错误：{}", e))?;
+    let resp = client.get(format!("{}{}", base, path)).send().await
+        .map_err(|e| format!("拉取模型列表失败：{}", e))?;
+    if !resp.status().is_success() { return Err(format!("拉取模型列表失败（HTTP {}）", resp.status().as_u16())) }
+    let json: serde_json::Value = resp.json().await.map_err(|e| format!("响应格式异常：{}", e))?;
+    Ok(parser(&json))
+}
+
+/// 弹出系统文件选择器，让用户选择本地模型文件（不读取内容，仅返回完整路径供前端取文件名）
+#[tauri::command]
+fn choose_model_file() -> Result<Option<String>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        // AppleScript：允许选择任意文件；模型格式由前端提示
+        let script = "POSIX path of (choose file with prompt \"选择本地模型文件（.gguf / .safetensors / .ckpt / .bin）\")";
+        let out = std::process::Command::new("osascript")
+            .arg("-e").arg(script).output()
+            .map_err(|e| format!("打开文件选择器失败：{}", e))?;
+        // 用户取消时 osascript 返回非 0 且 stderr 含 -128
+        if !out.status.success() { return Ok(None) }
+        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        Ok(if path.is_empty() { None } else { Some(path) })
+    }
+    #[cfg(not(target_os = "macos"))]
+    { Err("当前平台暂不支持系统文件选择，请手动输入模型名".to_string()) }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service, stop_local_service, is_service_app_managed, tts_test_direct, tts_clone_direct, tts_synthesize_direct])
+        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service, stop_local_service, is_service_app_managed, tts_test_direct, tts_clone_direct, tts_synthesize_direct, fetch_local_models, choose_model_file])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -870,6 +963,20 @@ mod local_service_tests {
         let gb = parse_meminfo_linux(meminfo).unwrap();
         assert!(gb > 15.0 && gb < 17.0, "解析结果 {} 应接近 16GB", gb);
         assert_eq!(parse_meminfo_linux("no mem here"), None);
+    }
+
+    #[test]
+    fn parse_ollama_models_ok() {
+        let j = serde_json::json!({"models":[{"name":"llama3:latest"},{"name":"qwen2.5:7b"}]});
+        assert_eq!(parse_ollama_models(&j), vec!["llama3:latest", "qwen2.5:7b"]);
+        assert!(parse_ollama_models(&serde_json::json!({})).is_empty());
+    }
+
+    #[test]
+    fn parse_openai_models_ok() {
+        let j = serde_json::json!({"data":[{"id":"model-a"},{"id":"model-b"}]});
+        assert_eq!(parse_openai_models(&j), vec!["model-a", "model-b"]);
+        assert!(parse_openai_models(&serde_json::json!({"data":[]})).is_empty());
     }
 
     #[test]
