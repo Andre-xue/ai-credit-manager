@@ -234,13 +234,8 @@ html:has(.phone-shell) #root {
 .phone-shell .nav-item:active,
 .phone-shell .ai-model-btn:active { transform: scale(.96); transition: transform .1s; }
 
-/* 关闭动效时：禁用上面所有动画与过渡 */
-.no-motion.phone-shell *,
-.no-motion.phone-shell *::before,
-.no-motion.phone-shell *::after {
-  animation: none !important;
-  transition: none !important;
-}
+/* 关闭动效：装饰动画由 .motion-ui 移除自动停止。
+   不再用 * 全局 animation/transition:none——会连功能性反馈动画一起禁用导致闪屏/硬切。 */
 
 /* 尊重系统"减少动态效果"偏好 */
 @media (prefers-reduced-motion: reduce) {

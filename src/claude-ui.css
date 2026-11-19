@@ -227,10 +227,9 @@
   .claude-ui .set-content { padding: 18px 18px 40px; }
 }
 
-/* 动效关闭时：本主题动画也禁用 */
-.no-motion.claude-ui *,
-.no-motion.claude-ui *::before,
-.no-motion.claude-ui *::after { animation: none !important; }
+/* 动效关闭：装饰动画由 .motion-ui 移除自动停止（见 motion-effects.css / liquid-glass.css）。
+   这里不再用 * 全局 animation:none——那会连设置切换淡入、果冻开关、提交变形、加载环等
+   功能性反馈动画一起干掉，导致关闭动态效果时闪屏/硬切。 */
 
 /* ============ 品牌/欢迎区图标统一为 App 图标 ============ */
 /* 侧栏品牌区与 AI 欢迎区都用应用自身图标 pwa-512.png，铺满容器、去底色。
