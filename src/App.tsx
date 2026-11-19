@@ -2106,6 +2106,11 @@ function LocalAccountFormModal({ provider, sessionPwd, onClose, onSave, notify }
   const [detecting, setDetecting] = useState(true)
   const [detectErr, setDetectErr] = useState('')
   const [busy, setBusy] = useState(false)
+  // 就地输入主密码（无会话解锁/生物识别时）
+  const [formPwd, setFormPwd] = useState('')
+  const pwdRef = useRef<HTMLInputElement>(null)
+  const setPwdFocus = () => pwdRef.current?.focus()
+  const needInlinePwd = !sessionPwd && !getBiometricPassword()
   // 从本地服务拉取的已加载模型列表（选择式输入主入口）
   const [availModels, setAvailModels] = useState<string[]>([])
   const [modelsLoading, setModelsLoading] = useState(false)
@@ -2147,8 +2152,9 @@ function LocalAccountFormModal({ provider, sessionPwd, onClose, onSave, notify }
     if (!selected) { notify('请先选择本机探测到的服务'); return }
     if (!path.trim()) { notify('请选择或输入模型'); return }
     if (!isVaultInitialized()) { notify('请先在「设置 → 安全」创建保险箱'); return }
-    const pwd = sessionPwd || getBiometricPassword() || ''
-    if (!pwd) { notify('请先在「API Key 管理」页解锁保险箱后再添加'); return }
+    // 密码来源：会话解锁 > 生物识别 > 表单内就地输入（不再强制跳转到 Key 管理页解锁）
+    const pwd = sessionPwd || getBiometricPassword() || formPwd.trim()
+    if (!pwd) { notify('请在下方输入主密码以加密保存'); setPwdFocus(); return }
     setBusy(true)
     try {
       if (!(await verifyVault(pwd))) { notify('主密码错误'); return }
@@ -2255,6 +2261,12 @@ function LocalAccountFormModal({ provider, sessionPwd, onClose, onSave, notify }
             <label className="form-label">备注（可选）</label>
             <input className="input" value={note} onChange={e => setNote(e.target.value)} placeholder="用途说明" disabled={busy} />
           </div>
+          {needInlinePwd && (
+            <div className="form-row" style={{ marginTop: 12 }}>
+              <label className="form-label">主密码 <span className="req">*</span> <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>· 用于加密本次保存，输入后本次会话记住</span></label>
+              <input ref={pwdRef} className="input" type="password" value={formPwd} onChange={e => setFormPwd(e.target.value)} placeholder="输入保险箱主密码" disabled={busy} />
+            </div>
+          )}
           <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 10, lineHeight: 1.6 }}>
             本地模型仅保存在本机，不参与云同步、备份与导出（路径含本机信息，无跨端意义）。
           </div>
@@ -2335,6 +2347,10 @@ function AccountFormModal({ provider, sessionPwd, onClose, onSave }: {
   const [fetching, setFetching] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  // 就地输入主密码（无会话解锁/生物识别时）
+  const [formPwd, setFormPwd] = useState('')
+  const pwdRef = useRef<HTMLInputElement>(null)
+  const needInlinePwd = !sessionPwd && !getBiometricPassword()
   const adapter = getAdapter(provider.id)
 
   const apiUrl = provider.apiBaseUrl ?? ''
@@ -2362,9 +2378,9 @@ function AccountFormModal({ provider, sessionPwd, onClose, onSave }: {
     setErr('')
     if (!secret.trim()) { setErr('请填写 API Key'); return }
     if (!isVaultInitialized()) { setErr('请先在「设置 → 安全」创建保险箱'); return }
-    // 加密密码自动取自已解锁会话或指纹存储
-    const pwd = sessionPwd || getBiometricPassword() || ''
-    if (!pwd) { setErr('请先在「API Key 管理」页解锁保险箱后再添加'); return }
+    // 密码来源：会话解锁 > 生物识别 > 表单内就地输入（不再强制跳转到 Key 管理页解锁）
+    const pwd = sessionPwd || getBiometricPassword() || formPwd.trim()
+    if (!pwd) { setErr('请在下方输入主密码以加密保存'); pwdRef.current?.focus(); return }
     setBusy(true)
     try {
       const ok = await verifyVault(pwd)
@@ -2457,6 +2473,13 @@ function AccountFormModal({ provider, sessionPwd, onClose, onSave }: {
               </div>
             )}
           </div>
+          {needInlinePwd && (
+            <div className="form-row">
+              <label className="form-label">主密码 <span className="req">*</span> <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>· 用于加密本次保存，输入后本次会话记住</span></label>
+              <input ref={pwdRef} className="input" type="password" value={formPwd} onChange={e => setFormPwd(e.target.value)} placeholder="输入保险箱主密码" disabled={busy} />
+              <div className="form-hint">Key 会加密保存在本机。查看/删除已保存的 Key 仍需解锁保险箱。</div>
+            </div>
+          )}
           {err && <div className="form-error">{err}</div>}
         </div>
         <div className="modal-foot account-form-foot">
