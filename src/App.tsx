@@ -9,7 +9,12 @@ import {
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { isLocalProvider } from './core/types'
-import { detectLocalServices, type LocalService } from './core/localServices'
+import { detectLocalServices, getSystemMemoryGb, type LocalService } from './core/localServices'
+import {
+  LOCAL_SERVICE_KEYS, providerToService, memoryToTier, tierAdvice, maxServicesForTier,
+  isServiceEnabled, toggleService, notifyLocalServiceChanged, initServicesForTier,
+} from './core/localServicesSettings'
+import type { LocalServiceKey, MemoryTier } from './core/types'
 import { PROVIDERS, PROVIDER_MAP, CATEGORY_LABEL, CATEGORY_ORDER } from './data/providers'
 import {
   loadState, saveStateDebounced, flushState, uid, updateAccount, removeAccount, upsertQuota, latestQuota, toggleCheckin,
@@ -72,6 +77,25 @@ const CATEGORY_ICON: Record<ProviderDefinition['category'], typeof Code2> = {
 
 function App() {
   const [state, setState] = useState<AppState>(() => loadState())
+
+  // 首次启动：按本机内存档位初始化本地服务开关（8G 只开 1 个），仅执行一次
+  useEffect(() => {
+    if (state.settings.localServicesInitialized) return
+    let alive = true
+    void getSystemMemoryGb().then(gb => {
+      if (!alive) return
+      const tier = memoryToTier(gb)
+      setState(s => s.settings.localServicesInitialized ? s : ({
+        ...s,
+        settings: {
+          ...s.settings,
+          localServices: initServicesForTier(tier),
+          localServicesInitialized: true,
+        },
+      }))
+    })
+    return () => { alive = false }
+  }, [])
   // 手机原生端（安卓/iOS）默认进入 AI 聊天页、侧栏抽屉默认隐藏；其他端沿用旧行为
   // 预览参数仅用于浏览器验收手机端界面，生产环境不会带此参数
   const phonePreview = typeof location !== 'undefined' && (new URLSearchParams(location.search).get('preview') === 'phone' || location.hash.includes('preview=phone'))
@@ -560,7 +584,7 @@ function App() {
         </header>
 
         <div className={`content ${tab === 'ai' ? 'content-ai' : ''}`}>
-          {tab === 'ai' && <AIView notify={notify} accounts={state.accounts} />}
+          {tab === 'ai' && <AIView notify={notify} accounts={state.accounts} settings={state.settings} />}
           {tab === 'dashboard' && <>
           <div className="stats-grid">
             <StatCard icon={<Wallet size={17} />} color="blue" label="资源总估值" value={`¥${portfolioValue.toFixed(0)}`} hint={`${state.accounts.length} 个账户 · 单价可校准`} />
@@ -725,7 +749,14 @@ function App() {
 
       {addOpen && <PlatformPickerModal
         onClose={() => setAddOpen(false)}
-        onPick={(pid) => { setAddOpen(false); setFormProviderId(pid) }}
+        onPick={(pid) => {
+          const localKey = providerToService(pid)
+          if (localKey && !isServiceEnabled(state.settings, localKey)) {
+            notify(`请先在「设置 → 本地模型服务」开启 ${localKey === 'ollama' ? 'Ollama' : localKey === 'comfyui' ? 'ComfyUI' : 'LM Studio'} 后再添加`)
+            return
+          }
+          setAddOpen(false); setFormProviderId(pid)
+        }}
       />}
       {formProviderId && isLocalProvider(formProviderId) && <LocalAccountFormModal
         provider={PROVIDER_MAP[formProviderId]} sessionPwd={sessionPwd}
@@ -3041,6 +3072,25 @@ function SettingsView({ state, onChange, notify, onOpenVault, onClear, onChangeP
   const [setTab, setSetTab] = useState<'general' | 'data' | 'security'>('general')
   const [devices, setDevices] = useState<DeviceRecord[]>(() => loadDevices())
 
+  // 本地模型服务：检测物理内存 → 档位（Web/手机端检测失败用手动覆盖档位）
+  const [memGb, setMemGb] = useState(0)
+  useEffect(() => { let alive = true; void getSystemMemoryGb().then(g => { if (alive) setMemGb(g) }); return () => { alive = false } }, [])
+  const memTier: MemoryTier = s.memoryTierOverride ?? memoryToTier(memGb)
+  const memDetected = memGb > 0
+
+  /** 切换本地服务开关：8G 硬限制 + 关闭时立即派发清理缓存事件 */
+  const onToggleLocalService = (key: LocalServiceKey) => {
+    const next = toggleService(s, key, memTier)
+    if (!next) {
+      notify(`内存档位限制：${memTier === 8 ? '8G 电脑最多同时开启 1 个本地服务，请先关闭其他服务' : '已达上限'}`)
+      return
+    }
+    onChange({ localServices: next })
+    const enabled = next[key] !== false
+    notify(`已在 App 内${enabled ? '开启' : '关闭'}本地服务：${key === 'ollama' ? 'Ollama' : key === 'comfyui' ? 'ComfyUI' : 'LM Studio'}${enabled ? '' : '（相关缓存已清理，不影响其他软件调用本机服务）'}`)
+    notifyLocalServiceChanged(key, enabled)
+  }
+
   /** 切换到指纹解锁：验证主密码后保存到本机，再更新设置 */
   const enableBio = async () => {
     setBioSwitchBusy(true)
@@ -3081,6 +3131,37 @@ function SettingsView({ state, onChange, notify, onOpenVault, onClear, onChangeP
             <SettingsRow title="动态效果" desc="抽屉滑入、卡片渐入、光斑浮动等动效">
               <Toggle checked={s.uiMotion !== false} onChange={v => onChange({ uiMotion: v })} />
             </SettingsRow>
+          </SettingsSection>
+
+          <SettingsSection title="本地模型服务" desc="App 内按需启用，不影响系统服务与其他软件" icon={HardDrive} tone="green">
+            <div className="local-mem-info">
+              <span className="local-mem-badge">
+                {memDetected ? `已检测物理内存 ${memGb.toFixed(1)} GB` : '未获取到系统内存（请在下方选择档位）'}
+              </span>
+              <span className="local-mem-tier">当前档位：{memTier}G · 最多同时开启 {maxServicesForTier(memTier)} 个</span>
+            </div>
+            <div className="local-mem-advice">{tierAdvice(memTier)}</div>
+            {!memDetected && (
+              <div className="local-mem-override">
+                <span>内存档位：</span>
+                <select className="select" style={{ width: 110 }} value={memTier}
+                  onChange={e => onChange({ memoryTierOverride: Number(e.target.value) as MemoryTier })}>
+                  <option value={8}>8G 及以下</option>
+                  <option value={16}>16G 左右</option>
+                  <option value={32}>16G 以上</option>
+                </select>
+              </div>
+            )}
+            {LOCAL_SERVICE_KEYS.map(key => {
+              const label = key === 'ollama' ? 'Ollama' : key === 'comfyui' ? 'ComfyUI' : 'LM Studio'
+              const enabled = isServiceEnabled(s, key)
+              return (
+                <SettingsRow key={key} title={`启用 ${label}（App 内）`} desc={`仅控制本 App 是否调用；关闭不影响其他软件使用本机 ${label} 服务`}>
+                  <Toggle checked={enabled} onChange={() => onToggleLocalService(key)} />
+                </SettingsRow>
+              )
+            })}
+            <div className="local-mem-note">开关仅作用于本 App，不会启停系统服务。关闭时立即清理该服务在本 App 内的引擎/模型缓存以释放内存。</div>
           </SettingsSection>
 
           <SettingsSection title="通用" desc="提醒与预警行为" icon={Settings} tone="indigo">

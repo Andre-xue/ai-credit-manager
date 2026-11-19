@@ -1452,3 +1452,17 @@ html, body { touch-action: manipulation; }
   border-color: var(--primary);
   background: var(--primary-soft);
 }
+
+/* 本地模型服务：内存档位信息与建议 */
+.local-mem-info { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px; }
+.local-mem-badge {
+  display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px;
+  background: var(--primary-soft); color: var(--primary); font-size: 12px; font-weight: 600;
+}
+.local-mem-tier { font-size: 12px; color: var(--text-2); }
+.local-mem-advice {
+  font-size: 12px; line-height: 1.6; color: var(--text-2);
+  background: var(--panel-2); border-radius: 8px; padding: 8px 12px; margin-bottom: 10px;
+}
+.local-mem-override { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); margin-bottom: 10px; }
+.local-mem-note { font-size: 11px; line-height: 1.6; color: var(--text-3); margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }

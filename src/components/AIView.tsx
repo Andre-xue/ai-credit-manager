@@ -24,6 +24,7 @@ import {
 } from '../core/modelCategories'
 import { callByCategory, fetchProviderModels } from '../core/providerCall'
 import type { Account } from '../core/types'
+import { isAccountServiceEnabled, LOCAL_SERVICE_CHANGED_EVENT } from '../core/localServicesSettings'
 import { decryptSecret, getBiometricPassword, verifyVault } from '../core/crypto'
 import { PROVIDER_MAP } from '../data/providers'
 import {
@@ -58,9 +59,10 @@ function welcomeText(userNick?: string): string {
   return `${greet}，${name}`
 }
 
-export function AIView({ notify, accounts }: {
+export function AIView({ notify, accounts, settings }: {
   notify: (m: string) => void
   accounts: Account[]
+  settings?: import('../core/types').AppSettings
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadHistory())
   const [input, setInput] = useState('')
@@ -114,6 +116,29 @@ export function AIView({ notify, accounts }: {
     document.addEventListener('click', closeOnOutside)
     return () => document.removeEventListener('click', closeOnOutside)
   }, [])
+  // 本地服务在设置页被关闭时：立即清理该服务在本 App 内的缓存（引擎列表/选中态），释放内存。
+  // 不触碰系统服务与其他软件，仅重置本组件内存状态。
+  useEffect(() => {
+    const onServiceChanged = (e: Event) => {
+      const detail = (e as CustomEvent<{ key: string; enabled: boolean }>).detail
+      if (!detail || detail.enabled) return // 开启无需清理
+      const providerId = `local-${detail.key}`
+      // 若当前选中的正是该服务的账户，取消选择
+      setModel(prev => {
+        if (!prev || !prev.startsWith('own:')) return prev
+        const acct = accounts.find(a => `own:${a.id}` === prev)
+        return acct?.providerId === providerId ? '' : prev
+      })
+      // 重置引擎缓存相关状态，释放内存
+      setRemoteEngines(null)
+      setEngineId('')
+      setEngineSource('none')
+      setLoadingEngines(false)
+      setEnginePanelOpen(false)
+    }
+    window.addEventListener(LOCAL_SERVICE_CHANGED_EVENT, onServiceChanged)
+    return () => window.removeEventListener(LOCAL_SERVICE_CHANGED_EVENT, onServiceChanged)
+  }, [accounts])
   // 自有模型的解密凭据：优先用指纹/人脸模式保存的密码自动解密；纯密码模式则本次会话内输入一次
   const [aiPwd, setAiPwd] = useState('')
   const [aiPwdInput, setAiPwdInput] = useState('')
@@ -163,13 +188,16 @@ export function AIView({ notify, accounts }: {
 
   // 免费模型 + 用户自己的账户模型，按分类联动过滤
   const freeOptions = useMemo(() => models.map(m => ({ key: m.id, label: m.name, account: null as Account | null, category: '免费模型' as ModelCategory, free: true })), [models])
-  const ownOptions = useMemo(() => accounts.map(a => ({
-    key: `own:${a.id}`,
-    label: `${a.label}${a.note ? ` · ${a.note.replace(/^\[[^\]]+\]\s*/, '')}` : ''}`,
-    account: a,
-    category: categoryForModel(a.note),
-    free: false,
-  })), [accounts])
+  const ownOptions = useMemo(() => accounts
+    // App 内本地服务开关关闭时，隐藏对应本地模型账户（账户数据本身保留）
+    .filter(a => isAccountServiceEnabled(settings, a.providerId))
+    .map(a => ({
+      key: `own:${a.id}`,
+      label: `${a.label}${a.note ? ` · ${a.note.replace(/^\[[^\]]+\]\s*/, '')}` : ''}`,
+      account: a,
+      category: categoryForModel(a.note),
+      free: false,
+    })), [accounts, settings])
   const allOptions = useMemo(() => [...freeOptions, ...ownOptions], [freeOptions, ownOptions])
   const visibleOptions = useMemo(() => allOptions.filter(o => o.category === category), [category, allOptions])
   const selectedOption = allOptions.find(o => o.key === model) ?? null

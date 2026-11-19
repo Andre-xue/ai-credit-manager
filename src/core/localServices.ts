@@ -31,3 +31,19 @@ export async function detectLocalServices(): Promise<{ ok: boolean; services: Lo
     return { ok: false, services: [], error: `探测失败：${(e as Error)?.message ?? String(e)}` }
   }
 }
+
+/** 读取本机物理内存 GB（仅桌面端）；失败返回 0，调用方按保守档处理 */
+export async function getSystemMemoryGb(): Promise<number> {
+  if (!isDesktopApp()) return 0
+  try {
+    const w = window as unknown as {
+      __TAURI_INTERNALS__?: { invoke?: (cmd: string) => Promise<number> }
+    }
+    const invoke = w.__TAURI_INTERNALS__?.invoke
+    if (!invoke) return 0
+    const gb = await invoke('get_system_memory_gb')
+    return Number.isFinite(gb) && gb > 0 ? gb : 0
+  } catch {
+    return 0
+  }
+}

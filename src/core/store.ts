@@ -21,6 +21,8 @@ function emptyState(): AppState {
       unlockMethod: 'password',
       uiStyle: 'claude', uiMotion: true,
       unitPrices: {},
+      // 本地服务默认全开；8G 内存由工具函数在首次使用时收敛为仅开一个
+      localServices: { ollama: true, comfyui: true, lmstudio: true },
     },
   }
 }

@@ -150,7 +150,18 @@ export interface AppSettings {
   uiStyle?: 'claude' | 'auto' | 'liquid' | 'classic'
   /** 界面动态效果开关（抽屉滑入、卡片渐入、光斑浮动等） */
   uiMotion?: boolean
+  /** 本地模型服务在 App 内的启用开关（纯 App 层，不启停系统服务；键为 ollama/comfyui/lmstudio） */
+  localServices?: Partial<Record<LocalServiceKey, boolean>>
+  /** 本地服务开关是否已按内存档位完成过首次初始化 */
+  localServicesInitialized?: boolean
+  /** 内存档位手动覆盖（Web/手机端无系统内存检测时使用；desktop 以实际检测为准） */
+  memoryTierOverride?: MemoryTier
 }
+
+/** 本地模型服务类型 */
+export type LocalServiceKey = 'ollama' | 'comfyui' | 'lmstudio'
+/** 内存档位（GB） */
+export type MemoryTier = 8 | 16 | 32
 
 /** 数据源适配器接口 —— 插件化核心 */
 export interface DataSourceAdapter {

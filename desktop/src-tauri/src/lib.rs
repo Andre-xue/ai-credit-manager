@@ -515,13 +515,47 @@ async fn detect_local_services() -> Result<Vec<serde_json::Value>, String> {
     Ok(found)
 }
 
+/// 从 macOS `sysctl -n hw.memsize` 的输出（字节数）解析物理内存 GB
+fn parse_memsize_bytes_macos(out: &str) -> Option<f64> {
+    let bytes: u64 = out.trim().parse().ok()?;
+    Some(bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+}
+
+/// 从 Linux /proc/meminfo 的 MemTotal 行解析物理内存 GB（kB → GB）
+fn parse_meminfo_linux(out: &str) -> Option<f64> {
+    for line in out.lines() {
+        if let Some(rest) = line.strip_prefix("MemTotal:") {
+            let kb: f64 = rest.split_whitespace().next()?.parse().ok()?;
+            return Some(kb / 1024.0 / 1024.0)
+        }
+    }
+    None
+}
+
+/// 读取本机物理内存 GB（桌面端）。失败返回 0，前端按 8G 保守档处理。
+#[tauri::command]
+fn get_system_memory_gb() -> f64 {
+    use std::process::Command;
+    let out = {
+        #[cfg(target_os = "macos")]
+        { Command::new("sysctl").args(["-n", "hw.memsize"]).output().ok().and_then(|o| String::from_utf8(o.stdout).ok()).and_then(|s| parse_memsize_bytes_macos(&s)) }
+        #[cfg(target_os = "linux")]
+        { std::fs::read_to_string("/proc/meminfo").ok().and_then(|s| parse_meminfo_linux(&s)) }
+        #[cfg(target_os = "windows")]
+        { Command::new("wmic").args(["computersystem", "get", "TotalPhysicalMemory", "/value"]).output().ok().and_then(|o| String::from_utf8(o.stdout).ok()).and_then(|s| s.split('=').nth(1).map(|x| x.trim().to_string())).and_then(|n| n.parse::<u64>().ok()).map(|b| b as f64 / (1024.0*1024.0*1024.0)) }
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+        { None::<f64> }
+    };
+    out.unwrap_or(0.0)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services])
+        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -550,6 +584,22 @@ mod local_service_tests {
         assert!(fp_lmstudio(&json!({"data": [{"id": "m"}]})));
         assert!(!fp_lmstudio(&json!({"models": []}))); // Ollama 形状不算 LM Studio
         assert!(!fp_lmstudio(&json!({})));
+    }
+
+    #[test]
+    fn parse_macos_memsize() {
+        let bytes_16g = 16u64 * 1024 * 1024 * 1024;
+        assert_eq!(parse_memsize_bytes_macos(&bytes_16g.to_string()), Some(16.0));
+        assert_eq!(parse_memsize_bytes_macos("17179869184\n"), Some(16.0));
+        assert_eq!(parse_memsize_bytes_macos("invalid"), None);
+    }
+
+    #[test]
+    fn parse_linux_meminfo() {
+        let meminfo = "MemTotal:       16384256 kB\nMemFree:         1234567 kB\n";
+        let gb = parse_meminfo_linux(meminfo).unwrap();
+        assert!(gb > 15.0 && gb < 17.0, "解析结果 {} 应接近 16GB", gb);
+        assert_eq!(parse_meminfo_linux("no mem here"), None);
     }
 
     #[test]
