@@ -63,6 +63,33 @@ export async function startLocalService(key: 'ollama' | 'comfyui' | 'lmstudio'):
   }
 }
 
+/** 停止由本 App 启动的本地服务进程（不碰用户手动启动的服务） */
+export async function stopLocalService(key: 'ollama' | 'comfyui' | 'lmstudio'): Promise<{ ok: boolean; message: string }> {
+  if (!isDesktopApp()) return { ok: false, message: '仅桌面端支持' }
+  try {
+    const w = window as unknown as {
+      __TAURI_INTERNALS__?: { invoke?: (cmd: string, args?: Record<string, unknown>) => Promise<string> }
+    }
+    const invoke = w.__TAURI_INTERNALS__?.invoke
+    if (!invoke) return { ok: false, message: '桌面接口不可用' }
+    const message = await invoke('stop_local_service', { key })
+    return { ok: true, message }
+  } catch (e) {
+    return { ok: false, message: (e as Error)?.message ?? String(e) }
+  }
+}
+
+/** 某服务是否由本 App 启动且仍在运行（决定是否显示停止按钮） */
+export async function isServiceAppManaged(key: 'ollama' | 'comfyui' | 'lmstudio'): Promise<boolean> {
+  if (!isDesktopApp()) return false
+  try {
+    const w = window as unknown as {
+      __TAURI_INTERNALS__?: { invoke?: (cmd: string, args?: Record<string, unknown>) => Promise<boolean> }
+    }
+    return await w.__TAURI_INTERNALS__?.invoke?.('is_service_app_managed', { key }) ?? false
+  } catch { return false }
+}
+
 /** 读取本机物理内存 GB（仅桌面端）；失败返回 0，调用方按保守档处理 */
 export async function getSystemMemoryGb(): Promise<number> {
   if (!isDesktopApp()) return 0

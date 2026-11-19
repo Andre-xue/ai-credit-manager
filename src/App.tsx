@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import type { AppState, AccountView, ProviderDefinition, CreditUnit, AccountMode, QuotaSnapshot } from './core/types'
 import { isLocalProvider } from './core/types'
-import { detectLocalServices, getSystemMemoryGb, checkLocalService, startLocalService, type LocalService } from './core/localServices'
+import { detectLocalServices, getSystemMemoryGb, checkLocalService, startLocalService, stopLocalService, isServiceAppManaged, type LocalService } from './core/localServices'
 import {
   LOCAL_SERVICE_KEYS, providerToService, memoryToTier, tierAdvice, maxServicesForTier,
   isServiceEnabled, toggleService, notifyLocalServiceChanged, initServicesForTier,
@@ -3080,30 +3080,49 @@ function SettingsView({ state, onChange, notify, onOpenVault, onClear, onChangeP
 
   // 各服务实时运行状态（null=未检测/非桌面端，字符串=运行中的地址，''=未运行）
   const [serviceStatus, setServiceStatus] = useState<Partial<Record<LocalServiceKey, string | null>>>({})
-  const [startingKey, setStartingKey] = useState<LocalServiceKey | null>(null)
+  const [managedKeys, setManagedKeys] = useState<Partial<Record<LocalServiceKey, boolean>>>({})
+  const [busyKey, setBusyKey] = useState<LocalServiceKey | null>(null)
   const refreshServiceStatus = useCallback(() => {
-    void Promise.all(LOCAL_SERVICE_KEYS.map(async k => [k, await checkLocalService(k)] as const))
-      .then(pairs => { setServiceStatus(Object.fromEntries(pairs)) })
+    void Promise.all(LOCAL_SERVICE_KEYS.map(async k => [k, await checkLocalService(k), await isServiceAppManaged(k)] as const))
+      .then(rows => {
+        setServiceStatus(Object.fromEntries(rows.map(r => [r[0], r[1]])))
+        setManagedKeys(Object.fromEntries(rows.map(r => [r[0], r[2]])))
+      })
   }, [])
   useEffect(() => { refreshServiceStatus() }, [refreshServiceStatus])
 
-  /** 一键启动本机服务（显式操作；仅拉起应用，不改系统自启、不停服务） */
+  /** 启动服务后台进程（不打开 GUI 窗口）；启动后轮询状态 */
   const onStartService = async (key: LocalServiceKey) => {
-    setStartingKey(key)
+    setBusyKey(key)
     try {
       const r = await startLocalService(key)
       notify(r.message)
       if (r.ok) {
-        // 服务启动需要时间，延迟轮询几次状态
         let tries = 0
         const poll = window.setInterval(() => {
           void checkLocalService(key).then(addr => {
-            if (addr) { setServiceStatus(prev => ({ ...prev, [key]: addr })); window.clearInterval(poll) }
-            else if (++tries >= 12) window.clearInterval(poll) // 最多等 ~18s
+            if (addr) {
+              setServiceStatus(prev => ({ ...prev, [key]: addr }))
+              setManagedKeys(prev => ({ ...prev, [key]: true }))
+              window.clearInterval(poll)
+            } else if (++tries >= 15) window.clearInterval(poll) // 最多等 ~30s（ComfyUI 首次加载较慢）
           })
-        }, 1500)
+        }, 2000)
       }
-    } finally { setStartingKey(null) }
+    } finally { setBusyKey(null) }
+  }
+
+  /** 停止由本 App 启动的服务进程（不碰用户手动启动的服务） */
+  const onStopService = async (key: LocalServiceKey) => {
+    setBusyKey(key)
+    try {
+      const r = await stopLocalService(key)
+      notify(r.message)
+      if (r.ok) {
+        setServiceStatus(prev => ({ ...prev, [key]: null }))
+        setManagedKeys(prev => ({ ...prev, [key]: false }))
+      }
+    } finally { setBusyKey(null) }
   }
 
   /** 切换本地服务开关：8G 硬限制 + 关闭时立即派发清理缓存事件 */
@@ -3185,24 +3204,33 @@ function SettingsView({ state, onChange, notify, onOpenVault, onClear, onChangeP
               const enabled = isServiceEnabled(s, key)
               const status = serviceStatus[key]
               const running = typeof status === 'string' && status.length > 0
+              const managed = !!managedKeys[key]
               return (
                 <div className="local-service-row" key={key}>
                   <div className="local-service-main">
                     <div className="local-service-title">
                       <span>允许 App 使用 {label}</span>
                       <span className={`local-status-badge ${running ? 'running' : ''}`}>
-                        {status === undefined || status === null ? '未检测' : running ? '运行中' : '未运行'}
+                        {status === undefined || status === null ? '未检测' : running ? (managed ? '运行中 · App启动' : '运行中 · 外部') : '未运行'}
                       </span>
                     </div>
                     <div className="local-service-desc">
-                      {running ? `服务地址 ${status} · 可被其他软件共用` : '本机服务未启动，可点右侧「启动」；也可自行打开对应应用'}
+                      {running
+                        ? `服务地址 ${status} · ${managed ? '由本 App 启动，可点「停止」' : '由你或其他软件启动，App 不会停止它'}`
+                        : '本机后台服务未启动，点右侧「启动」仅起服务进程、不开图形界面'}
                     </div>
                   </div>
                   <div className="local-service-actions">
                     {!running && (
-                      <button className="btn sm" disabled={startingKey === key}
-                        onClick={() => void onStartService(key)} title="拉起本机应用，不改系统自启">
-                        {startingKey === key ? '启动中…' : '启动'}
+                      <button className="btn sm" disabled={busyKey === key}
+                        onClick={() => void onStartService(key)} title="仅启动后台服务进程，不打开 GUI">
+                        {busyKey === key ? '处理中…' : '启动'}
+                      </button>
+                    )}
+                    {running && managed && (
+                      <button className="btn sm" disabled={busyKey === key}
+                        onClick={() => void onStopService(key)} title="仅停止由本 App 启动的进程">
+                        {busyKey === key ? '处理中…' : '停止'}
                       </button>
                     )}
                     {running && <button className="btn sm" onClick={refreshServiceStatus} title="刷新运行状态">刷新</button>}
@@ -3212,7 +3240,7 @@ function SettingsView({ state, onChange, notify, onOpenVault, onClear, onChangeP
               )
             })}
             <div className="local-mem-note">
-              两个开关含义不同：「允许 App 使用」只控制本 App 是否调用（关闭会清理缓存，不影响其他软件）；「启动」仅拉起本机应用，不改系统自启。服务停止请在对应应用内操作，App 不会自动停止，以免影响其他软件。
+              「允许 App 使用」只控制本 App 是否调用（关闭会清理缓存，不影响其他软件）；「启动/停止」只管理由本 App 拉起的后台服务进程（不开图形界面、不改系统自启），不会碰你或其他软件启动的服务。LM Studio 无 CLI 后台启动方式，需在其应用内手动开启。
             </div>
           </SettingsSection>
 

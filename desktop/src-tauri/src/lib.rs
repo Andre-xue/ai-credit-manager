@@ -582,34 +582,113 @@ async fn check_local_service(key: String) -> Option<String> {
     None
 }
 
-/// 启动本机本地模型服务（显式调用，由用户主动触发）。
-/// 仅拉起应用进程，不修改任何系统自启设置；服务由用户在各自应用内管理停止。
-/// 返回启动指引文案。
+/// App 自己启动的本地服务 PID 记录文件路径：~/.ai-credit-manager/local-services.json
+fn managed_pids_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    std::path::Path::new(&home).join(".ai-credit-manager").join("local-services.json")
+}
+
+/// 读取 App 启动的服务 PID 映射：{ "ollama": 1234, "comfyui": 5678 }
+fn load_managed_pids() -> std::collections::HashMap<String, u32> {
+    let path = managed_pids_path();
+    std::fs::read_to_string(path).ok()
+        .and_then(|s| serde_json::from_str::<std::collections::HashMap<String, u32>>(&s).ok())
+        .unwrap_or_default()
+}
+
+/// 保存 App 启动的服务 PID 映射
+fn save_managed_pids(map: &std::collections::HashMap<String, u32>) {
+    let path = managed_pids_path();
+    if let Some(dir) = path.parent() { let _ = std::fs::create_dir_all(dir); }
+    if let Ok(json) = serde_json::to_string(map) { let _ = std::fs::write(path, json); }
+}
+
+/// 判断某进程是否仍在运行（macOS/Linux kill -0；Windows 用 tasklist）
+fn pid_alive(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        use std::process::Command;
+        Command::new("kill").arg("-0").arg(pid.to_string()).status().map(|s| s.success()).unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        use std::process::Command;
+        let out = Command::new("tasklist").args(["/FI", &format!("PID eq {}", pid)]).output().ok();
+        out.map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string())).unwrap_or(false)
+    }
+}
+
+/// 某服务是否由本 App 启动且仍在运行（供前端决定是否显示"停止"按钮）
+#[tauri::command]
+fn is_service_app_managed(key: String) -> bool {
+    load_managed_pids().get(&key).copied().map(pid_alive).unwrap_or(false)
+}
+
+/// 启动本机本地模型服务的后台进程（不打开 GUI 窗口，不改系统自启）。
+/// Ollama: ollama serve；ComfyUI: venv python main.py --listen 127.0.0.1 --port 8188。
+/// 成功启动后记录 PID，仅这些由 App 启动的进程可被 stop_local_service 停止。
 #[tauri::command]
 fn start_local_service(key: String) -> Result<String, String> {
-    use std::process::Command;
-    let (app_name, guide): (&str, &str) = match key.as_str() {
-        "ollama" => ("Ollama", "Ollama 启动后将在 11434 端口提供服务"),
-        "comfyui" => ("Comfy Desktop", "ComfyUI 启动后将在 8188 端口提供服务"),
-        "lmstudio" => ("LM Studio", "LM Studio 需在设置中开启本地服务器（1234 端口）"),
+    use std::process::{Command, Stdio};
+    // 若已在运行（无论谁启动），不重复启动
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let (program, args, work_dir, guide): (String, Vec<String>, String, &str) = match key.as_str() {
+        "ollama" => (
+            "/opt/homebrew/bin/ollama".to_string(),
+            vec!["serve".to_string()],
+            home.clone(),
+            "Ollama 后台服务将在 11434 端口运行",
+        ),
+        "comfyui" => {
+            let py = format!("{}/ComfyUI/venv/bin/python", home);
+            let main = format!("{}/ComfyUI/main.py", home);
+            if !std::path::Path::new(&py).exists() || !std::path::Path::new(&main).exists() {
+                return Err("未找到 ComfyUI（venv 或 main.py 缺失），请确认安装路径为 ~/ComfyUI".to_string())
+            }
+            (
+                py,
+                vec![main, "--listen".to_string(), "127.0.0.1".to_string(), "--port".to_string(), "8188".to_string()],
+                format!("{}/ComfyUI", home),
+                "ComfyUI 后台服务将在 8188 端口运行",
+            )
+        }
+        "lmstudio" => return Err("LM Studio 无 CLI 后台启动方式，请在 LM Studio 应用内手动开启本地服务器".to_string()),
         _ => return Err("未知服务".to_string()),
     };
-    #[cfg(target_os = "macos")]
-    {
-        // 先确认应用是否安装
-        let app_path = format!("/Applications/{}.app", app_name);
-        if !std::path::Path::new(&app_path).exists() {
-            return Err(format!("未检测到 {}，请先安装后再启动", app_name))
-        }
-        match Command::new("open").args(["-a", app_name]).spawn() {
-            Ok(_) => Ok(format!("已请求启动 {}，请稍候点击「重新检测」。{}", app_name, guide)),
-            Err(e) => Err(format!("启动失败：{}", e)),
-        }
+    if !std::path::Path::new(&program).exists() {
+        return Err(format!("未找到启动程序 {}，请确认已安装", program))
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        Err(format!("当前平台暂不支持一键启动，请手动打开 {}。{}", app_name, guide))
+    let child = Command::new(&program)
+        .args(&args)
+        .current_dir(work_dir)
+        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("启动失败：{}", e))?;
+    let mut pids = load_managed_pids();
+    pids.insert(key.clone(), child.id());
+    save_managed_pids(&pids);
+    Ok(format!("已启动 {} 后台进程（PID {}），请稍候点击「重新检测」。{}", key, child.id(), guide))
+}
+
+/// 停止由本 App 启动的本地服务进程；仅 kill 记录中的 PID，不碰用户手动启动的服务。
+#[tauri::command]
+fn stop_local_service(key: String) -> Result<String, String> {
+    use std::process::Command;
+    let mut pids = load_managed_pids();
+    let pid = match pids.remove(&key) {
+        Some(p) => p,
+        None => return Err("该服务不是由本 App 启动的，为不影响其他软件，请在其应用内自行关闭".to_string()),
+    };
+    save_managed_pids(&pids);
+    if !pid_alive(pid) {
+        return Ok(format!("服务进程（PID {}）已不在运行，记录已清理", pid))
     }
+    #[cfg(unix)]
+    let stopped = Command::new("kill").arg(pid.to_string()).status().map(|s| s.success()).unwrap_or(false);
+    #[cfg(not(unix))]
+    let stopped = Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).status().map(|s| s.success()).unwrap_or(false);
+    if stopped { Ok(format!("已停止由本 App 启动的 {} 服务（PID {}）", key, pid)) }
+    else { Err(format!("停止进程 {} 失败", pid)) }
 }
 
 pub fn run() {
@@ -618,7 +697,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service])
+        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service, stop_local_service, is_service_app_managed])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
