@@ -15,6 +15,7 @@ import { isComfyUIBase, fetchComfyCheckpoints } from '../core/comfyui'
 import { fetchLocalModels, detectLocalServices } from '../core/localServices'
 import { ServiceSwitch } from './ServiceSwitch'
 import type { ServiceController } from '../core/useServiceController'
+import { LOCAL_SERVICE_CHANGED_EVENT } from '../core/localServicesSettings'
 import { GenProgressBar, useGenProgress } from './GenProgressBar'
 
 const RESOLUTIONS = ['480p', '576p', '720p', '768p', '1080p']
@@ -58,6 +59,15 @@ export function LocalVideoView({ notify, serviceController }: { notify: (m: stri
   const { progress, start: startProgress, advance: advanceProgress, done: doneProgress, fail: failProgress } = useGenProgress()
   useEffect(() => { alive.current = true; setHistory(loadHistory('video')); return () => { alive.current = false } }, [])
   useEffect(() => { localStorage.setItem('acm.local.vid.base', base) }, [base])
+  // ComfyUI 服务被关闭时清空模型列表与选中值，避免下拉残留已关闭服务的模型
+  useEffect(() => {
+    const onChanged = (e: Event) => {
+      const d = (e as CustomEvent<{ key: string; enabled: boolean }>).detail
+      if (d?.key === 'comfyui' && !d.enabled) { setModels([]); setModel('') }
+    }
+    window.addEventListener(LOCAL_SERVICE_CHANGED_EVENT, onChanged)
+    return () => window.removeEventListener(LOCAL_SERVICE_CHANGED_EVENT, onChanged)
+  }, [])
 
   // 进入页面自动探测本机服务（优先非 ComfyUI 的 OpenAI 兼容视频服务）
   const autoDetect = async (silent = false) => {
@@ -74,6 +84,12 @@ export function LocalVideoView({ notify, serviceController }: { notify: (m: stri
   useEffect(() => { void autoDetect(true) }, [])
 
   const loadModels = async () => {
+    // 服务总闸：ComfyUI 地址且开关关闭时禁止连接，避免关了服务还能拉到模型
+    if (isComfyUIBase(base) && serviceController && !serviceController.enabled('comfyui')) {
+      setModels([]); setModel('')
+      notify('ComfyUI 服务已关闭，请先开启服务后再连接。开关与设置页同步。')
+      return
+    }
     setLoadingModels(true)
     try {
       let ids: string[]
@@ -108,6 +124,7 @@ export function LocalVideoView({ notify, serviceController }: { notify: (m: stri
   }
 
   const generate = async () => {
+    if (serviceController && isComfyUIBase(base) && !serviceController.enabled('comfyui')) { notify('ComfyUI 服务已关闭，请先开启服务后再生成'); return }
     if (!prompt.trim()) { notify('请先输入提示词'); return }
     if (!model) { notify('请先连接本地服务并选择模型'); return }
     if ((mode === 'i2v' || mode === 'flf2v') && !firstFrame) { notify('该模式请先上传首帧图'); return }
