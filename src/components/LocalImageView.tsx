@@ -8,7 +8,9 @@ import {
   Dices, Upload, X, Maximize2, ChevronDown, SlidersHorizontal, History, Settings2,
 } from 'lucide-react'
 import { callLocalImage, fetchLocalMediaModels } from '../core/providerCall'
-import { saveMedia, loadHistory, addHistory, removeHistory, clearHistory, newMediaId, errTextSafe, urlsToThumbs, type MediaHistoryItem } from '../core/mediaGeneration'
+import { isComfyUIBase, comfyGenerate } from '../core/comfyui'
+import { fetchLocalModels } from '../core/localServices'
+import { saveMedia, loadHistory, addHistory, removeHistory, clearHistory, newMediaId, errTextSafe, urlToThumb, type MediaHistoryItem } from '../core/mediaGeneration'
 import { HoldToConfirm } from './HoldToConfirm'
 import { GenProgressBar, useGenProgress } from './GenProgressBar'
 import { SafeThumb } from './SafeThumb'
@@ -18,7 +20,7 @@ const RATIOS = [
   { label: '1:1', w: 1024, h: 1024 }, { label: '3:4', w: 768, h: 1024 }, { label: '4:3', w: 1024, h: 768 },
   { label: '9:16', w: 576, h: 1024 }, { label: '16:9', w: 1024, h: 576 }, { label: '2:3', w: 832, h: 1248 },
 ]
-const DEFAULT_BASE = 'http://127.0.0.1:11434'
+const DEFAULT_BASE = 'http://127.0.0.1:8188'  // ComfyUI 默认端口
 
 export function LocalImageView({ notify }: { notify: (m: string) => void }) {
   const [base, setBase] = useState(() => localStorage.getItem('acm.local.img.base') || DEFAULT_BASE)
@@ -52,10 +54,17 @@ export function LocalImageView({ notify }: { notify: (m: string) => void }) {
   const loadModels = async () => {
     setLoadingModels(true)
     try {
-      const ids = await fetchLocalMediaModels(base)
+      let ids: string[]
+      if (isComfyUIBase(base)) {
+        const r = await fetchLocalModels('comfyui', base)
+        if (!r.ok) throw new Error(r.error ?? '拉取失败')
+        ids = r.models
+      } else {
+        ids = await fetchLocalMediaModels(base)
+      }
       setModels(ids)
       setModel(prev => ids.includes(prev) ? prev : (ids[0] ?? ''))
-      notify(`已连接本地服务，找到 ${ids.length} 个模型`)
+      notify(`已连接本地服务，找到 ${ids.length} 个模型${isComfyUIBase(base) ? '（ComfyUI）' : ''}`)
     } catch (e) { notify(`连接失败：${errTextSafe(e)}`) }
     finally { setLoadingModels(false) }
   }
@@ -79,17 +88,30 @@ export function LocalImageView({ notify }: { notify: (m: string) => void }) {
     const finalSeed = seed < 0 ? Math.floor(Math.random() * 4294967295) : seed
     startProgress('正在连接本地模型…')
     try {
-      advanceProgress(30, '本地模型正在绘制…')
-      const r = await callLocalImage(base, model, prompt.trim(), {
+      const opts = {
         n: batch, size: `${width}x${height}`, width, height, sampler, steps, cfgScale: cfg,
         seed: finalSeed, negativePrompt: negative.trim() || undefined,
         sourceImage: mode === 'img2img' ? sourceImage : undefined,
         strength: mode === 'img2img' ? strength : undefined,
-      })
-      if (!alive.current) return
-      if (!r.ok) { failProgress('生成失败'); notify(r.error ?? '生成失败'); return }
-      const imgs = r.images ?? []
-      const thumbs = await urlsToThumbs(imgs)
+      }
+      let imgs: string[]
+      if (isComfyUIBase(base)) {
+        advanceProgress(20, '正在构造 ComfyUI 工作流…')
+        const cr = await comfyGenerate(base, model, prompt.trim(), opts,
+          (pct, label) => advanceProgress(pct, label, pct >= 40 ? 'generating' : 'queued'),
+          () => alive.current)
+        if (!alive.current) return
+        if (!cr.ok) { failProgress('生成失败'); notify(cr.error ?? '生成失败'); return }
+        imgs = cr.images
+      } else {
+        advanceProgress(30, '本地模型正在绘制…')
+        const r = await callLocalImage(base, model, prompt.trim(), opts)
+        if (!alive.current) return
+        if (!r.ok) { failProgress('生成失败'); notify(r.error ?? '生成失败'); return }
+        imgs = r.images ?? []
+      }
+      // 远程临时链接转本地缩略图（ComfyUI 返回的是 data URL，本身即本地副本）
+      const thumbs = await Promise.all(imgs.map(u => urlToThumb(u)))
       setResults(imgs.map((u, i) => thumbs[i] || u))
       const secs = ((Date.now() - startedAt) / 1000).toFixed(1)
       doneProgress(`生成完成 · 耗时 ${secs}s`)
@@ -99,7 +121,7 @@ export function LocalImageView({ notify }: { notify: (m: string) => void }) {
         id: newMediaId(), kind: 'image', prompt: prompt.trim(), accountLabel: `本地 · ${model}`,
         model, createdAt: Date.now(), results: imgs, thumbs, params,
       }))
-      notify(imgs.length ? `已生成 ${imgs.length} 张图片` : r.text)
+      notify(imgs.length ? `已生成 ${imgs.length} 张图片` : '生成完成但未返回图片')
     } catch (e) { if (alive.current) { failProgress('生成失败'); notify(errTextSafe(e)) } }
     finally { if (alive.current) setBusy(false) }
   }
@@ -117,7 +139,7 @@ export function LocalImageView({ notify }: { notify: (m: string) => void }) {
         <div className="sd-brand"><span className="sd-brand-mark"><Sparkles size={17} /></span><div><b>AI 图像 · 本地</b><small>Stable Diffusion 风格 · 全流程本机运行</small></div></div>
         <div className="sd-conn">
           <span className="sd-conn-label">本地服务</span>
-          <input className="input" value={base} onChange={e => setBase(e.target.value)} placeholder="http://127.0.0.1:11434" />
+          <input className="input" value={base} onChange={e => setBase(e.target.value)} placeholder="http://127.0.0.1:8188" />
           <button className="btn sm ghost" onClick={() => void loadModels()} disabled={loadingModels}><RefreshCw size={14} className={loadingModels ? 'spin' : ''} /> 连接</button>
         </div>
       </div>
@@ -208,7 +230,7 @@ export function LocalImageView({ notify }: { notify: (m: string) => void }) {
             {busy ? <><Loader2 size={18} className="spin" /> 生成中…</> : <><Sparkles size={18} /> 生成图片</>}
           </button>
           <GenProgressBar progress={progress} />
-          <div className="sd-tip"><Info size={13} /> 参数是否生效取决于本地服务的接口实现；连接前请确认已启动 ComfyUI（生图插件）/ SD WebUI / LocalAI 等兼容服务。</div>
+          <div className="sd-tip"><Info size={13} /> 自动识别服务类型：地址含 8188 或 comfyui 时走 ComfyUI 原生工作流（/prompt + /history），其余走 OpenAI 兼容接口。ComfyUI 需在桌面端使用。</div>
         </section>
 
         {/* 右：结果区 */}

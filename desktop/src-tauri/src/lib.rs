@@ -1082,6 +1082,38 @@ fn scan_comfyui_models() -> Vec<String> {
     out
 }
 
+/// ComfyUI 原生 API 桥接：endpoint 为相对路径（如 "prompt" / "history/<id>" / "view?filename=...&type=output"）。
+/// method=POST 时 body_json 为请求体；want_image=true 时把响应二进制转 base64 返回（用于 /view 取图）。
+/// 仅允许本机地址（复用 validate_proxy_url 的 SSRF 校验）。
+#[tauri::command]
+async fn comfyui_api(base_url: String, endpoint: String, method: String, body_json: String, want_image: bool) -> Result<String, String> {
+    let base = validate_proxy_url(base_url.trim().trim_end_matches('/'))?.to_string();
+    // endpoint 只允许简单路径与查询串，禁止 //、.. 防止路径穿越
+    if endpoint.contains("..") || endpoint.starts_with("//") { return Err("非法端点".into()) }
+    let url = format!("{}/{}", base, endpoint.trim_start_matches('/'));
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(if want_image { 60 } else { 30 }))
+        .build().map_err(|e| format!("客户端错误：{}", e))?;
+    let m = method.to_uppercase();
+    let mut req = if m == "POST" {
+        let v: serde_json::Value = serde_json::from_str(&body_json)
+            .map_err(|e| format!("请求体不是合法 JSON：{}", e))?;
+        client.post(&url).json(&v)
+    } else {
+        client.get(&url)
+    };
+    let resp = req.send().await.map_err(|e| format!("请求失败：{}", e))?;
+    let status = resp.status();
+    if want_image {
+        let bytes = resp.bytes().await.map_err(|e| format!("读取图片失败：{}", e))?;
+        if !status.is_success() { return Err(format!("取图失败（HTTP {}）", status.as_u16())) }
+        return Ok(base64_encode(&bytes))
+    }
+    let text = resp.text().await.map_err(|e| format!("读取响应失败：{}", e))?;
+    if !status.is_success() { return Err(format!("接口返回 {}：{}", status.as_u16(), text.chars().take(200).collect::<String>())) }
+    Ok(text)
+}
+
 /// 拉取本地服务已加载/已安装的模型列表，供添加本地模型弹窗选择。
 /// key: ollama / comfyui / lmstudio；url 为探测到的服务网关地址。
 #[tauri::command]
@@ -1168,7 +1200,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, write_binary_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service, stop_local_service, is_service_app_managed, tts_test_direct, tts_clone_direct, tts_synthesize_direct, voicestudio_test, voicestudio_list, voicestudio_clone, voicestudio_synthesize, fetch_local_models, choose_model_file, ollama_embed, stop_service_by_port])
+        .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, write_binary_to_dir, is_app_installed, open_local_app, detect_local_services, get_system_memory_gb, check_local_service, start_local_service, stop_local_service, is_service_app_managed, tts_test_direct, tts_clone_direct, tts_synthesize_direct, voicestudio_test, voicestudio_list, voicestudio_clone, voicestudio_synthesize, fetch_local_models, choose_model_file, ollama_embed, stop_service_by_port, comfyui_api])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
