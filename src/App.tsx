@@ -590,7 +590,7 @@ function App() {
         </header>
 
         <div className={`content ${tab === 'ai' ? 'content-ai' : ''}`}>
-          {tab === 'ai' && <AIView notify={notify} accounts={state.accounts} />}
+          {tab === 'ai' && <AIView notify={notify} accounts={state.accounts} settings={state.settings} />}
           {tab === 'dashboard' && <>
           <div className="stats-grid">
             <StatCard icon={<Wallet size={17} />} color="blue" label="资源总估值" value={`¥${portfolioValue.toFixed(0)}`} hint={`${state.accounts.length} 个账户 · 单价可校准`} />

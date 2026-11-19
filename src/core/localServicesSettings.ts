@@ -56,6 +56,11 @@ export function enabledServiceCount(settings: AppSettings | undefined): number {
   return LOCAL_SERVICE_KEYS.filter(k => isServiceEnabled(settings, k)).length
 }
 
+/** AI 页是否显示「本地型」分类：设置页至少一个本地服务开启时才显示 */
+export function shouldShowLocalCategory(settings: AppSettings | undefined): boolean {
+  return enabledServiceCount(settings) > 0
+}
+
 /**
  * 首次根据内存档位生成默认开关：8G 只开第一个（Ollama），其余档位全开。
  * 仅在 localServicesInitialized 标记未设置时调用一次。

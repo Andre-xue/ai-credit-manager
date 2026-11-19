@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   memoryToTier, maxServicesForTier, isServiceEnabled, isAccountServiceEnabled,
-  enabledServiceCount, toggleService, providerToService, tierAdvice,
+  enabledServiceCount, toggleService, providerToService, tierAdvice, shouldShowLocalCategory,
 } from './localServicesSettings'
 import type { AppSettings } from './types'
 
@@ -43,6 +43,18 @@ describe('硬限制与默认值', () => {
     const s = base({ ollama: false, comfyui: true, lmstudio: true })
     expect(isServiceEnabled(s, 'ollama')).toBe(false)
     expect(enabledServiceCount(s)).toBe(2)
+  })
+})
+
+describe('AI页本地型分类显隐', () => {
+  it('全部本地服务关闭时隐藏本地型分类', () => {
+    const s = base({ ollama: false, comfyui: false, lmstudio: false })
+    expect(shouldShowLocalCategory(s)).toBe(false)
+  })
+  it('开启任一本地服务时显示本地型分类', () => {
+    expect(shouldShowLocalCategory(base({ ollama: true, comfyui: false, lmstudio: false }))).toBe(true)
+    expect(shouldShowLocalCategory(base({ ollama: false, comfyui: true, lmstudio: false }))).toBe(true)
+    expect(shouldShowLocalCategory(base())).toBe(true)
   })
 })
 

@@ -25,7 +25,7 @@ import {
 import { detectModelCapability, capabilityChatCapable } from '../core/modelCapability'
 import { callByCategory, fetchProviderModels } from '../core/providerCall'
 import type { Account } from '../core/types'
-import { LOCAL_SERVICE_CHANGED_EVENT } from '../core/localServicesSettings'
+import { LOCAL_SERVICE_CHANGED_EVENT, isAccountServiceEnabled, shouldShowLocalCategory } from '../core/localServicesSettings'
 import { decryptSecret, getBiometricPassword, verifyVault } from '../core/crypto'
 import { PROVIDER_MAP } from '../data/providers'
 import {
@@ -60,9 +60,10 @@ function welcomeText(userNick?: string): string {
   return `${greet}，${name}`
 }
 
-export function AIView({ notify, accounts }: {
+export function AIView({ notify, accounts, settings }: {
   notify: (m: string) => void
   accounts: Account[]
+  settings?: import('../core/types').AppSettings
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadHistory())
   const [input, setInput] = useState('')
@@ -198,15 +199,15 @@ export function AIView({ notify, accounts }: {
       const live = detectModelCapability(a.label).capability
       return capabilityChatCapable(live) && (stored === undefined || capabilityChatCapable(stored))
     })
-    // 本地账户只要在 API Key 管理页存在，就在 AI 页可见；服务开关只影响系统服务启停，
-    // 不再隐藏已保存账户（否则用户会遇到"Key 页有、AI 页却没有"的困惑）
+    // 本地账户：设置页对应服务开关关闭时隐藏（账户数据本身保留）
+    .filter(a => isAccountServiceEnabled(settings, a.providerId))
     .map(a => ({
       key: `own:${a.id}`,
       label: `${a.label}${a.note ? ` · ${a.note.replace(/^\[[^\]]+\]\s*/, '')}` : ''}`,
       account: a,
       category: categoryForModel(a.note) as ModelCategory,
       free: false,
-    })), [accounts])
+    })), [accounts, settings])
   const allOptions = useMemo(() => [...freeOptions, ...ownOptions], [freeOptions, ownOptions])
   const visibleOptions = useMemo(() => allOptions.filter(o => o.category === category), [category, allOptions])
   const selectedOption = allOptions.find(o => o.key === model) ?? null
@@ -253,6 +254,17 @@ export function AIView({ notify, accounts }: {
     const firstCat = MODEL_CATEGORIES.find(c => allOptions.some(o => o.category === c))
     if (firstCat) { setCategory(firstCat); setModel(allOptions.find(o => o.category === firstCat)!.key) }
   }, [allOptions, model, category])
+
+  // 本地服务被全部关闭时，若当前停在「本地型」则自动切到有模型的分类，避免停留在隐藏分类的空列表
+  useEffect(() => {
+    if (category === '本地型' && !shouldShowLocalCategory(settings)) {
+      const firstCat = MODEL_CATEGORIES.find(c => c !== '本地型' && allOptions.some(o => o.category === c))
+      if (firstCat) {
+        setCategory(firstCat)
+        setModel(allOptions.find(o => o.category === firstCat)?.key ?? '')
+      }
+    }
+  }, [settings, category, allOptions])
 
   // 选中自有账户后：用其 Key 动态拉取真实可用引擎（/v1/models）；失败回退内置目录
   useEffect(() => {
@@ -444,7 +456,11 @@ export function AIView({ notify, accounts }: {
       <Layers size={13} /> {category} <ChevronDown size={13} />
     </button>
     {categoryOpen && <div className="ai-model-menu">
-      {MODEL_CATEGORIES.map(c => (
+      {MODEL_CATEGORIES.filter(c => {
+        // 本地服务全关时隐藏「本地型」分类；开启任一服务则显示
+        if (c === '本地型' && !shouldShowLocalCategory(settings)) return false
+        return true
+      }).map(c => (
         <button key={c} className={`ai-model-option ${c === category ? 'active' : ''}`}
           onClick={() => {
             setCategory(c); setCategoryOpen(false)
