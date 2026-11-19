@@ -54,7 +54,6 @@ export function LocalImageView({ notify, serviceController }: { notify: (m: stri
   const [lastParams, setLastParams] = useState('')
   const [lightbox, setLightbox] = useState('')
   const [history, setHistory] = useState<MediaHistoryItem[]>(() => loadHistory('image'))
-  const [detected, setDetected] = useState('')  // 后台探测到的服务地址
   const [detecting, setDetecting] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const { progress, start: startProgress, advance: advanceProgress, done: doneProgress, fail: failProgress } = useGenProgress()
@@ -76,7 +75,6 @@ export function LocalImageView({ notify, serviceController }: { notify: (m: stri
       const pick = r.services.find(s => /comfy/i.test(s.service))
         ?? r.services.find(s => /lm studio/i.test(s.service))
         ?? r.services[0]
-      setDetected(pick.url)
       setBase(pick.url)
       if (!silent) notify(`已自动探测到 ${pick.service}：${pick.url}`)
     } catch (e) { if (!silent) notify(`探测失败：${errTextSafe(e)}`) }
@@ -182,10 +180,9 @@ export function LocalImageView({ notify, serviceController }: { notify: (m: stri
         <div className="sd-top-actions">
           {serviceController && <ServiceSwitch controller={serviceController} serviceKey="comfyui" />}
           <div className="sd-conn">
-          {detected && <span className="sd-detected-tag">已探测：{detected}</span>}
           <span className="sd-conn-label">本地服务</span>
-          <input className="input" value={base} onChange={e => setBase(e.target.value)} placeholder="自动探测或手填地址" />
-          <button className="btn sm ghost" onClick={() => void autoDetect()} disabled={detecting} title="自动探测本机服务"><Radar size={14} className={detecting ? 'spin' : ''} /> 探测</button>
+          <span className="sd-conn-url" title="地址由后台自动探测，不可手动修改">{base || '未探测到服务'}</span>
+          <button className="btn sm ghost" onClick={() => void autoDetect()} disabled={detecting} title="重新探测本机服务"><Radar size={14} className={detecting ? 'spin' : ''} /> 探测</button>
           <button className="btn sm ghost" onClick={() => void loadModels()} disabled={loadingModels}><RefreshCw size={14} className={loadingModels ? 'spin' : ''} /> 连接</button>
           </div>
         </div>

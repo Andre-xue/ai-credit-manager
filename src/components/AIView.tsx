@@ -515,11 +515,8 @@ export function AIView({ notify, accounts, settings, serviceController }: {
         <div className="ai-menu-backdrop" onClick={() => { setCategoryOpen(false); setModelOpen(false); setReasoningOpen(false) }} />
       )}
       <div className="ai-shell">
-        {/* 顶部栏：本地服务开关 / 朗读开关 / 电话 / 刷新 */}
+        {/* 顶部栏：朗读开关 / 电话 / 刷新，靠右间距适中 */}
         <div className="ai-topbar">
-          <div className="ai-top-left">
-            {serviceController && <ServiceSwitch controller={serviceController} serviceKey="ollama" compact />}
-          </div>
           <div className="ai-top-actions">
             <button className={`ai-icon-btn auto-speak-btn ${autoSpeak ? 'active' : ''}`} onClick={toggleAutoSpeak}
               title={autoSpeak ? '自动朗读已开启：AI 回复后自动朗读纯文字，点击关闭' : '开启自动朗读：AI 回复后自动朗读纯文字'}>
@@ -657,6 +654,7 @@ export function AIView({ notify, accounts, settings, serviceController }: {
           </div>
           {/* 输入框下方一行：左=模型分组，中=模型名，右=模型引擎，三分分散 */}
           <div className="ai-toolbar" onClick={() => setComposeActive(true)}>
+            {serviceController && <span className="ai-toolbar-service" onClick={e => e.stopPropagation()}><ServiceSwitch controller={serviceController} serviceKey="ollama" compact /></span>}
             {categoryDropdown}
             {modelDropdown}
             {currentAccount && hasCatalog(currentAccount.providerId) && (

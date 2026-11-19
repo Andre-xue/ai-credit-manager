@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   memoryToTier, maxServicesForTier, isServiceEnabled, isAccountServiceEnabled,
-  enabledServiceCount, toggleService, providerToService, tierAdvice, shouldShowLocalCategory,
+  enabledServiceCount, toggleService, planServiceToggle, providerToService, tierAdvice, shouldShowLocalCategory,
 } from './localServicesSettings'
 import type { AppSettings } from './types'
 
@@ -99,5 +99,36 @@ describe('tierAdvice', () => {
     expect(tierAdvice(8)).toContain('仅允许同时开启 1 个')
     expect(tierAdvice(16)).toContain('建议只开启 1 个')
     expect(tierAdvice(32)).toContain('全部本地服务')
+  })
+})
+
+describe('服务互斥切换 planServiceToggle', () => {
+  const s = (localServices: Record<string, boolean>) => ({ localServices } as never)
+  it('8G 档：开启新服务自动关掉当前已开服务并列出待停列表', () => {
+    const r = planServiceToggle(s({ ollama: true, comfyui: false }), 'comfyui', 8)
+    expect(r).not.toBeNull()
+    expect(r!.enabled).toBe(true)
+    expect(r!.next.comfyui).toBe(true)
+    expect(r!.next.ollama).toBe(false)
+    expect(r!.stopKeys).toContain('ollama')
+    expect(r!.stopKeys).not.toContain('comfyui')
+  })
+  it('8G 档：反向切换（关 ComfyUI 开 Ollama）对称', () => {
+    const r = planServiceToggle(s({ ollama: false, comfyui: true }), 'ollama', 8)
+    expect(r!.stopKeys).toContain('comfyui')
+    expect(r!.next.ollama).toBe(true)
+    expect(r!.next.comfyui).toBe(false)
+  })
+  it('关闭服务：stopKeys 含自己，enabled=false', () => {
+    const r = planServiceToggle(s({ ollama: true }), 'ollama', 8)
+    expect(r!.enabled).toBe(false)
+    expect(r!.next.ollama).toBe(false)
+    expect(r!.stopKeys).toEqual(['ollama'])
+  })
+  it('高内存档：未超上限不关任何服务', () => {
+    const r = planServiceToggle(s({ ollama: true, comfyui: false, lmstudio: false }), 'comfyui', 32)
+    expect(r!.stopKeys).toEqual([])
+    expect(r!.next.ollama).toBe(true)
+    expect(r!.next.comfyui).toBe(true)
   })
 })

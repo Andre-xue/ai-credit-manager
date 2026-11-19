@@ -8,7 +8,7 @@ import {
   checkLocalService, startLocalService, stopServiceByPort,
 } from './localServices'
 import {
-  LOCAL_SERVICE_KEYS, isServiceEnabled, toggleService, notifyLocalServiceChanged,
+  LOCAL_SERVICE_KEYS, isServiceEnabled, planServiceToggle, notifyLocalServiceChanged,
 } from './localServicesSettings'
 
 export interface ServiceController {
@@ -49,16 +49,22 @@ export function useServiceController(
 
   const toggle = useCallback(async (key: LocalServiceKey) => {
     if (busyKey) return
-    const next = toggleService(settings, key, memTier)
-    if (!next) {
-      notify(`内存档位限制：${memTier === 8 ? '8G 电脑最多同时开启 1 个本地服务，请先关闭其他服务' : '已达上限'}。请到设置页调整内存档位或关闭其他服务。`)
-      return
-    }
+    const plan = planServiceToggle(settings, key, memTier)
+    if (!plan) return
+    const { next, stopKeys, enabled: willEnable } = plan
     setBusyKey(key)
     patchSettings({ localServices: next })
-    const willEnable = next[key] !== false
     const name = key === 'ollama' ? 'Ollama' : key === 'comfyui' ? 'ComfyUI' : 'LM Studio'
     try {
+      // 互斥：先停掉被挤掉的其他服务（关自己留给下方 else 统一处理）
+      for (const oldKey of stopKeys) {
+        if (oldKey === key) continue
+        const r = await stopServiceByPort(oldKey)
+        setStatus(prev => ({ ...prev, [oldKey]: '' }))
+        notifyLocalServiceChanged(oldKey, false)
+        const oldName = oldKey === 'ollama' ? 'Ollama' : oldKey === 'comfyui' ? 'ComfyUI' : 'LM Studio'
+        if (r.ok) notify(`已关闭 ${oldName} 以释放内存（${r.message}）`)
+      }
       if (willEnable) {
         const already = await checkLocalService(key)
         if (already) {

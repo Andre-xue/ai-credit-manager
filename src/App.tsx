@@ -22,7 +22,7 @@ import { detectModelCapability, shouldHideFromChat } from './core/modelCapabilit
 import { VOICE_PROVIDERS } from './core/voiceProviders'
 import {
   LOCAL_SERVICE_KEYS, memoryToTier, tierAdvice, maxServicesForTier,
-  isServiceEnabled, toggleService, notifyLocalServiceChanged, initServicesForTier,
+  isServiceEnabled, planServiceToggle, notifyLocalServiceChanged, initServicesForTier,
 } from './core/localServicesSettings'
 import type { LocalServiceKey, MemoryTier } from './core/types'
 import { PROVIDERS, PROVIDER_MAP, CATEGORY_LABEL, CATEGORY_ORDER } from './data/providers'
@@ -3218,16 +3218,23 @@ function SettingsView({ state, onChange, notify, onOpenVault, onClear, onChangeP
     } finally { setBusyKey(null) }
   }
 
-  /** 切换本地服务开关：8G 硬限制；开启拉起服务进程，关闭停止端口进程释放内存 */
+  /** 切换本地服务开关：8G 互斥（开新服务自动停旧服务释放内存）；开启拉起进程，关闭停止端口进程 */
   const onToggleLocalService = async (key: LocalServiceKey) => {
-    const next = toggleService(s, key, memTier)
-    if (!next) {
-      notify(`内存档位限制：${memTier === 8 ? '8G 电脑最多同时开启 1 个本地服务，请先关闭其他服务' : '已达上限'}`)
-      return
-    }
+    const plan = planServiceToggle(s, key, memTier)
+    if (!plan) return
+    const { next, stopKeys, enabled } = plan
     onChange({ localServices: next })
-    const enabled = next[key] !== false
     const name = key === 'ollama' ? 'Ollama' : key === 'comfyui' ? 'ComfyUI' : 'LM Studio'
+    // 互斥：先停掉被挤掉的旧服务（关自己的情况留给下方 else 分支统一处理）
+    for (const oldKey of stopKeys) {
+      if (oldKey === key) continue
+      const r = await stopServiceByPort(oldKey)
+      setServiceStatus(prev => ({ ...prev, [oldKey]: '' }))
+      setManagedKeys(prev => ({ ...prev, [oldKey]: false }))
+      notifyLocalServiceChanged(oldKey, false)
+      const oldName = oldKey === 'ollama' ? 'Ollama' : oldKey === 'comfyui' ? 'ComfyUI' : 'LM Studio'
+      if (r.ok) notify(`已关闭 ${oldName} 以释放内存（${r.message}）`)
+    }
     if (enabled) {
       // 开启：若端口已有服务在跑则直接复用，否则拉起进程（LM Studio 无 CLI，跳过）
       const already = await checkLocalService(key)

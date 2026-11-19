@@ -80,9 +80,42 @@ export function notifyLocalServiceChanged(key: LocalServiceKey, enabled: boolean
   } catch { /* 非浏览器环境忽略 */ }
 }
 
+export interface ServiceTogglePlan {
+  /** 更新后的开关映射（写入 settings.localServices） */
+  next: Partial<Record<LocalServiceKey, boolean>>
+  /** 需要停掉进程、清缓存、释放内存的服务（互斥切换时被关闭的旧服务） */
+  stopKeys: LocalServiceKey[]
+  /** 目标服务最终是否开启 */
+  enabled: boolean
+}
+
+/**
+ * 规划服务切换：8G 等受限档位下，开启新服务会自动关闭当前已开启的其他服务（互斥），
+ * 返回需要停掉的旧服务列表供调用方真正停进程释放内存。关闭操作总是允许。
+ */
+export function planServiceToggle(
+  settings: AppSettings | undefined,
+  key: LocalServiceKey,
+  tier: MemoryTier,
+): ServiceTogglePlan | null {
+  const willEnable = !isServiceEnabled(settings, key)
+  const next = { ...(settings?.localServices ?? {}) }
+  if (!willEnable) {
+    next[key] = false
+    return { next, stopKeys: [key], enabled: false }
+  }
+  // 开启：找出当前已开启的其他服务（超过内存上限时全部关掉）
+  const max = maxServicesForTier(tier)
+  const othersEnabled = LOCAL_SERVICE_KEYS.filter(k => k !== key && isServiceEnabled(settings, k))
+  const stopKeys = othersEnabled.slice(0, Math.max(0, othersEnabled.length - (max - 1)))
+  next[key] = true
+  for (const k of stopKeys) next[k] = false
+  return { next, stopKeys, enabled: true }
+}
+
 /**
  * 尝试切换某服务的开关，返回新的开关映射；若违反 8G 硬限制则返回 null（拒绝开启）。
- * 关闭操作总是允许。
+ * 关闭操作总是允许。兼容旧调用方；新代码建议用 planServiceToggle 实现互斥切换。
  */
 export function toggleService(
   settings: AppSettings | undefined,

@@ -50,7 +50,6 @@ export function LocalVideoView({ notify, serviceController }: { notify: (m: stri
   const [results, setResults] = useState<string[]>([])
   const [lastParams, setLastParams] = useState('')
   const [history, setHistory] = useState<MediaHistoryItem[]>(() => loadHistory('video'))
-  const [detected, setDetected] = useState('')
   const [detecting, setDetecting] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const firstRef = useRef<HTMLInputElement>(null)
@@ -67,7 +66,7 @@ export function LocalVideoView({ notify, serviceController }: { notify: (m: stri
       const r = await detectLocalServices()
       if (!r.ok || r.services.length === 0) { if (!silent) notify(r.error ?? '未探测到本机运行的服务'); return }
       const pick = r.services.find(s => !/comfy/i.test(s.service)) ?? r.services[0]
-      setDetected(pick.url); setBase(pick.url)
+      setBase(pick.url)
       if (!silent) notify(`已自动探测到 ${pick.service}：${pick.url}`)
     } catch (e) { if (!silent) notify(`探测失败：${errTextSafe(e)}`) }
     finally { setDetecting(false) }
@@ -171,10 +170,9 @@ export function LocalVideoView({ notify, serviceController }: { notify: (m: stri
         <div className="sd-top-actions">
           {serviceController && <ServiceSwitch controller={serviceController} serviceKey="comfyui" />}
           <div className="sd-conn">
-          {detected && <span className="sd-detected-tag">已探测：{detected}</span>}
           <span className="sd-conn-label">本地服务</span>
-          <input className="input" value={base} onChange={e => setBase(e.target.value)} placeholder="自动探测或手填地址" />
-          <button className="btn sm ghost" onClick={() => void autoDetect()} disabled={detecting} title="自动探测本机服务"><Radar size={14} className={detecting ? 'spin' : ''} /> 探测</button>
+          <span className="sd-conn-url" title="地址由后台自动探测，不可手动修改">{base || '未探测到服务'}</span>
+          <button className="btn sm ghost" onClick={() => void autoDetect()} disabled={detecting} title="重新探测本机服务"><Radar size={14} className={detecting ? 'spin' : ''} /> 探测</button>
           <button className="btn sm ghost" onClick={() => void loadModels()} disabled={loadingModels}><RefreshCw size={14} className={loadingModels ? 'spin' : ''} /> 连接</button>
           </div>
         </div>
