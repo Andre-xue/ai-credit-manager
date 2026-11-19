@@ -445,55 +445,73 @@ async fn proxy_usage(provider: String, api_key: String) -> Result<serde_json::Va
         .map_err(|e| format!("解析响应失败：{}", e))
 }
 
-/// 探测本机正在监听的本地模型服务端口（Ollama / ComfyUI / LM Studio 等）。
-/// 用 TCP connect 判断端口是否开放：能连上即视为该服务在本机真实运行。
+/// 本地服务 HTTP 指纹判定：Ollama GET /api/tags 返回 {"models":[...]}
+fn fp_ollama(v: &serde_json::Value) -> bool { v.get("models").is_some() }
+/// ComfyUI GET /system_stats 返回 {"system":...,"devices":...}
+fn fp_comfyui(v: &serde_json::Value) -> bool { v.get("system").is_some() && v.get("devices").is_some() }
+/// LM Studio GET /v1/models 返回 OpenAI 格式 {"data":[...]}
+fn fp_lmstudio(v: &serde_json::Value) -> bool { v.get("data").is_some() }
+
+/// 探测本机正在运行的本地模型服务（Ollama / ComfyUI / LM Studio 等）。
+/// 不再仅凭 TCP 端口开放就认定（会把占用 8080/5000 的无关程序误报为本地服务），
+/// 而是对每个候选地址发真实 HTTP 请求做指纹校验，只有响应匹配服务特征才返回。
 /// 返回实际可连接的网关地址与端口，前端只读展示、不可修改。
 #[tauri::command]
-fn detect_local_services() -> Result<Vec<serde_json::Value>, String> {
-    use std::net::{TcpStream, ToSocketAddrs};
+async fn detect_local_services() -> Result<Vec<serde_json::Value>, String> {
     use std::time::Duration;
 
-    // 端口 -> 服务名（含常见本地推理/绘图服务）
-    let candidates: &[(u16, &str)] = &[
-        (11434, "Ollama"),
-        (8188, "ComfyUI"),
-        (1234, "LM Studio"),
-        (8080, "本地服务"),
-        (8000, "本地服务"),
-        (5000, "本地服务"),
-        (7860, "Gradio/SD WebUI"),
-        (3000, "本地服务"),
+    // 探测专用短超时客户端：本地服务应快速响应，避免无关端口拖慢整体探测
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(1200))
+        .connect_timeout(Duration::from_millis(300))
+        .build()
+        .map_err(|e| format!("初始化探测客户端失败：{}", e))?;
+
+    // (服务名, 指纹路径, 判定函数)：对候选地址依次尝试，命中即确认服务类型
+    let fingerprints: &[(&str, &str, fn(&serde_json::Value) -> bool)] = &[
+        ("Ollama", "/api/tags", fp_ollama),
+        ("ComfyUI", "/system_stats", fp_comfyui),
+        ("LM Studio", "/v1/models", fp_lmstudio),
+    ];
+
+    // 候选端口：各服务默认端口 + 常见自定义端口（覆盖大多数本机部署习惯）
+    let ports: &[u16] = &[
+        11434, 11435, 11436, // Ollama 默认及常见自定义
+        8188, 8189, 8288,    // ComfyUI 默认及常见自定义
+        1234, 1235,          // LM Studio 默认及常见自定义
+        5000, 5001, 8000, 8080, 7860, 3000, // 通用本地端口（需指纹命中才返回）
     ];
     let hosts = ["127.0.0.1", "localhost"];
     let mut found: Vec<serde_json::Value> = Vec::new();
-    let mut seen_ports: Vec<u16> = Vec::new();
 
-    for (port, name) in candidates {
-        let mut ok_host: Option<&str> = None;
+    for &port in ports {
+        let mut matched: Option<(&str, &str)> = None; // (service, path)
         for host in hosts {
-            let target = format!("{}:{}", host, port);
-            if let Ok(addrs) = target.to_socket_addrs() {
-                for addr in addrs {
-                    if TcpStream::connect_timeout(&addr, Duration::from_millis(250)).is_ok() {
-                        ok_host = Some(host);
-                        break;
+            for (service, path, check) in fingerprints {
+                let url = format!("http://{}:{}{}", host, port, path);
+                if let Ok(resp) = client.get(&url).send().await {
+                    if resp.status().is_success() {
+                        if let Ok(json) = resp.json::<serde_json::Value>().await {
+                            if check(&json) {
+                                matched = Some((service, host));
+                                break
+                            }
+                        }
                     }
                 }
             }
-            if ok_host.is_some() { break }
+            if matched.is_some() { break }
         }
-        if let Some(host) = ok_host {
+        if let Some((service, host)) = matched {
             let host = if host == "localhost" { "127.0.0.1" } else { host };
             found.push(serde_json::json!({
-                "service": name,
+                "service": service,
                 "host": host,
                 "port": port,
                 "url": format!("http://{}:{}", host, port),
             }));
-            seen_ports.push(*port);
         }
     }
-    let _ = seen_ports; // 保留以便后续扩展去重逻辑
     Ok(found)
 }
 
@@ -506,4 +524,39 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![proxy_usage, call_provider_api, call_cloud_llm, send_notification, open_url, open_mic_settings, open_speech_settings, biometric_available, biometric_auth, choose_save_dir, write_file_to_dir, is_app_installed, open_local_app, detect_local_services])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod local_service_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn ollama_fingerprint_matches_only_ollama_shape() {
+        assert!(fp_ollama(&json!({"models": [{"name": "llama3"}]})));
+        assert!(!fp_ollama(&json!({"status": "ok"})));
+        assert!(!fp_ollama(&json!({})));
+    }
+
+    #[test]
+    fn comfyui_fingerprint_requires_system_and_devices() {
+        assert!(fp_comfyui(&json!({"system": {}, "devices": []})));
+        assert!(!fp_comfyui(&json!({"system": {}}))); // 缺 devices 不算
+        assert!(!fp_comfyui(&json!({"hello": "world"})));
+    }
+
+    #[test]
+    fn lmstudio_fingerprint_matches_openai_models_shape() {
+        assert!(fp_lmstudio(&json!({"data": [{"id": "m"}]})));
+        assert!(!fp_lmstudio(&json!({"models": []}))); // Ollama 形状不算 LM Studio
+        assert!(!fp_lmstudio(&json!({})));
+    }
+
+    #[test]
+    fn unrelated_services_do_not_match_any_fingerprint() {
+        // 占用 8080/5000 的无关 Web 服务响应，不应被误判为任何本地模型服务
+        for body in [json!({"status": "ok"}), json!({"hello": "world"}), json!({"version": "1.0"})] {
+            assert!(!fp_ollama(&body) && !fp_comfyui(&body) && !fp_lmstudio(&body));
+        }
+    }
 }

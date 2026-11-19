@@ -2062,12 +2062,18 @@ function LocalAccountFormModal({ provider, sessionPwd, onClose, onSave, notify }
   const [detectErr, setDetectErr] = useState('')
   const [busy, setBusy] = useState(false)
 
+  // 当前弹窗期望的服务类型（用于过滤探测结果，避免把别的本地服务混进来）
+  const expectService = provider.id === 'local-ollama' ? 'Ollama'
+    : provider.id === 'local-comfyui' ? 'ComfyUI' : ''
   const detect = async () => {
     setDetecting(true); setDetectErr('')
     const r = await detectLocalServices()
-    setServices(r.services)
+    // 按 provider 精确匹配：如添加 Ollama 只显示识别为 Ollama 的服务
+    const matched = expectService ? r.services.filter(s => s.service === expectService) : r.services
+    setServices(matched)
     setDetectErr(r.error ?? '')
-    if (r.services.length) setSelected(prev => prev ?? r.services[0])
+    if (matched.length) setSelected(prev => prev && matched.some(s => s.port === prev.port) ? prev : matched[0])
+    else setSelected(null)
     setDetecting(false)
   }
   useEffect(() => { void detect() }, [])
@@ -2111,8 +2117,12 @@ function LocalAccountFormModal({ provider, sessionPwd, onClose, onSave, notify }
         <div className="modal-body">
           <div className="form-row">
             <label className="form-label">本机服务（实时探测 · 网关与端口不可改）</label>
-            {detecting ? <div className="form-static">正在扫描本机监听端口…</div> : services.length === 0
-              ? <div className="form-static" style={{ color: 'var(--red)' }}>{detectErr || '未检测到本机服务，请确认服务已启动'}</div>
+            {detecting ? <div className="form-static">正在探测本机服务…</div> : services.length === 0
+              ? <div className="form-static" style={{ color: 'var(--red)' }}>
+                  {detectErr || (expectService
+                    ? `未检测到运行中的 ${expectService} 服务，请先在本机启动${expectService === 'Ollama' ? '（默认端口 11434）' : expectService === 'ComfyUI' ? '（默认端口 8188）' : ''}后点「重新探测」`
+                    : '未检测到本机本地模型服务，请确认服务已启动')}
+                </div>
               : <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {services.map(s => (
                   <button key={`${s.host}:${s.port}`} className={`backup-option ${selected?.port === s.port ? 'active' : ''}`} onClick={() => setSelected(s)}>
