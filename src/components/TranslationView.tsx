@@ -5,8 +5,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Languages, Upload, FileText, Image as ImageIcon, Archive, Trash2, Loader2, Download, Printer, Check, Info } from 'lucide-react'
 import {
   categorizeFile, translateText, alignPairs,
-  buildHtml, buildPlain, layoutName, layoutSuffix, TARGET_LANGUAGES,
-  type TranslateFile, type TranslateEngine, type BilingualLayout, type ExportFormat,
+  buildHtml, buildPlain, layoutName, layoutSuffix, TARGET_LANGUAGES, SOURCE_LANGUAGES, FREE_ENGINES,
+  type TranslateFile, type TranslateEngine, type FreeEngine, type BilingualLayout, type ExportFormat,
 } from '../core/translate'
 import { chooseBackupFolder } from '../core/keyBackup'
 import { isDesktopApp } from '../core/openExternal'
@@ -32,6 +32,8 @@ const CATEGORY_LABEL = { document: '文档', image: '图片', archive: '压缩�
 export function TranslationView({ accounts, notify, settings }: Props) {
   const [files, setFiles] = useState<TranslateFile[]>([])
   const [engine, setEngine] = useState<TranslateEngine>('free')
+  const [freeEngine, setFreeEngine] = useState<FreeEngine>('google')
+  const [source, setSource] = useState('auto')
   const [accountId, setAccountId] = useState('')
   const [target, setTarget] = useState('zh-CN')
   const [bilingual, setBilingual] = useState(true)
@@ -93,7 +95,7 @@ export function TranslationView({ accounts, notify, settings }: Props) {
         const f = files[i]
         setProgress(`翻译中 ${i + 1}/${files.length}：${f.name}`)
         const translated = await translateText(f.text, {
-          engine, account, target,
+          engine, account, target, source, freeEngine,
           onProgress: (done, total) => setProgress(`翻译中 ${i + 1}/${files.length}：${f.name}（${done}/${total} 段）`),
         })
         out.push({ name: f.name, source: f.text, translated })
@@ -272,6 +274,14 @@ export function TranslationView({ accounts, notify, settings }: Props) {
               <option value="account">我的模型账户</option>
             </select>
           </div>
+          {engine === 'free' && (
+            <div className="tr-field">
+              <label>免费服务</label>
+              <select className="select" value={freeEngine} onChange={e => setFreeEngine(e.target.value as FreeEngine)} disabled={translating}>
+                {FREE_ENGINES.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+            </div>
+          )}
           {engine === 'account' && (
             <div className="tr-field">
               <label>模型账户</label>
@@ -282,11 +292,23 @@ export function TranslationView({ accounts, notify, settings }: Props) {
             </div>
           )}
           <div className="tr-field">
+            <label>源语言</label>
+            <select className="select" value={source} onChange={e => setSource(e.target.value)} disabled={translating}>
+              {SOURCE_LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
+            </select>
+          </div>
+          <div className="tr-field">
             <label>目标语言</label>
             <select className="select" value={target} onChange={e => setTarget(e.target.value)} disabled={translating}>
               {TARGET_LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
             </select>
           </div>
+        </div>
+        <div className="tr-engine-note">
+          {engine === 'account'
+            ? '使用你在「API Key 管理」添加的模型账户（如 hy-mt2 翻译模型）翻译，走你自己的 Key，不消耗公共额度。'
+            : FREE_ENGINES.find(f => f.id === freeEngine)?.desc}
+          {engine === 'free' && <span className="tr-engine-note-extra">源语言选「自动检测」时，Google 会自动识别，MyMemory 会按英文处理。文本按段落分块发送，失败块保留原文。</span>}
         </div>
         <button className="btn primary" onClick={() => void doTranslate()} disabled={translating || !files.length}>
           {translating ? <><Loader2 size={14} className="spin" /> {progress || '翻译中…'}</> : <><Languages size={14} /> 开始翻译</>}

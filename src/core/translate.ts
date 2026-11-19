@@ -7,6 +7,14 @@ import { decryptSecret, getBiometricPassword } from './crypto'
 import type { Account } from './types'
 
 export type TranslateEngine = 'account' | 'free'
+/** 免费公共翻译引擎 */
+export type FreeEngine = 'mymemory' | 'google'
+
+/** 免费引擎配置与说明（界面下拉展示） */
+export const FREE_ENGINES: { id: FreeEngine; name: string; desc: string }[] = [
+  { id: 'google', name: 'Google 翻译（推荐）', desc: '翻译质量好、语种全、无每日额度限制；使用非官方公开端点，稳定性取决于网络，无需 Key。' },
+  { id: 'mymemory', name: 'MyMemory', desc: '欧盟资助的公共翻译记忆库，官方免费接口；单次约 500 字符、匿名约 5000 字符/天，质量一般。' },
+]
 export type FileCategory = 'document' | 'image' | 'archive' | 'other'
 export type BilingualLayout = 'side-by-side' | 'interleaved' | 'stacked'
 export type ExportFormat = 'txt' | 'md' | 'html'
@@ -34,6 +42,12 @@ export const TARGET_LANGUAGES = [
   { code: 'de', name: 'Deutsch' },
   { code: 'es', name: 'Español' },
   { code: 'ru', name: 'Русский' },
+] as const
+
+/** 源语言：自动检测 + 目标语言列表（两种免费引擎都支持 auto） */
+export const SOURCE_LANGUAGES = [
+  { code: 'auto', name: '自动检测' },
+  ...TARGET_LANGUAGES,
 ] as const
 
 /** 文件扩展名 → 分类 */
@@ -76,15 +90,30 @@ export function chunkForTranslate(text: string, maxChars = 450): string[] {
   return chunks.length ? chunks : (text.trim() ? [text.trim()] : [])
 }
 
-/** 免费公共翻译 API（MyMemory，无需 Key，单次 ≤500 字符） */
-async function translateFree(text: string, target: string, source = 'auto'): Promise<string> {
-  const langpair = `${source === 'auto' ? 'en' : source}|${target}`
-  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(langpair)}`
+/** 构造免费翻译请求 URL（纯函数，便于测试与说明） */
+export function freeTranslateUrl(text: string, target: string, source: string, freeEngine: FreeEngine): string {
+  const src = source || 'auto'
+  if (freeEngine === 'google') {
+    return `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(src)}&tl=${encodeURIComponent(target)}&dt=t&q=${encodeURIComponent(text)}`
+  }
+  const langpair = `${src === 'auto' ? 'en' : src}|${target}`
+  return `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(langpair)}`
+}
+
+/** 免费公共翻译 API：Google（非官方端点）或 MyMemory，均无需 Key */
+async function translateFree(text: string, target: string, source: string, freeEngine: FreeEngine): Promise<string> {
+  const url = freeTranslateUrl(text, target, source, freeEngine)
   const res = await fetch(url)
-  if (!res.ok) throw new Error(`免费翻译服务请求失败（${res.status}）`)
+  if (!res.ok) throw new Error(`${freeEngine} 翻译请求失败（${res.status}）`)
   const json = await res.json()
+  if (freeEngine === 'google') {
+    // Google 返回 [[["译文","原文",...]],...]
+    const out = (json?.[0] ?? []).map((seg: unknown[]) => seg?.[0] ?? '').join('')
+    if (!out) throw new Error('Google 翻译未返回译文')
+    return out as string
+  }
   const out = json?.responseData?.translatedText
-  if (!out) throw new Error(json?.responseDetails || '免费翻译未返回译文')
+  if (!out) throw new Error(json?.responseDetails || 'MyMemory 未返回译文')
   return out as string
 }
 
@@ -104,6 +133,8 @@ export interface TranslateOptions {
   engine: TranslateEngine
   account?: Account
   target: string
+  source?: string          // 源语言，auto = 自动检测
+  freeEngine?: FreeEngine  // 免费引擎选择，默认 google
   onProgress?: (done: number, total: number) => void
 }
 
@@ -115,7 +146,7 @@ export async function translateText(text: string, opts: TranslateOptions): Promi
   const results: string[] = []
   for (let i = 0; i < chunks.length; i++) {
     try {
-      if (opts.engine === 'free') results.push(await translateFree(chunks[i], opts.target))
+      if (opts.engine === 'free') results.push(await translateFree(chunks[i], opts.target, opts.source ?? 'auto', opts.freeEngine ?? 'google'))
       else {
         if (!opts.account?.encryptedKey) throw new Error('请先在 API Key 管理添加模型账户')
         if (!pwd) throw new Error('请先解锁主密码（生物识别或会话密码）')

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   categorizeFile, chunkForTranslate, alignPairs, renderPairHtml,
-  buildHtml, buildPlain, layoutName, layoutSuffix, type TranslatePair,
+  buildHtml, buildPlain, layoutName, layoutSuffix, freeTranslateUrl, FREE_ENGINES, SOURCE_LANGUAGES, type TranslatePair,
 } from './translate'
 
 const pairs: TranslatePair[] = [
@@ -134,5 +134,59 @@ describe('多布局导出为多个文件', () => {
     expect(a).not.toContain('data-layout="interleaved"')
     expect(b).toContain('data-layout="interleaved"')
     expect(b).not.toContain('data-layout="side-by-side"')
+  })
+})
+
+describe('免费翻译引擎与源语言', () => {
+  it('提供Google与MyMemory两个引擎及说明', () => {
+    expect(FREE_ENGINES.map(f => f.id)).toEqual(['google', 'mymemory'])
+    expect(FREE_ENGINES.every(f => f.desc.length > 10)).toBe(true)
+  })
+  it('源语言含自动检测与常见语言', () => {
+    expect(SOURCE_LANGUAGES[0].code).toBe('auto')
+    expect(SOURCE_LANGUAGES.some(l => l.code === 'ja')).toBe(true)
+  })
+  it('Google URL 用 sl/tl 且支持 auto', () => {
+    const url = freeTranslateUrl('hello', 'zh-CN', 'auto', 'google')
+    expect(url).toContain('translate.googleapis.com')
+    expect(url).toContain('sl=auto')
+    expect(url).toContain('tl=zh-CN')
+  })
+  it('MyMemory URL 用 langpair，auto 兜底为 en', () => {
+    const url = freeTranslateUrl('hello', 'zh-CN', 'auto', 'mymemory')
+    expect(url).toContain('api.mymemory.translated.net')
+    expect(url).toContain('langpair')
+    expect(decodeURIComponent(url)).toContain('en|zh-CN')
+  })
+  it('MyMemory 指定源语言时不兜底', () => {
+    const url = freeTranslateUrl('こんにちは', 'zh-CN', 'ja', 'mymemory')
+    expect(decodeURIComponent(url)).toContain('ja|zh-CN')
+  })
+})
+
+describe('免费翻译引擎与源语言', () => {
+  it('提供Google与MyMemory两个引擎及说明', () => {
+    expect(FREE_ENGINES.map(f => f.id)).toEqual(['google', 'mymemory'])
+    expect(FREE_ENGINES.every(f => f.desc.length > 10)).toBe(true)
+  })
+  it('源语言含自动检测与常见语言', () => {
+    expect(SOURCE_LANGUAGES[0].code).toBe('auto')
+    expect(SOURCE_LANGUAGES.some(l => l.code === 'ja')).toBe(true)
+  })
+  it('Google URL 用 sl/tl 且支持 auto', () => {
+    const url = freeTranslateUrl('hello', 'zh-CN', 'auto', 'google')
+    expect(url).toContain('translate.googleapis.com')
+    expect(url).toContain('sl=auto')
+    expect(url).toContain('tl=zh-CN')
+  })
+  it('MyMemory URL 用 langpair，auto 兜底为 en', () => {
+    const url = freeTranslateUrl('hello', 'zh-CN', 'auto', 'mymemory')
+    expect(url).toContain('api.mymemory.translated.net')
+    expect(url).toContain('langpair')
+    expect(decodeURIComponent(url)).toContain('en|zh-CN')
+  })
+  it('MyMemory 指定源语言时不兜底', () => {
+    const url = freeTranslateUrl('こんにちは', 'zh-CN', 'ja', 'mymemory')
+    expect(decodeURIComponent(url)).toContain('ja|zh-CN')
   })
 })
