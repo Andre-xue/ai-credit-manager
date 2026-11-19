@@ -157,36 +157,71 @@ export function renderPairHtml(pair: TranslatePair, layout: BilingualLayout): st
 /** 布局对应的 CSS（导出 HTML 内嵌，保证离线打开排版一致） */
 export function bilingualCss(): string {
   return `body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:1000px;margin:32px auto;padding:0 20px;color:#222;line-height:1.7}
-.tr-row{margin:0 0 18px;padding:12px 0;border-bottom:1px solid #eee}
+.tr-col-label{font-size:12px;color:#888;margin:0 0 8px;font-weight:600;letter-spacing:.5px}
+.tr-whole-side{display:flex;gap:28px;align-items:stretch}
+.tr-whole-side>div{flex:1;min-width:0;white-space:pre-wrap}
+.tr-whole-stack{display:flex;flex-direction:column;gap:24px}
+.tr-whole-stack>div{white-space:pre-wrap}
 .tr-src{color:#333}.tr-dst{color:#1a56db}
-.tr-side{display:flex;gap:24px}.tr-side>div{flex:1;min-width:0}
+.tr-row{margin:0 0 18px;padding:12px 0;border-bottom:1px solid #eee}
 .tr-interleave .tr-src{margin-bottom:4px}.tr-underline{border-bottom:1px solid #93c5fd;padding-bottom:8px}
-.tr-stack{display:flex;flex-direction:column;gap:8px}
 @media print{.tr-row{break-inside:avoid}}`
 }
 
-/** 生成完整 HTML 文档（含所有选中布局，每种布局一个 section） */
+/** 整篇原文（合并所有段落） */
+function wholeSource(pairs: TranslatePair[]): string {
+  return pairs.map(p => p.source).filter(Boolean).join('\n\n')
+}
+/** 整篇译文（合并所有段落） */
+function wholeTarget(pairs: TranslatePair[]): string {
+  return pairs.map(p => p.target).filter(Boolean).join('\n\n')
+}
+
+/** 生成完整 HTML 文档（每次只传一种布局，导出为独立文件） */
 export function buildHtml(title: string, pairs: TranslatePair[], layouts: BilingualLayout[]): string {
-  const sections = layouts.map(layout => `
-<section class="tr-section" data-layout="${layout}">
+  const sections = layouts.map(layout => {
+    let body: string
+    if (layout === 'side-by-side') {
+      // 整篇原文在左栏、整篇译文在右栏
+      body = `<div class="tr-whole-side">
+<div class="tr-col"><p class="tr-col-label">原文</p><div class="tr-src">${nl2br(wholeSource(pairs))}</div></div>
+<div class="tr-col"><p class="tr-col-label">译文</p><div class="tr-dst">${nl2br(wholeTarget(pairs))}</div></div>
+</div>`
+    } else if (layout === 'stacked') {
+      // 整篇原文在上、整篇译文在下
+      body = `<div class="tr-whole-stack">
+<div><p class="tr-col-label">原文</p><div class="tr-src">${nl2br(wholeSource(pairs))}</div></div>
+<div><p class="tr-col-label">译文</p><div class="tr-dst">${nl2br(wholeTarget(pairs))}</div></div>
+</div>`
+    } else {
+      // 逐句交替：一句原文、其译文在下方带下划线
+      body = pairs.map(p => renderPairHtml(p, 'interleaved')).join('\n')
+    }
+    return `<section class="tr-section" data-layout="${layout}">
 <h2>${layoutName(layout)}</h2>
-${pairs.map(p => renderPairHtml(p, layout)).join('\n')}
-</section>`).join('\n')
+${body}
+</section>`
+  }).join('\n')
   return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>${esc(title)}</title><style>${bilingualCss()}</style></head><body><h1>${esc(title)}</h1>${sections}</body></html>`
 }
 
-/** 生成 TXT / MD 内容（纯文本布局用分隔标记，MD 用表格/引用） */
+/** 生成 TXT / MD 内容（每份只含一种布局，导出为独立文件） */
 export function buildPlain(title: string, pairs: TranslatePair[], layouts: BilingualLayout[], format: 'txt' | 'md'): string {
   const parts: string[] = [`# ${title}`]
   for (const layout of layouts) {
     parts.push('', `## ${layoutName(layout)}`, '')
     if (format === 'md' && layout === 'side-by-side') {
-      parts.push('| 原文 | 译文 |', '| --- | --- |')
-      pairs.forEach(p => parts.push(`| ${p.source.replace(/\n/g, ' ')} | ${p.target.replace(/\n/g, ' ')} |`))
-    } else if (layout === 'interleaved') {
-      pairs.forEach(p => { parts.push(p.source, `　→ ${p.target}`, '') })
+      // 整篇左右：两列各放整篇
+      parts.push('| 原文（整篇） | 译文（整篇） |', '| --- | --- |')
+      parts.push(`| ${wholeSource(pairs).replace(/\n/g, '<br>')} | ${wholeTarget(pairs).replace(/\n/g, '<br>')} |`)
+    } else if (layout === 'side-by-side') {
+      parts.push('【原文】', wholeSource(pairs), '', '【译文】', wholeTarget(pairs), '')
+    } else if (layout === 'stacked') {
+      // 上方整篇原文、下方整篇译文
+      parts.push('【原文 · 全文】', wholeSource(pairs), '', '【译文 · 全文】', wholeTarget(pairs), '')
     } else {
-      pairs.forEach(p => { parts.push('【原文】', p.source, '【译文】', p.target, '') })
+      // 逐句交替
+      pairs.forEach(p => { parts.push(p.source, `　→ ${p.target}`, '') })
     }
   }
   return parts.join('\n')

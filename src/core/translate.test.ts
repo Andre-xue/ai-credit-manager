@@ -57,13 +57,30 @@ describe('双语对齐与布局渲染', () => {
     expect(r.length).toBe(3)
     expect(r[1].target).toBe('')
   })
-  it('三种布局生成对应 class', () => {
-    expect(renderPairHtml(pairs[0], 'side-by-side')).toContain('tr-side')
+  it('逐句布局生成下划线 class', () => {
     expect(renderPairHtml(pairs[0], 'interleaved')).toContain('tr-underline')
-    expect(renderPairHtml(pairs[0], 'stacked')).toContain('tr-stack')
   })
   it('渲染内容转义 HTML', () => {
-    expect(renderPairHtml({ source: '<script>x</script>', target: 'ok' }, 'stacked')).toContain('&lt;script&gt;')
+    expect(renderPairHtml({ source: '<script>x</script>', target: 'ok' }, 'interleaved')).toContain('&lt;script&gt;')
+  })
+  it('整篇上下布局：全部原文在前，全部译文在后，非逐句交替', () => {
+    const html = buildHtml('测试', pairs, ['stacked'])
+    expect(html).toContain('tr-whole-stack')
+    expect(html).toContain('【原文 · 全文】'.replace('【原文 · 全文】','原文')) // html 用 tr-col-label 原文
+    const srcIdx = html.indexOf('你好世界')
+    const dstIdx = html.indexOf('Hello world')
+    const secondSrc = html.indexOf('第二段落')
+    expect(srcIdx).toBeGreaterThan(-1)
+    expect(secondSrc).toBeGreaterThan(-1)
+    expect(dstIdx).toBeGreaterThan(-1)
+    // 两段原文都出现在译文之前 => 整篇结构，不是逐句交替
+    expect(secondSrc).toBeLessThan(dstIdx)
+  })
+  it('整篇左右布局：左栏整篇原文、右栏整篇译文', () => {
+    const html = buildHtml('测试', pairs, ['side-by-side'])
+    expect(html).toContain('tr-whole-side')
+    expect(html.indexOf('你好世界')).toBeLessThan(html.indexOf('Hello world'))
+    expect(html.indexOf('第二段落')).toBeLessThan(html.indexOf('Hello world'))
   })
   it('布局名称', () => {
     expect(layoutName('side-by-side')).toContain('左右')
@@ -82,12 +99,12 @@ describe('导出内容生成', () => {
   })
   it('TXT 含原文译文', () => {
     const txt = buildPlain('测试', pairs, ['stacked'], 'txt')
-    expect(txt).toContain('【原文】')
+    expect(txt).toContain('【原文 · 全文】')
     expect(txt).toContain('Hello world')
   })
   it('MD 左右布局生成表格', () => {
     const md = buildPlain('测试', pairs, ['side-by-side'], 'md')
-    expect(md).toContain('| 原文 | 译文 |')
+    expect(md).toContain('| 原文（整篇） | 译文（整篇） |')
     expect(md).toContain('| --- | --- |')
   })
   it('多选布局都出现在导出里', () => {
