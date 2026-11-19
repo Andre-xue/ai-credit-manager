@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "ai-credit-manager"
-version = "0.1.151"
+version = "0.1.152"
 dependencies = [
  "reqwest 0.12.28",
  "serde",

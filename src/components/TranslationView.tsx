@@ -2,13 +2,14 @@
 // 双语布局（3 种，可多选）→ 导出（TXT / MD / HTML / PDF打印）。全平台适用。
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Languages, Upload, FileText, Image as ImageIcon, Archive, Loader2, Download, Printer, Check, Info, RefreshCw } from 'lucide-react'
+import { Languages, Upload, FileText, Image as ImageIcon, Archive, Loader2, Download, Printer, Check, Info, RefreshCw, Radar } from 'lucide-react'
 import {
   categorizeFile, translateText, alignPairs,
   buildHtml, buildPlain, buildPrintHtml, layoutName, layoutSuffix, TARGET_LANGUAGES, SOURCE_LANGUAGES, FREE_ENGINES,
   type TranslateFile, type TranslateEngine, type FreeEngine, type BilingualLayout, type ExportFormat,
 } from '../core/translate'
 import { fetchLocalChatModels } from '../core/providerCall'
+import { detectLocalServices } from '../core/localServices'
 import { HoldToConfirm } from './HoldToConfirm'
 import { chooseBackupFolder } from '../core/keyBackup'
 import { isDesktopApp } from '../core/openExternal'
@@ -63,13 +64,26 @@ export function TranslationView({ accounts, notify, settings, serviceController 
   const fileRef = useRef<HTMLInputElement>(null)
   const printRef = useRef<HTMLIFrameElement>(null)
 
-  // 本地翻译引擎配置：地址 + 文本模型（只列可翻译模型）
-  const [localBase, setLocalBase] = useState(() => localStorage.getItem('acm.translate.localBase') || 'http://127.0.0.1:11434')
+  // 本地翻译引擎配置：地址由后台自动探测（不可手改），只列可翻译文本模型
+  const [localBase, setLocalBase] = useState('')  // 探测到 Ollama 服务地址
+  const [detectingLocal, setDetectingLocal] = useState(false)
   const [localModels, setLocalModels] = useState<string[]>([])
   const [localModel, setLocalModel] = useState('')
   const [loadingLocalModels, setLoadingLocalModels] = useState(false)
-  useEffect(() => { localStorage.setItem('acm.translate.localBase', localBase) }, [localBase])
+  // 挂载时自动探测本机 Ollama 地址
+  useEffect(() => {
+    let alive = true
+    setDetectingLocal(true)
+    void detectLocalServices().then(r => {
+      if (!alive) return
+      const ollama = r.services.find(s => /ollama/i.test(s.service))
+      if (ollama) setLocalBase(ollama.url)
+      setDetectingLocal(false)
+    }).catch(() => { if (alive) setDetectingLocal(false) })
+    return () => { alive = false }
+  }, [])
   const loadLocalModels = async () => {
+    if (!localBase) { notify('未探测到本地 Ollama 服务，请先启动 Ollama 后再点探测'); return }
     setLoadingLocalModels(true)
     try {
       const ids = await fetchLocalChatModels(localBase)
@@ -414,9 +428,18 @@ export function TranslationView({ accounts, notify, settings, serviceController 
           {engine === 'local' && (
             <>
               <div className="tr-field">
-                <label>本地服务地址</label>
+                <label>本地服务地址（自动探测）</label>
                 <div className="tr-local-row">
-                  <input className="input" value={localBase} onChange={e => setLocalBase(e.target.value)} placeholder="http://127.0.0.1:11434" disabled={translating} />
+                  <span className="tr-local-url" title="地址由后台自动探测，不可手动修改">{detectingLocal ? '探测中…' : (localBase || '未探测到 Ollama 服务')}</span>
+                  <button className="btn sm ghost" onClick={() => {
+                    setDetectingLocal(true)
+                    void detectLocalServices().then(r => {
+                      const ollama = r.services.find(s => /ollama/i.test(s.service))
+                      if (ollama) { setLocalBase(ollama.url); notify(`已探测到 Ollama：${ollama.url}`) }
+                      else notify('未探测到本机 Ollama 服务，请先启动 Ollama')
+                      setDetectingLocal(false)
+                    }).catch(() => setDetectingLocal(false))
+                  }} disabled={detectingLocal || translating} title="重新探测本机 Ollama 服务"><Radar size={13} className={detectingLocal ? 'spin' : ''} /> 探测</button>
                   <button className="btn sm ghost" onClick={() => void loadLocalModels()} disabled={loadingLocalModels || translating} title="拉取本地文本模型">
                     {loadingLocalModels ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />} 拉取
                   </button>
