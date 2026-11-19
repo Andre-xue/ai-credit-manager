@@ -7,9 +7,8 @@ import {
   Film, Sparkles, Loader2, Download, Trash2, Info, KeyRound,
   ExternalLink, History, X, Upload, HardDrive, RefreshCw,
 } from 'lucide-react'
-import { callVideo, callLocalVideo, extractModelId, queryVideoTask, queryLocalVideoTask, fetchLocalMediaModels, fetchProviderModels, filterMediaModels } from '../core/providerCall'
+import { callVideo, extractModelId, queryVideoTask, fetchProviderModels, filterMediaModels } from '../core/providerCall'
 import { decryptSecret, getBiometricPassword } from '../core/crypto'
-import { isDesktopApp } from '../core/openExternal'
 import { ModelInfoCard } from './ModelInfoCard'
 import { GenProgressBar, useGenProgress } from './GenProgressBar'
 import { PROVIDER_MAP } from '../data/providers'
@@ -53,23 +52,6 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify, onOpenLocal 
     finally { setLoadingCloudModels(false) }
   }
 
-  // 模型来源：cloud=自有账户 / local=本机模型服务
-  const [source, setSource] = useState<'cloud' | 'local'>('cloud')
-  const [localBase, setLocalBase] = useState('http://127.0.0.1:11434')
-  const [localModels, setLocalModels] = useState<string[]>([])
-  const [localModel, setLocalModel] = useState('')
-  const [loadingModels, setLoadingModels] = useState(false)
-  const loadLocalModels = async () => {
-    setLoadingModels(true)
-    try {
-      const ids = await fetchLocalMediaModels(localBase)
-      setLocalModels(ids)
-      setLocalModel(prev => ids.includes(prev) ? prev : (ids[0] ?? ''))
-      notify(`已找到 ${ids.length} 个本地模型`)
-    } catch (e) { notify(`拉取本地模型失败：${errTextSafe(e)}`) }
-    finally { setLoadingModels(false) }
-  }
-
   const [prompt, setPrompt] = useState('')
   const [duration, setDuration] = useState(5)
   const [ratio, setRatio] = useState('16:9')
@@ -85,10 +67,9 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify, onOpenLocal 
   const aliveRef = useRef(true)
   useEffect(() => { aliveRef.current = true; setHistory(loadHistory('video')); return () => { aliveRef.current = false } }, [])
 
-  const isLocal = source === 'local'
   const model = account ? extractModelId(account) : ''
-  const activeModel = isLocal ? (localModel || '本地模型') : (cloudModel || model)
-  const needPwd = !isLocal && !!account && !!account.encryptedKey && !getBiometricPassword() && !sessionPwd
+  const activeModel = cloudModel || model
+  const needPwd = !!account && !!account.encryptedKey && !getBiometricPassword() && !sessionPwd
 
   const onPickFrame = (file?: File) => {
     if (!file) return
@@ -100,21 +81,18 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify, onOpenLocal 
 
   const generate = async () => {
     if (!prompt.trim()) { notify('请先输入画面描述'); return }
-    if (isLocal && !localModel) { notify('请先填写/拉取本地模型名称'); return }
-    if (!isLocal && !account) { notify('请先在「API Key 管理」添加带视频 API 地址的账户，或切换到本地模型'); return }
+    if (!account) { notify('请先在「API Key 管理」添加带视频 API 地址的账户；本地生成请点右上角「本地生成」'); return }
     const pwd = getBiometricPassword() || sessionPwd
-    if (!isLocal && !pwd) { notify('请先解锁密钥库（本页下方输入主密码）'); return }
+    if (!pwd) { notify('请先解锁密钥库（本页下方输入主密码）'); return }
     setBusy(true); setResults([]); setTaskText('正在提交生成任务…')
     const startedAt = Date.now()
     startProgress('正在提交视频任务…')
     try {
       const opts = { duration, ratio, image: firstFrame || undefined, model: cloudModel || undefined }
       advanceProgress(25, '等待服务商响应…', 'queued')
-      const useAccount = account!
-      const apiKey = isLocal ? '' : await decryptSecret(useAccount.encryptedKey!, pwd)
-      const r = isLocal
-        ? await callLocalVideo(localBase, localModel, prompt.trim(), opts)
-        : await callVideo(useAccount, apiKey, prompt.trim(), opts)
+      const useAccount = account
+      const apiKey = await decryptSecret(useAccount.encryptedKey!, pwd)
+      const r = await callVideo(useAccount, apiKey, prompt.trim(), opts)
       if (!r.ok) { setTaskText(r.error ?? '提交失败'); failProgress('提交失败'); notify(r.error ?? '提交失败'); return }
 
       let imgs = r.images ?? []
@@ -131,9 +109,7 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify, onOpenLocal 
           for (let i = 0; i < 12 && aliveRef.current; i++) {
             await new Promise(res => setTimeout(res, 5000))
             if (!aliveRef.current) return
-            const q = isLocal
-              ? await queryLocalVideoTask(localBase, taskId)
-              : await queryVideoTask(useAccount, apiKey, taskId)
+            const q = await queryVideoTask(useAccount, apiKey, taskId)
             if (q.ok && q.images?.length) { imgs = q.images; break }
             if (!q.ok && q.error) { setTaskText(q.error); failProgress(q.error); break }
             if (q.ok) {
@@ -152,7 +128,7 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify, onOpenLocal 
       const params = `${duration}秒 · ${ratio}${firstFrame ? ' · 图生视频' : ''}`
       setHistory(addHistory('video', {
         id: newMediaId(), kind: 'video', prompt: prompt.trim(),
-        accountLabel: isLocal ? `本地 · ${localModel}` : useAccount.label,
+        accountLabel: useAccount.label,
         model: activeModel, createdAt: Date.now(), results: imgs, params, note: imgs.length ? '' : (taskText || r.text),
       }))
       notify(imgs.length ? '视频已生成' : '视频任务已提交')
@@ -177,13 +153,7 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify, onOpenLocal 
             {onOpenLocal && <button className="btn sm ghost gen-local-entry" onClick={onOpenLocal} title="打开 ComfyUI 风格的本地生成页面"><HardDrive size={14} /> 本地生成</button>}
           </div>
           <div className="gen-body">
-            <div className="gen-source-tabs">
-              <button className={source === 'cloud' ? 'active' : ''} onClick={() => setSource('cloud')}><KeyRound size={14} /> 云端账户</button>
-              <button className={source === 'local' ? 'active' : ''} onClick={() => setSource('local')}><HardDrive size={14} /> 本地模型</button>
-            </div>
-            {source === 'cloud' ? (
-              <>
-                <label className="gen-label">视频账户</label>
+            <label className="gen-label">视频账户</label>
                 {usable.length === 0 ? (
                   <div className="gen-empty-hint"><KeyRound size={16} /> 没有「视频型」账户。请到「API Key 管理」把对应账户的备注/用途分类设为视频型（备注以 [视频型] 开头），并确保已填 API 地址与密钥。</div>
                 ) : (
@@ -208,28 +178,6 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify, onOpenLocal 
                   </button>
                 </div>
                 <ModelInfoCard modelId={cloudModel || model} kind="video" />
-              </>
-            ) : (
-              <>
-                <label className="gen-label">本地服务地址</label>
-                <div className="gen-local-row">
-                  <input className="input" placeholder="http://127.0.0.1:11434" value={localBase} onChange={e => setLocalBase(e.target.value)} />
-                  <button className="btn sm ghost" onClick={() => void loadLocalModels()} disabled={loadingModels} title="拉取模型列表">
-                    {loadingModels ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />} 拉取
-                  </button>
-                </div>
-                <label className="gen-label" style={{ marginTop: 10 }}>本地模型</label>
-                {localModels.length > 0 ? (
-                  <select className="input" value={localModel} onChange={e => setLocalModel(e.target.value)}>
-                    {localModels.map(m => <option key={m} value={m}>{m}</option>)}
-                  </select>
-                ) : (
-                  <input className="input" placeholder="手动填写本地视频模型名" value={localModel} onChange={e => setLocalModel(e.target.value)} />
-                )}
-                <ModelInfoCard modelId={localModel} kind="video" />
-                <div className="gen-tip"><Info size={13} /> <span>本地服务需支持 OpenAI 兼容 <code>/v1/videos/generations</code>。多数本地方案（Ollama/ComfyUI）不支持视频生成，需专门的本地视频模型服务。{!isDesktopApp() && ' 当前非桌面端，直连本地地址可能受浏览器跨域限制。'}</span></div>
-              </>
-            )}
 
             <label className="gen-label" style={{ marginTop: 15 }}>画面描述（Prompt）</label>
             <textarea className="input gen-prompt" rows={4} placeholder="例如：一只金毛犬在秋天的落叶中奔跑，阳光透过树叶洒下，电影质感，慢镜头"
@@ -273,11 +221,11 @@ export function VideoView({ accounts, sessionPwd, onUnlock, notify, onOpenLocal 
               </div>
             )}
 
-            <button className="btn primary gen-generate" onClick={() => void generate()} disabled={busy || !prompt.trim() || (!isLocal && !account) || (isLocal && !localModel)}>
+            <button className="btn primary gen-generate" onClick={() => void generate()} disabled={busy || !prompt.trim() || !account}>
               {busy ? <><Loader2 size={16} className="spin" /> 生成中…</> : <><Sparkles size={16} /> 生成视频</>}
             </button>
             <GenProgressBar progress={progress} />
-            {!isLocal && <div className="gen-tip"><Info size={13} /> 视频多为异步任务制，提交后会尝试自动查询进度；若平台为私有协议无法自动拿到结果，界面会给出引导，可到官方平台查看。</div>}
+            <div className="gen-tip"><Info size={13} /> 视频多为异步任务制，提交后会尝试自动查询进度；若平台为私有协议无法自动拿到结果，界面会给出引导。本地生成请点右上角「本地生成」进入专业页面。</div>
           </div>
         </section>
 

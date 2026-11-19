@@ -5,14 +5,14 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Film, Sparkles, Loader2, Download, Trash2, Info, RefreshCw,
-  Dices, Upload, X, Maximize2, ChevronDown, SlidersHorizontal, History, Settings2, Workflow,
+  Dices, Upload, X, Maximize2, ChevronDown, SlidersHorizontal, History, Settings2, Workflow, Radar,
 } from 'lucide-react'
 import { callLocalVideo, queryLocalVideoTask, fetchLocalMediaModels } from '../core/providerCall'
 import { saveMedia, loadHistory, addHistory, removeHistory, clearHistory, newMediaId, errTextSafe, type MediaHistoryItem } from '../core/mediaGeneration'
 import { HoldToConfirm } from './HoldToConfirm'
 import { extractTaskId } from '../core/mediaAdapters'
 import { isComfyUIBase, fetchComfyCheckpoints } from '../core/comfyui'
-import { fetchLocalModels } from '../core/localServices'
+import { fetchLocalModels, detectLocalServices } from '../core/localServices'
 import { GenProgressBar, useGenProgress } from './GenProgressBar'
 
 const RESOLUTIONS = ['480p', '576p', '720p', '768p', '1080p']
@@ -48,6 +48,8 @@ export function LocalVideoView({ notify }: { notify: (m: string) => void }) {
   const [results, setResults] = useState<string[]>([])
   const [lastParams, setLastParams] = useState('')
   const [history, setHistory] = useState<MediaHistoryItem[]>(() => loadHistory('video'))
+  const [detected, setDetected] = useState('')
+  const [detecting, setDetecting] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const firstRef = useRef<HTMLInputElement>(null)
   const lastRef = useRef<HTMLInputElement>(null)
@@ -55,6 +57,20 @@ export function LocalVideoView({ notify }: { notify: (m: string) => void }) {
   const { progress, start: startProgress, advance: advanceProgress, done: doneProgress, fail: failProgress } = useGenProgress()
   useEffect(() => { alive.current = true; setHistory(loadHistory('video')); return () => { alive.current = false } }, [])
   useEffect(() => { localStorage.setItem('acm.local.vid.base', base) }, [base])
+
+  // 进入页面自动探测本机服务（优先非 ComfyUI 的 OpenAI 兼容视频服务）
+  const autoDetect = async (silent = false) => {
+    if (!silent) setDetecting(true)
+    try {
+      const r = await detectLocalServices()
+      if (!r.ok || r.services.length === 0) { if (!silent) notify(r.error ?? '未探测到本机运行的服务'); return }
+      const pick = r.services.find(s => !/comfy/i.test(s.service)) ?? r.services[0]
+      setDetected(pick.url); setBase(pick.url)
+      if (!silent) notify(`已自动探测到 ${pick.service}：${pick.url}`)
+    } catch (e) { if (!silent) notify(`探测失败：${errTextSafe(e)}`) }
+    finally { setDetecting(false) }
+  }
+  useEffect(() => { void autoDetect(true) }, [])
 
   const loadModels = async () => {
     setLoadingModels(true)
@@ -151,8 +167,10 @@ export function LocalVideoView({ notify }: { notify: (m: string) => void }) {
       <div className="sd-topbar">
         <div className="sd-brand"><span className="sd-brand-mark"><Workflow size={17} /></span><div><b>AI 视频 · 本地</b><small>ComfyUI 风格工作流 · 全流程本机运行</small></div></div>
         <div className="sd-conn">
+          {detected && <span className="sd-detected-tag">已探测：{detected}</span>}
           <span className="sd-conn-label">本地服务</span>
-          <input className="input" value={base} onChange={e => setBase(e.target.value)} placeholder="http://127.0.0.1:11434" />
+          <input className="input" value={base} onChange={e => setBase(e.target.value)} placeholder="自动探测或手填地址" />
+          <button className="btn sm ghost" onClick={() => void autoDetect()} disabled={detecting} title="自动探测本机服务"><Radar size={14} className={detecting ? 'spin' : ''} /> 探测</button>
           <button className="btn sm ghost" onClick={() => void loadModels()} disabled={loadingModels}><RefreshCw size={14} className={loadingModels ? 'spin' : ''} /> 连接</button>
         </div>
       </div>

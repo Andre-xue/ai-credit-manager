@@ -1867,3 +1867,4 @@ input[type="range"] { width: 100%; height: 4px; accent-color: var(--primary); cu
 .gen-empty-hint { word-break: normal; }
 .gen-empty-hint > svg { flex: 0 0 16px; }
 .gen-empty-hint b, .gen-empty-hint code { white-space: nowrap; }
+.sd-detected-tag { display: inline-flex; align-items: center; padding: 4px 9px; border-radius: 99px; background: #16a34a1a; color: #16a34a; font-size: 10.5px; font-weight: 600; white-space: nowrap; }

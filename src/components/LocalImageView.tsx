@@ -5,11 +5,11 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Image as ImageIcon, Sparkles, Loader2, Download, Trash2, Info, RefreshCw,
-  Dices, Upload, X, Maximize2, ChevronDown, SlidersHorizontal, History, Settings2,
+  Dices, Upload, X, Maximize2, ChevronDown, SlidersHorizontal, History, Settings2, Radar,
 } from 'lucide-react'
 import { callLocalImage, fetchLocalMediaModels } from '../core/providerCall'
 import { isComfyUIBase, comfyGenerate, fetchComfyCheckpoints } from '../core/comfyui'
-import { fetchLocalModels } from '../core/localServices'
+import { fetchLocalModels, detectLocalServices } from '../core/localServices'
 import { saveMedia, loadHistory, addHistory, removeHistory, clearHistory, newMediaId, errTextSafe, urlToThumb, type MediaHistoryItem } from '../core/mediaGeneration'
 import { HoldToConfirm } from './HoldToConfirm'
 import { GenProgressBar, useGenProgress } from './GenProgressBar'
@@ -52,12 +52,35 @@ export function LocalImageView({ notify }: { notify: (m: string) => void }) {
   const [lastParams, setLastParams] = useState('')
   const [lightbox, setLightbox] = useState('')
   const [history, setHistory] = useState<MediaHistoryItem[]>(() => loadHistory('image'))
+  const [detected, setDetected] = useState('')  // 后台探测到的服务地址
+  const [detecting, setDetecting] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const { progress, start: startProgress, advance: advanceProgress, done: doneProgress, fail: failProgress } = useGenProgress()
   const fileRef = useRef<HTMLInputElement>(null)
   const alive = useRef(true)
   useEffect(() => { alive.current = true; setHistory(loadHistory('image')); return () => { alive.current = false } }, [])
   useEffect(() => { localStorage.setItem('acm.local.img.base', base) }, [base])
+
+  // 进入页面自动从后台探测本机已运行的生图服务（ComfyUI 优先），免手填地址
+  const autoDetect = async (silent = false) => {
+    if (!silent) setDetecting(true)
+    try {
+      const r = await detectLocalServices()
+      if (!r.ok || r.services.length === 0) {
+        if (!silent) notify(r.error ?? '未探测到本机运行的服务，请先启动 ComfyUI')
+        return
+      }
+      // 生图优先 ComfyUI，其次 LM Studio / Ollama（这些可能 OpenAI 兼容）
+      const pick = r.services.find(s => /comfy/i.test(s.service))
+        ?? r.services.find(s => /lm studio/i.test(s.service))
+        ?? r.services[0]
+      setDetected(pick.url)
+      setBase(pick.url)
+      if (!silent) notify(`已自动探测到 ${pick.service}：${pick.url}`)
+    } catch (e) { if (!silent) notify(`探测失败：${errTextSafe(e)}`) }
+    finally { setDetecting(false) }
+  }
+  useEffect(() => { void autoDetect(true) }, [])
 
   const loadModels = async () => {
     setLoadingModels(true)
@@ -155,8 +178,10 @@ export function LocalImageView({ notify }: { notify: (m: string) => void }) {
       <div className="sd-topbar">
         <div className="sd-brand"><span className="sd-brand-mark"><Sparkles size={17} /></span><div><b>AI 图像 · 本地</b><small>Stable Diffusion 风格 · 全流程本机运行</small></div></div>
         <div className="sd-conn">
+          {detected && <span className="sd-detected-tag">已探测：{detected}</span>}
           <span className="sd-conn-label">本地服务</span>
-          <input className="input" value={base} onChange={e => setBase(e.target.value)} placeholder="http://127.0.0.1:8188" />
+          <input className="input" value={base} onChange={e => setBase(e.target.value)} placeholder="自动探测或手填地址" />
+          <button className="btn sm ghost" onClick={() => void autoDetect()} disabled={detecting} title="自动探测本机服务"><Radar size={14} className={detecting ? 'spin' : ''} /> 探测</button>
           <button className="btn sm ghost" onClick={() => void loadModels()} disabled={loadingModels}><RefreshCw size={14} className={loadingModels ? 'spin' : ''} /> 连接</button>
         </div>
       </div>
