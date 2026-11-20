@@ -363,10 +363,16 @@ export function isChatCapableLocalModel(id: string): boolean {
   return !exclude.test(id.replace(/\s/g, ''))
 }
 
-/** 本地模型名是否「看起来」可用于 AI 助手对话（保留视觉模型，只排除嵌入/生图/视频/语音/重排） */
+/** 是否为「翻译专用」本地模型（这类模型只有 completion 能力，但不应出现在 AI 助手/文档问答的回答列表） */
+export function isTranslationLocalModel(id: string): boolean {
+  return /(hy-mt|nllb|opus-mt|m2m100|argos|translator|translate|madlad|flan-t5|mt5)/i.test(id.replace(/\s/g, ''))
+}
+
+/** 本地模型名是否「看起来」可用于 AI 助手对话（保留视觉模型，只排除嵌入/生图/视频/语音/重排/翻译专用） */
 export function isAssistantCapableLocalModel(id: string): boolean {
   const exclude = /(embed|embedding|image|draw|diffusion|sd[-_]|flux|tts|whisper|asr|audio|video|rerank|clip|nomic-embed|bge-)/i
-  return !exclude.test(id.replace(/\s/g, ''))
+  const name = id.replace(/\s/g, '')
+  return !exclude.test(name) && !isTranslationLocalModel(name)
 }
 
 /** 去掉 /v1 后缀，得到服务根地址（Ollama 原生 /api/show 不带 /v1） */
@@ -420,10 +426,10 @@ export async function fetchLocalAssistantModels(base: string): Promise<string[]>
   const capable: string[] = []
   await Promise.all(all.map(async id => {
     const caps = await queryLocalModelCapabilities(base, id)
-    // 有能力信息：必须有 completion（vision+completion 的视觉模型保留）；否则回退名字判断
+    // 有能力信息：必须有 completion（vision+completion 的视觉模型保留）；翻译专用模型名也排除；否则回退名字判断
     const ok = caps === null
       ? isAssistantCapableLocalModel(id)
-      : caps.includes('completion') && !caps.some(c => /embed|rerank|tts|whisper|asr|audio|image|video|diffusion/.test(c))
+      : caps.includes('completion') && !caps.some(c => /embed|rerank|tts|whisper|asr|audio|image|video|diffusion/.test(c)) && !isTranslationLocalModel(id)
     if (ok) capable.push(id)
   }))
   return all.filter(id => capable.includes(id))
@@ -440,7 +446,7 @@ export async function filterAssistantModelNames(base: string, names: string[]): 
     const caps = await queryLocalModelCapabilities(base, id)
     const ok = caps === null
       ? isAssistantCapableLocalModel(id)
-      : caps.includes('completion') && !caps.some(c => /embed|rerank|tts|whisper|asr|audio|image|video|diffusion/.test(c))
+      : caps.includes('completion') && !caps.some(c => /embed|rerank|tts|whisper|asr|audio|image|video|diffusion/.test(c)) && !isTranslationLocalModel(id)
     if (ok) capable.push(id)
   }))
   return names.filter(id => capable.includes(id))

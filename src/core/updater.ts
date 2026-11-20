@@ -7,7 +7,7 @@
 import { isDesktopApp, isNativeApp } from './openExternal'
 
 /** 与 tauri.conf.json / package.json 保持一致 */
-export const APP_VERSION = '0.1.160'
+export const APP_VERSION = '0.1.161'
 
 const REPO = 'Andre-xue/ai-credit-manager'
 const RELEASES_API = `https://api.github.com/repos/${REPO}/releases/latest`

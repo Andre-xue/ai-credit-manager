@@ -227,3 +227,19 @@ describe('AI助手本地模型筛选（保留视觉模型）', () => {
     no.forEach(m => expect(isAssistantCapableLocalModel(m), m).toBe(false))
   })
 })
+
+describe('翻译专用本地模型不进回答列表', () => {
+  it('hy-mt2 等翻译模型被识别，通用对话模型不受影响', async () => {
+    const pc = await import('./providerCall')
+    // 翻译专用 → 排除
+    ;['hy-mt2:1.8b', 'hy-mt2', 'nllb-200:latest', 'opus-mt-zh-en', 'm2m100:418m'].forEach(m => {
+      expect(pc.isTranslationLocalModel(m)).toBe(true)
+      expect(pc.isAssistantCapableLocalModel(m)).toBe(false)
+    })
+    // 通用对话/视觉模型 → 保留
+    ;['qwen2.5:3b', 'llama3.2:3b', 'gemma3:4b', 'deepseek-v4-pro-4b-uncensored:latest'].forEach(m => {
+      expect(pc.isTranslationLocalModel(m)).toBe(false)
+      expect(pc.isAssistantCapableLocalModel(m)).toBe(true)
+    })
+  })
+})
