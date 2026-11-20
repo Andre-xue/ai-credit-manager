@@ -14,7 +14,7 @@ import { detectModelCapability, capabilityChatCapable } from '../core/modelCapab
 import { categoryFromNote, isVoiceConfigAccount } from '../core/modelCategories'
 import { isServiceEnabled } from '../core/localServicesSettings'
 import { fetchLocalModels, detectLocalServices } from '../core/localServices'
-import { fetchLocalAssistantModels, callChat, callLocalChat, fetchProviderModels } from '../core/providerCall'
+import { filterAssistantModelNames, callChat, callLocalChat, fetchProviderModels } from '../core/providerCall'
 import { decryptSecret, getBiometricPassword } from '../core/crypto'
 import { needsBinaryParse, parseBinaryDocument } from '../core/documentParse'
 import { globalReasoningEffort, enginesFor, enginesFromRemote } from '../data/engines'
@@ -89,56 +89,79 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
     if (cloudAccounts.length && !cloudAccounts.some(a => a.id === cloudAccountId)) setCloudAccountId(cloudAccounts[0].id)
   }, [cloudAccounts, cloudAccountId])
 
-  // ===== 本机 Ollama 地址：后台探测，探测不到用默认端口（不再依赖服务名匹配）=====
+  // ===== 本机 Ollama：回答模型 + 嵌入模型统一拉取（默认地址优先，探测仅校准）=====
   const [ollamaBase, setOllamaBase] = useState('http://127.0.0.1:11434')
-
-  // ===== 本地回答模型：拉取可用模型（排除嵌入/视频/生图），直接调本机服务无需 Key =====
   const [localModels, setLocalModels] = useState<string[]>([])
   const [localModel, setLocalModel] = useState('')
-  const [loadingLocal, setLoadingLocal] = useState(false)
+  const [embedModels, setEmbedModels] = useState<string[]>([])
+  const [loadingLocal, setLoadingLocal] = useState(false)      // 回答模型加载中
+  const [embedLoading, setEmbedLoading] = useState(false)      // 嵌入模型探测中
+  const [localLoadFailed, setLocalLoadFailed] = useState(false)
+  const [embedLoadFailed, setEmbedLoadFailed] = useState(false)
+  const [reloadTick, setReloadTick] = useState(0)              // 手动重试计数
+
   useEffect(() => {
     let alive = true
-    if (!serviceOn) { setLocalModels([]); setLocalModel(''); setLoadingLocal(false); return }
-    setLoadingLocal(true)
+    if (!serviceOn) {
+      setLocalModels([]); setLocalModel(''); setEmbedModels([])
+      setLoadingLocal(false); setEmbedLoading(false)
+      setLocalLoadFailed(false); setEmbedLoadFailed(false)
+      return
+    }
+    setLoadingLocal(true); setEmbedLoading(true)
+    setLocalLoadFailed(false); setEmbedLoadFailed(false)
+    const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> =>
+      Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))])
     ;(async () => {
-      // 先用探测结果校准地址（探测不到就用默认 11434，不再卡住）
-      let base = 'http://127.0.0.1:11434'
-      try {
-        const r = await detectLocalServices()
-        const hit = r.services.find(s => /ollama/i.test(s.service)) ?? r.services[0]
-        if (hit?.url) base = hit.url
-      } catch { /* 探测失败用默认地址 */ }
-      if (!alive) return
+      // Ollama 默认端口固定为 11434；走 fetch_local_models 直连命令（已验证可靠），不依赖 /v1/models 代理
+      const base = 'http://127.0.0.1:11434'
       setOllamaBase(base)
+      // 1) 一次拉取全部模型名，本地过滤出「回答模型」与「嵌入模型」两类（不重复请求）
       try {
-        const ids = await fetchLocalAssistantModels(base)
+        const r = await withTimeout(fetchLocalModels('ollama', base), 12000)
         if (!alive) return
-        setLocalModels(ids)
-        setLocalModel(prev => ids.includes(prev) ? prev : (ids[0] ?? ''))
-        if (ids.length === 0) notify('本机 Ollama 未找到可用于回答的模型，请先 ollama pull 一个对话模型')
+        if (!r.ok) throw new Error(r.error ?? '拉取失败')
+        const all = r.models
+        const [answerIds, embedIds] = await Promise.all([
+          filterAssistantModelNames(base, all),
+          Promise.resolve(filterEmbeddingModels(all)),
+        ])
+        setLocalModels(answerIds)
+        setLocalModel(prev => answerIds.includes(prev) ? prev : (answerIds[0] ?? ''))
+        setEmbedModels(embedIds)
+        setLocalLoadFailed(false); setEmbedLoadFailed(false)
       } catch {
-        if (alive) { setLocalModels([]); setLocalModel(''); notify('无法连接本机 Ollama，请确认服务已启动') }
-      } finally { if (alive) setLoadingLocal(false) }
+        if (alive) {
+          setLocalModels([]); setLocalModel(''); setEmbedModels([])
+          setLocalLoadFailed(true); setEmbedLoadFailed(true)
+        }
+      } finally { if (alive) { setLoadingLocal(false); setEmbedLoading(false) } }
+      // 2) 后台探测地址，仅当探测到不同地址时校准并重试一次
+      try {
+        const r = await withTimeout(detectLocalServices(), 8000)
+        if (!alive) return
+        const hit = r.services.find(s => /ollama/i.test(s.service))
+        if (hit?.url && hit.url.replace(/\/+$/, '') !== base) {
+          setOllamaBase(hit.url)
+          const r2 = await withTimeout(fetchLocalModels('ollama', hit.url), 12000)
+          if (alive && r2.ok) {
+            const all = r2.models
+            const [answerIds, embedIds] = await Promise.all([
+              filterAssistantModelNames(hit.url, all), Promise.resolve(filterEmbeddingModels(all)),
+            ])
+            if (answerIds.length) { setLocalModels(answerIds); setLocalModel(answerIds[0]); setLocalLoadFailed(false) }
+            if (embedIds.length) { setEmbedModels(embedIds); setEmbedLoadFailed(false) }
+          }
+        }
+      } catch { /* 探测失败不影响默认地址拉取结果 */ }
     })()
     return () => { alive = false }
-  }, [serviceOn])
+  }, [serviceOn, reloadTick])
 
-  // ===== 嵌入模型：自动获取本机嵌入类模型，只读不可手改 =====
-  const [embedModels, setEmbedModels] = useState<string[]>([])
-  const [embedChecked, setEmbedChecked] = useState(false)
-  useEffect(() => {
-    if (!serviceOn) { setEmbedModels([]); setEmbedChecked(false); return }
-    let alive = true
-    void fetchLocalModels('ollama', ollamaBase).then(r => {
-      if (!alive) return
-      setEmbedModels(r.ok ? filterEmbeddingModels(r.models) : [])
-      setEmbedChecked(r.ok)
-    }).catch(() => { if (alive) { setEmbedModels([]); setEmbedChecked(false) } })
-    return () => { alive = false }
-  }, [ollamaBase, serviceOn])
   // 自动选中：优先第一个探测到的嵌入模型，否则保持默认名（用于未安装提示）
   const embedModel = embedModels[0] ?? 'nomic-embed-text'
-  const embedWarn = shouldWarnEmbed(embedChecked, embedModels, embedModel)
+  const embedChecked = embedModels.length > 0 || embedLoadFailed  // 探测完成（有模型或明确失败）才算 checked
+  const embedWarn = shouldWarnEmbed(embedChecked && !embedLoadFailed, embedModels, embedModel)
   const embedInstalled = !embedWarn || embedModels.length === 0
   // 是否用向量检索：Ollama 开着且嵌入可用时用向量，否则降级关键词检索（云端模式因此可脱离 Ollama）
   const useVector = serviceOn && embedInstalled
@@ -257,7 +280,7 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
               </select>
             ) : (
               <select className="select" value={localModel} onChange={e => setLocalModel(e.target.value)} disabled={importing || answering || !serviceOn || localModels.length === 0}>
-                {localModels.length === 0 && <option value="">{loadingLocal ? '加载本地模型中…' : (!serviceOn ? '请先开启 Ollama 服务' : '未找到可用模型，请先 ollama pull')}</option>}
+                {localModels.length === 0 && <option value="">{loadingLocal ? '加载本地模型中…' : (localLoadFailed ? '连接失败，请点右侧重试' : (!serviceOn ? '请先开启 Ollama 服务' : '未找到可用模型，请先 ollama pull'))}</option>}
                 {localModels.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             )}
@@ -275,8 +298,13 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
           {/* 嵌入模型：自动获取本机嵌入类模型，只读不可手改 */}
           {serviceType === 'local' && serviceOn && (
             <div className="tr-field">
-              <label>嵌入模型（自动获取，本地检索辅助）</label>
-              <span className="docqa-embed-readonly" title="由本机 Ollama 自动探测，不可手动修改">{embedModels.length ? embedModel : (embedChecked ? '未检测到嵌入模型' : '探测中…')}</span>
+              <label>
+                嵌入模型（自动获取，本地检索辅助）
+                <button className="docqa-reload-btn" onClick={() => setReloadTick(t => t + 1)} disabled={loadingLocal || embedLoading} title="重新探测本机模型">↻ 重试</button>
+              </label>
+              <span className="docqa-embed-readonly" title="由本机 Ollama 自动探测，不可手动修改">
+                {embedModels.length ? embedModel : (embedLoading ? '探测中…' : (embedLoadFailed ? '连接失败，请点「重试」' : '未检测到嵌入模型'))}
+              </span>
             </div>
           )}
         </div>

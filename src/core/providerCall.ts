@@ -429,6 +429,23 @@ export async function fetchLocalAssistantModels(base: string): Promise<string[]>
   return all.filter(id => capable.includes(id))
 }
 
+/**
+ * 从给定的 Ollama 模型名列表里筛出「可用于 AI 助手/文档问答」的：保留文本+视觉，排除嵌入/生图/视频/语音。
+ * 与 fetchLocalAssistantModels 的区别：模型名列表由调用方提供（可来自 fetch_local_models 直连命令），
+ * 避免依赖 /v1/models 代理，供文档问答等已拿到名字列表的场景使用。
+ */
+export async function filterAssistantModelNames(base: string, names: string[]): Promise<string[]> {
+  const capable: string[] = []
+  await Promise.all(names.map(async id => {
+    const caps = await queryLocalModelCapabilities(base, id)
+    const ok = caps === null
+      ? isAssistantCapableLocalModel(id)
+      : caps.includes('completion') && !caps.some(c => /embed|rerank|tts|whisper|asr|audio|image|video|diffusion/.test(c))
+    if (ok) capable.push(id)
+  }))
+  return names.filter(id => capable.includes(id))
+}
+
 /** 本地对话调用（OpenAI 兼容 /chat/completions，无需账户 Key；images 为 data URL 数组时以多模态发送） */
 export async function callLocalChat(
   base: string, model: string, messages: { role: string; content: string }[], images?: string[],
