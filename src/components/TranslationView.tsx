@@ -8,7 +8,9 @@ import {
   buildHtml, buildPlain, buildPrintHtml, layoutName, layoutSuffix, TARGET_LANGUAGES, SOURCE_LANGUAGES, FREE_ENGINES,
   type TranslateFile, type TranslateEngine, type FreeEngine, type BilingualLayout, type ExportFormat,
 } from '../core/translate'
-import { fetchLocalChatModels } from '../core/providerCall'
+import { fetchLocalChatModels, fetchProviderModels } from '../core/providerCall'
+import { decryptSecret, getBiometricPassword } from '../core/crypto'
+import { enginesFor, enginesFromRemote } from '../data/engines'
 import { detectLocalServices } from '../core/localServices'
 import { HoldToConfirm } from './HoldToConfirm'
 import { chooseBackupFolder } from '../core/keyBackup'
@@ -135,6 +137,36 @@ export function TranslationView({ accounts, notify, settings, serviceController 
   useEffect(() => {
     if (usableAccounts.length && !usableAccounts.some(a => a.id === accountId)) setAccountId(usableAccounts[0].id)
   }, [usableAccounts, accountId])
+  const account = usableAccounts.find(a => a.id === accountId)
+  // 模型引擎：选账户后自动拉取该账户真实引擎，失败回退内置目录
+  const [engineId, setEngineId] = useState('')
+  const [remoteEngines, setRemoteEngines] = useState<string[] | null>(null)
+  const [loadingEngines, setLoadingEngines] = useState(false)
+  useEffect(() => {
+    let alive = true
+    setRemoteEngines(null)
+    if (!account?.encryptedKey) return () => { alive = false }
+    const pwd = getBiometricPassword()
+    if (!pwd) return () => { alive = false }
+    ;(async () => {
+      setLoadingEngines(true)
+      try {
+        const key = await decryptSecret(account.encryptedKey!, pwd)
+        const ids = await fetchProviderModels(account, key)
+        if (alive) setRemoteEngines(ids)
+      } catch { /* 回退内置目录 */ }
+      finally { if (alive) setLoadingEngines(false) }
+    })()
+    return () => { alive = false }
+  }, [account])
+  const engines = useMemo(() => {
+    if (!account) return []
+    if (remoteEngines?.length) return enginesFromRemote(account.providerId, remoteEngines)
+    return enginesFor(account.providerId)
+  }, [account, remoteEngines])
+  useEffect(() => {
+    setEngineId(prev => engines.some(e => e.id === prev) ? prev : (engines.find(e => e.flagship)?.id ?? engines[0]?.id ?? ''))
+  }, [engines])
 
   // 统一导入：纯文本直读；docx/pdf 本地解析；图片存 dataUrl 待 OCR；压缩包跳过
   const ingestFiles = async (imported: ImportedFile[]) => {
@@ -184,7 +216,6 @@ export function TranslationView({ accounts, notify, settings, serviceController 
     if (!files.length) { notify('请先导入文件'); return }
     if (engine === 'account' && !accountId) { notify('请先在 API Key 管理添加模型账户'); return }
     if (engine === 'local' && (!localBase.trim() || !localModel.trim())) { notify('请先设置本地服务地址并拉取/填写翻译模型'); return }
-    const account = usableAccounts.find(a => a.id === accountId)
     const localOpts = { localBase: localBase.trim(), localModel: localModel.trim() }
     setTranslating(true)
     const out: TransResult[] = []
@@ -200,7 +231,7 @@ export function TranslationView({ accounts, notify, settings, serviceController 
             if (!paras.length) { notify(`「${f.name}」未识别到文字，跳过`); continue }
             const srcText = paras.join('\n\n')
             const translated = await translateText(srcText, {
-              engine, account, target, source, freeEngine, ...localOpts,
+              engine, account, target, source, freeEngine, engineId, ...localOpts,
               onProgress: (done, total) => setProgress(`翻译中 ${i + 1}/${files.length}：${f.name}（${done}/${total} 段）`),
             })
             out.push({ name: f.name, source: srcText, translated, isImage: true, originalImage: f.source })
@@ -210,7 +241,7 @@ export function TranslationView({ accounts, notify, settings, serviceController 
           continue
         }
         const translated = await translateText(f.text, {
-          engine, account, target, source, freeEngine, ...localOpts,
+          engine, account, target, source, freeEngine, engineId, ...localOpts,
           onProgress: (done, total) => setProgress(`翻译中 ${i + 1}/${files.length}：${f.name}（${done}/${total} 段）`),
         })
         out.push({ name: f.name, source: f.text, translated })
@@ -440,13 +471,22 @@ export function TranslationView({ accounts, notify, settings, serviceController 
             </div>
           )}
           {engine === 'account' && (
-            <div className="tr-field">
-              <label>模型账户</label>
-              <select className="select" value={accountId} onChange={e => setAccountId(e.target.value)} disabled={translating}>
-                {usableAccounts.length === 0 && <option value="">请先添加账户</option>}
-                {usableAccounts.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
-              </select>
-            </div>
+            <>
+              <div className="tr-field">
+                <label>模型账户</label>
+                <select className="select" value={accountId} onChange={e => setAccountId(e.target.value)} disabled={translating}>
+                  {usableAccounts.length === 0 && <option value="">请先添加账户</option>}
+                  {usableAccounts.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
+                </select>
+              </div>
+              <div className="tr-field">
+                <label>模型引擎</label>
+                <select className="select" value={engineId} onChange={e => setEngineId(e.target.value)} disabled={translating || engines.length === 0}>
+                  {engines.length === 0 && <option value="">{loadingEngines ? '正在获取引擎…' : (account ? '该账户暂无可用引擎' : '请先选择模型账户')}</option>}
+                  {engines.map(e => <option key={e.id} value={e.id}>{e.name}{e.tag ? ` · ${e.tag}` : ''}</option>)}
+                </select>
+              </div>
+            </>
           )}
           {engine === 'local' && (
             <>
@@ -486,6 +526,9 @@ export function TranslationView({ accounts, notify, settings, serviceController 
               {SOURCE_LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
             </select>
           </div>
+        </div>
+        {/* 目标语言独立一行 */}
+        <div className="tr-target-row">
           <div className="tr-field">
             <label>目标语言</label>
             <select className="select" value={target} onChange={e => setTarget(e.target.value)} disabled={translating}>

@@ -118,13 +118,13 @@ async function translateFree(text: string, target: string, source: string, freeE
 }
 
 /** 用用户账户模型翻译 */
-async function translateByAccount(account: Account, pwd: string, text: string, target: string): Promise<string> {
+async function translateByAccount(account: Account, pwd: string, text: string, target: string, engineId?: string): Promise<string> {
   const key = await decryptSecret(account.encryptedKey!, pwd)
   const system = `你是一个专业翻译引擎。把用户输入的文本翻译成${target}。只输出译文，不要解释、不要加引号、不要加任何前缀。保留原文的段落结构与换行。`
   const r = await callChat(account, key, [
     { role: 'system', content: system },
     { role: 'user', content: text },
-  ])
+  ], engineId)
   if (!r.ok) throw new Error(r.error ?? '模型翻译失败')
   return r.text.trim()
 }
@@ -146,6 +146,7 @@ export interface TranslateOptions {
   target: string
   source?: string          // 源语言，auto = 自动检测
   freeEngine?: FreeEngine  // 免费引擎选择，默认 google
+  engineId?: string        // 账户模型的引擎（model 参数），不填则用账户默认
   localBase?: string       // 本地服务地址（如 http://127.0.0.1:11434）
   localModel?: string      // 本地翻译模型名
   onProgress?: (done: number, total: number) => void
@@ -166,7 +167,7 @@ export async function translateText(text: string, opts: TranslateOptions): Promi
       } else {
         if (!opts.account?.encryptedKey) throw new Error('请先在 API Key 管理添加模型账户')
         if (!pwd) throw new Error('请先解锁主密码（生物识别或会话密码）')
-        results.push(await translateByAccount(opts.account, pwd, chunks[i], opts.target))
+        results.push(await translateByAccount(opts.account, pwd, chunks[i], opts.target, opts.engineId))
       }
     } catch {
       results.push(chunks[i]) // 失败块保留原文，不中断整体

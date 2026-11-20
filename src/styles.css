@@ -1905,3 +1905,5 @@ input[type="range"] { width: 100%; height: 4px; accent-color: var(--primary); cu
 /* 文档问答配置行：统一三个下拉固定高度，避免长选项文字把 select 撑高导致不对齐 */
 .docqa-config-row .tr-field .select, .docqa-config-row .tr-field .input { height: 36px; line-height: 34px; padding-top: 0; padding-bottom: 0; }
 .docqa-config-row .tr-field label { height: 18px; line-height: 18px; }
+.tr-target-row { display: flex; gap: 14px; margin-bottom: 14px; }
+.tr-target-row .tr-field { min-width: 180px; flex: 0 1 220px; }
