@@ -341,6 +341,7 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
         <div className="docqa-ask-row">
           <input className="input" placeholder="针对文档提问，例如：怎么重置密码？" value={question} onChange={e => setQuestion(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void ask() }} />
           <button className="btn sm primary" onClick={() => void ask()} disabled={answering || !docs.length || !embeddingReady || !answerReady}>{answering ? '思考中…' : '提问'}</button>
+          <button className="btn sm ghost" onClick={() => { setQuestion(''); setAnswer(''); setSources([]) }} disabled={answering} title="清空输入框与回答">清空</button>
         </div>
         {serviceType === 'cloud' && !getBiometricPassword() && !sessionPwd && (
           <input className="input" style={{ marginTop: 8 }} type="password" placeholder="主密码（调用云端模型，本次会话只需一次）" value={pwdInput} onChange={e => setPwdInput(e.target.value)} />
