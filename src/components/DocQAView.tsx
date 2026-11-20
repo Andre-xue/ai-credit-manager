@@ -14,9 +14,9 @@ import { detectModelCapability, capabilityChatCapable } from '../core/modelCapab
 import { categoryFromNote, isVoiceConfigAccount } from '../core/modelCategories'
 import { isServiceEnabled } from '../core/localServicesSettings'
 import { fetchLocalModels, detectLocalServices } from '../core/localServices'
-import { fetchLocalAssistantModels, callChat, callLocalChat } from '../core/providerCall'
+import { fetchLocalAssistantModels, callChat, callLocalChat, fetchProviderModels } from '../core/providerCall'
 import { decryptSecret, getBiometricPassword } from '../core/crypto'
-import { globalReasoningEffort, enginesFor } from '../data/engines'
+import { globalReasoningEffort, enginesFor, enginesFromRemote } from '../data/engines'
 import type { Account, AppSettings } from '../core/types'
 
 type ServiceType = 'cloud' | 'local'
@@ -51,7 +51,33 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
   const [cloudAccountId, setCloudAccountId] = useState('')
   const cloudAccount = cloudAccounts.find(a => a.id === cloudAccountId) ?? cloudAccounts[0] ?? null
   const [cloudEngineId, setCloudEngineId] = useState('')
-  const cloudEngines = useMemo(() => cloudAccount ? enginesFor(cloudAccount.providerId) : [], [cloudAccount])
+  const [remoteEngines, setRemoteEngines] = useState<string[] | null>(null)
+  const [loadingCloudEngines, setLoadingCloudEngines] = useState(false)
+  // 选中云端账户后：解密 Key 拉取该账户真实可用的引擎（/v1/models）；失败回退内置目录
+  useEffect(() => {
+    let alive = true
+    setRemoteEngines(null)
+    if (!cloudAccount) return () => { alive = false }
+    const acct = cloudAccount
+    const pwd = getBiometricPassword() || sessionPwd
+    if (!acct.encryptedKey || !pwd) return () => { alive = false }
+    ;(async () => {
+      setLoadingCloudEngines(true)
+      try {
+        const key = await decryptSecret(acct.encryptedKey!, pwd)
+        const ids = await fetchProviderModels(acct, key)
+        if (alive) setRemoteEngines(ids)
+      } catch { /* 拉取失败 → 下方回退内置目录 */ }
+      finally { if (alive) setLoadingCloudEngines(false) }
+    })()
+    return () => { alive = false }
+  }, [cloudAccount, sessionPwd])
+  // 引擎列表：动态拉取优先，内置目录兜底
+  const cloudEngines = useMemo(() => {
+    if (!cloudAccount) return []
+    if (remoteEngines?.length) return enginesFromRemote(cloudAccount.providerId, remoteEngines)
+    return enginesFor(cloudAccount.providerId)
+  }, [cloudAccount, remoteEngines])
   useEffect(() => {
     setCloudEngineId(prev => cloudEngines.some(e => e.id === prev) ? prev : (cloudEngines.find(e => e.flagship)?.id ?? cloudEngines[0]?.id ?? ''))
   }, [cloudEngines])
@@ -213,17 +239,14 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
               </select>
             )}
           </div>
-          {/* 模型引擎：仅云端，选中账户后列出该平台主流引擎 */}
+          {/* 模型引擎：仅云端，选中账户后自动拉取该账户真实引擎（失败回退内置目录），不可手填 */}
           {serviceType === 'cloud' && (
             <div className="tr-field">
               <label>模型引擎</label>
-              {cloudEngines.length > 0 ? (
-                <select className="select" value={cloudEngineId} onChange={e => setCloudEngineId(e.target.value)} disabled={importing || answering}>
-                  {cloudEngines.map(e => <option key={e.id} value={e.id}>{e.name}{e.tag ? ` · ${e.tag}` : ''}</option>)}
-                </select>
-              ) : (
-                <input className="input" value={cloudEngineId} onChange={e => setCloudEngineId(e.target.value)} placeholder="手动输入引擎名（如 glm-4）" disabled={importing || answering} />
-              )}
+              <select className="select" value={cloudEngineId} onChange={e => setCloudEngineId(e.target.value)} disabled={importing || answering || cloudEngines.length === 0}>
+                {cloudEngines.length === 0 && <option value="">{loadingCloudEngines ? '正在获取引擎…' : (cloudAccount ? '该账户暂无可用引擎' : '请先选择回答模型')}</option>}
+                {cloudEngines.map(e => <option key={e.id} value={e.id}>{e.name}{e.tag ? ` · ${e.tag}` : ''}</option>)}
+              </select>
             </div>
           )}
           {/* 嵌入模型：仅 Ollama 开启 + 本地模式时显示（本地辅助，云端隐藏） */}
