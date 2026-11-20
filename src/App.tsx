@@ -12,6 +12,7 @@ import { isLocalProvider } from './core/types'
 import { detectLocalServices, getSystemMemoryGb, checkLocalService, startLocalService, stopLocalService, stopServiceByPort, isServiceAppManaged, fetchLocalModels, chooseModelFile, type LocalService } from './core/localServices'
 import { DocQAView } from './components/DocQAView'
 import { TranslationView } from './components/TranslationView'
+import { ChatTranslateView } from './components/ChatTranslateView'
 import { ImageView } from './components/ImageView'
 import { VideoView } from './components/VideoView'
 import { LocalImageView } from './components/LocalImageView'
@@ -71,7 +72,7 @@ type CsvImportPreview =
   | { kind: 'quotas'; quotas: ReturnType<typeof parseQuotasCsv> }
   | { kind: 'usage'; events: UsageEventInput[] }
 
-type Tab = 'ai' | 'dashboard' | 'checkin' | 'benefits' | 'image' | 'video' | 'local-image' | 'local-video' | 'keys' | 'usage' | 'voice' | 'docs' | 'settings'
+type Tab = 'ai' | 'dashboard' | 'checkin' | 'benefits' | 'chat-translate' | 'image' | 'video' | 'local-image' | 'local-video' | 'keys' | 'usage' | 'voice' | 'docs' | 'settings'
 
 const UNIT_LABEL: Record<CreditUnit, string> = {
   credit: '积分', token: 'Tokens', request: '次', currency: '元', day: '天',
@@ -118,7 +119,7 @@ function App() {
   const isPhone = isNativeApp() || phonePreview
   const [tab, setTab] = useState<Tab>(() => {
     const t = new URLSearchParams(location.search).get('tab')
-    if (t && ['ai', 'dashboard', 'checkin', 'benefits', 'image', 'video', 'local-image', 'local-video', 'keys', 'usage', 'voice', 'docs', 'settings'].includes(t)) return t as Tab
+    if (t && ['ai', 'dashboard', 'checkin', 'benefits', 'chat-translate', 'image', 'video', 'local-image', 'local-video', 'keys', 'usage', 'voice', 'docs', 'settings'].includes(t)) return t as Tab
     return isPhone ? 'ai' : 'dashboard'
   })
   const [sidebarVisible, setSidebarVisible] = useState<boolean>(() => {
@@ -542,7 +543,7 @@ function App() {
   // 移动端底部导航：AI 置于正中间（看板/签到/翻译 · AI · 密钥/用量/设置）
   const bottomTabs: Tab[] = ['dashboard', 'checkin', 'benefits', 'ai', 'image', 'video', 'keys', 'usage', 'voice', 'settings']
   const shortLabel: Record<Tab, string> = {
-    ai: 'AI', dashboard: '看板', checkin: '签到', benefits: '翻译', image: '图像', video: '视频',
+    ai: 'AI', dashboard: '看板', checkin: '签到', benefits: '翻译', 'chat-translate': '对话翻译', image: '图像', video: '视频',
     'local-image': '本地图像', 'local-video': '本地视频',
     keys: '密钥', usage: '用量', voice: '语音', docs: '文档', settings: '设置',
   }
@@ -651,7 +652,9 @@ function App() {
             onToggle={(pid, aid) => setState(s => toggleCheckin(s, pid, aid))}
           />}
 
-          {tab === 'benefits' && <TranslationView accounts={state.accounts} notify={notify} settings={state.settings} serviceController={serviceController} />}
+          {tab === 'benefits' && <TranslationView accounts={state.accounts} notify={notify} settings={state.settings} serviceController={serviceController} onOpenChat={() => openTab('chat-translate')} />}
+
+          {tab === 'chat-translate' && <ChatTranslateView accounts={state.accounts} notify={notify} settings={state.settings} serviceController={serviceController} onBack={() => openTab('benefits')} />}
 
           {tab === 'image' && <ImageView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} settings={state.settings} onOpenLocal={() => openTab('local-image')} />}
 

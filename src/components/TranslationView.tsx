@@ -42,13 +42,14 @@ interface Props {
   notify: (m: string) => void
   settings?: AppSettings
   serviceController?: ServiceController
+  onOpenChat?: () => void
 }
 
 const LAYOUTS: BilingualLayout[] = ['side-by-side', 'interleaved', 'stacked']
 const CATEGORY_ICON = { document: FileText, image: ImageIcon, archive: Archive, other: FileText }
 const CATEGORY_LABEL = { document: '文档', image: '图片', archive: '压缩包', other: '其他' }
 
-export function TranslationView({ accounts, notify, settings, serviceController }: Props) {
+export function TranslationView({ accounts, notify, settings, serviceController, onOpenChat }: Props) {
   const [files, setFiles] = useState<TranslateFile[]>([])
   const [engine, setEngine] = useState<TranslateEngine>('free')
   const [freeEngine, setFreeEngine] = useState<FreeEngine>('google')
@@ -407,6 +408,15 @@ export function TranslationView({ accounts, notify, settings, serviceController 
         <Info size={14} />
         <span>拖入/粘贴文件（txt/md/docx/pdf/图片）或直接粘贴文本，选择翻译引擎与目标语言，即可生成双语对照文件。docx/pdf 在本机解析，图片由云端视觉模型 OCR 识别文字后翻译（失败自动跳过）。</span>
       </div>
+      {onOpenChat && (
+        <div className="translate-chat-entry">
+          <div className="translate-chat-entry-text">
+            <b>对话式翻译</b>
+            <span>逐条输入文本，即时翻译成目标语言，像聊天一样使用。</span>
+          </div>
+          <button className="btn sm primary" onClick={onOpenChat}><Languages size={14} /> 打开对话翻译</button>
+        </div>
+      )}
 
       <div
         className={`translate-drop ${dragOver ? 'over' : ''}`}
