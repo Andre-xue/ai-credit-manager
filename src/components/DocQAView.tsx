@@ -16,6 +16,7 @@ import { isServiceEnabled } from '../core/localServicesSettings'
 import { fetchLocalModels, detectLocalServices } from '../core/localServices'
 import { fetchLocalAssistantModels, callChat, callLocalChat, fetchProviderModels } from '../core/providerCall'
 import { decryptSecret, getBiometricPassword } from '../core/crypto'
+import { needsBinaryParse, parseBinaryDocument } from '../core/documentParse'
 import { globalReasoningEffort, enginesFor, enginesFromRemote } from '../data/engines'
 import type { Account, AppSettings } from '../core/types'
 
@@ -144,7 +145,15 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
     if (useVector && !embedInstalled) { notify(`本机未安装嵌入模型 ${embedModel}，请先执行：ollama pull ${embedModel}`); return }
     setImporting(true); setProgress('读取文件…')
     try {
-      const text = await file.text()
+      // docx/pdf 是二进制，必须走本地解析；纯文本直接读。否则会把 zip 乱码入库，检索不到内容
+      let text: string
+      if (needsBinaryParse(file.name)) {
+        const parsed = await parseBinaryDocument(file.name, await file.arrayBuffer())
+        text = parsed.text
+      } else {
+        text = await file.text()
+      }
+      if (!text.trim()) { notify('文档内容为空或无可提取文字（扫描版 PDF 需先 OCR）'); return }
       const docId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       setProgress(useVector ? '生成向量并入库…' : '切分文本并入库（关键词检索模式）…')
       const count = useVector
@@ -278,7 +287,7 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
 
       <div className="docqa-section">
         <div className="docqa-section-title"><Upload size={14} /> 知识库文档 <span className="hint">{docs.length}</span></div>
-        <input ref={fileRef} type="file" accept=".txt,.md,.csv,.json,.log,.text" style={{ display: 'none' }}
+        <input ref={fileRef} type="file" accept=".txt,.md,.csv,.json,.log,.text,.docx,.pdf" style={{ display: 'none' }}
           onChange={e => { const f = e.target.files?.[0]; if (f) void importFile(f); e.target.value = '' }} />
         <button className="btn sm" onClick={() => fileRef.current?.click()} disabled={importing || !embeddingReady}>{importing ? <Loader2 size={13} className="spin" /> : <Upload size={13} />} {importing ? (progress || '导入中…') : '导入文本文档'}</button>
         {docs.length > 0 && (
