@@ -133,12 +133,16 @@ async fn call_provider_api(url: String, api_key: String, body_json: String, meth
     let mut req = if m == "POST" {
         let parsed: serde_json::Value = serde_json::from_str(&body_json)
             .map_err(|e| format!("请求体不是合法 JSON：{}", e))?;
+        // .json() 已自动设置 Content-Type: application/json。
+        // 绝不可再手动 .header("Content-Type", ...) —— reqwest 的 header() 是「追加」语义，
+        // 会产生两个 Content-Type 头（合并成 application/json, application/json），
+        // DeepSeek 等严格网关会因此返回 415，而 GLM/Kimi 宽容只取第一个故正常。
         client.post(&url).json(&parsed)
     } else {
         client.get(&url)
     };
-    req = req.header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json");
+    // 只设 Authorization；Content-Type 由 .json() 唯一提供（GET 无需 Content-Type）。
+    req = req.header("Authorization", format!("Bearer {}", api_key));
 
     let resp = req.send().await.map_err(|e| format!("请求失败：{}", e))?;
     let status = resp.status();
