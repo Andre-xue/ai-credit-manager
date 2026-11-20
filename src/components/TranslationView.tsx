@@ -19,7 +19,7 @@ import {
 } from '../core/fileImport'
 import { detectModelCapability, capabilityChatCapable } from '../core/modelCapability'
 import { isVoiceConfigAccount, categoryFromNote } from '../core/modelCategories'
-import { isAccountServiceEnabled } from '../core/localServicesSettings'
+import { isAccountServiceEnabled, LOCAL_SERVICE_CHANGED_EVENT } from '../core/localServicesSettings'
 import { needsBinaryParse, parseBinaryDocument } from '../core/documentParse'
 import { buildDocxBlob, DOCX_MIME } from '../core/docxExport'
 import { ocrImage, ocrToParagraphs, renderTranslatedImage } from '../core/imageOcr'
@@ -70,8 +70,30 @@ export function TranslationView({ accounts, notify, settings, serviceController 
   const [localModels, setLocalModels] = useState<string[]>([])
   const [localModel, setLocalModel] = useState('')
   const [loadingLocalModels, setLoadingLocalModels] = useState(false)
-  // 挂载时自动探测本机 Ollama 地址
+  // Ollama 服务是否开启（与顶部开关联动）
+  const ollamaEnabled = settings?.localServices?.ollama !== false
+  // 服务关闭时（无论来源）：引擎停在 local 就切回免费，并清空本地模型
   useEffect(() => {
+    if (!ollamaEnabled) {
+      setLocalModels([]); setLocalModel('')
+      setEngine(prev => prev === 'local' ? 'free' : prev)
+    }
+  }, [ollamaEnabled])  // 关闭 Ollama 时：清空本地模型列表并切回免费引擎；开启时重新探测地址
+  useEffect(() => {
+    const onChanged = (e: Event) => {
+      const d = (e as CustomEvent<{ key: string; enabled: boolean }>).detail
+      if (d?.key !== 'ollama') return
+      if (!d.enabled) {
+        setLocalModels([]); setLocalModel(''); setLocalBase('')
+        setEngine(prev => prev === 'local' ? 'free' : prev)
+      }
+    }
+    window.addEventListener(LOCAL_SERVICE_CHANGED_EVENT, onChanged)
+    return () => window.removeEventListener(LOCAL_SERVICE_CHANGED_EVENT, onChanged)
+  }, [])
+  // 开启且未探测到地址时自动探测本机 Ollama 地址
+  useEffect(() => {
+    if (!ollamaEnabled || localBase) return
     let alive = true
     setDetectingLocal(true)
     void detectLocalServices().then(r => {
@@ -81,8 +103,9 @@ export function TranslationView({ accounts, notify, settings, serviceController 
       setDetectingLocal(false)
     }).catch(() => { if (alive) setDetectingLocal(false) })
     return () => { alive = false }
-  }, [])
+  }, [ollamaEnabled, localBase])
   const loadLocalModels = async () => {
+    if (!ollamaEnabled) { setLocalModels([]); setLocalModel(''); notify('请先开启顶部 Ollama 服务'); return }
     if (!localBase) { notify('未探测到本地 Ollama 服务，请先启动 Ollama 后再点探测'); return }
     setLoadingLocalModels(true)
     try {
@@ -405,7 +428,7 @@ export function TranslationView({ accounts, notify, settings, serviceController 
             <select className="select" value={engine} onChange={e => setEngine(e.target.value as TranslateEngine)} disabled={translating}>
               <option value="free">免费公共 API（无需 Key）</option>
               <option value="account">我的模型账户</option>
-              <option value="local">本地服务（Ollama）</option>
+              {ollamaEnabled && <option value="local">本地服务（Ollama）</option>}
             </select>
           </div>
           {engine === 'free' && (
