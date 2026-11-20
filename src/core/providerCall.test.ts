@@ -72,33 +72,34 @@ describe('自有模型请求参数兼容', () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).temperature).toBeUndefined()
   })
 
-  it('DeepSeek 415 Content-Type 报错时自动换原生地址(去 /v1)重试', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce({ ok: false, status: 415, text: async () => '{"error":{"message":"Expected request with `Content-Type: application/json`"}}' })
-      .mockResolvedValueOnce(okResponse('ok'))
+  it('DeepSeek 用官方原生端点与 thinking 参数，不带 temperature（避免 415）', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(okResponse('ok'))
     vi.stubGlobal('fetch', fetchMock)
-    // 账户地址带 /v1 → chatUrl 拼出 /v1/chat/completions
+    // 账户地址带 /v1 也要被规范化为原生端点
     const ds = { ...acct('deepseek'), apiUrl: 'https://api.deepseek.com/v1' }
-    const r = await callChat(ds, 'key', [{ role: 'user', content: 'hi' }], 'deepseek-flash')
+    const r = await callChat(ds, 'key', [{ role: 'user', content: 'hi' }], 'deepseek-flash', 'high')
     expect(r.ok).toBe(true)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(fetchMock.mock.calls[0][0]).toContain('/v1/chat/completions')
-    expect(fetchMock.mock.calls[1][0]).toBe('https://api.deepseek.com/chat/completions')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.deepseek.com/chat/completions')
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(body.thinking).toEqual({ type: 'enabled' })
+    expect(body.temperature).toBeUndefined()
+    expect(body.reasoning_effort).toBe('max')
   })
 
-  it('415 且地址无 /v1 时，去掉 reasoning/temperature 用最简请求体重试', async () => {
+  it('DeepSeek 415 时重试去掉 reasoning_effort 与 thinking 用最简请求体', async () => {
     const cte = () => ({ ok: false, status: 415, text: async () => '{"error":{"message":"Expected request with `Content-Type: application/json`"}}' })
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(cte())
       .mockResolvedValueOnce(cte())
       .mockResolvedValueOnce(okResponse('ok'))
     vi.stubGlobal('fetch', fetchMock)
     const ds = { ...acct('deepseek'), apiUrl: 'https://api.deepseek.com' }
     const r = await callChat(ds, 'key', [{ role: 'user', content: 'hi' }], 'deepseek-flash', 'high')
     expect(r.ok).toBe(true)
-    expect(fetchMock).toHaveBeenCalledTimes(3)
-    const lastBody = JSON.parse(fetchMock.mock.calls[2][1].body)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const lastBody = JSON.parse(fetchMock.mock.calls[1][1].body)
     expect(lastBody.reasoning_effort).toBeUndefined()
+    expect(lastBody.thinking).toBeUndefined()
     expect(lastBody.temperature).toBeUndefined()
   })
 })

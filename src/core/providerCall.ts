@@ -48,8 +48,16 @@ async function directFetch(url: string, apiKey: string, body: unknown): Promise<
 function chatUrl(account: Account): string {
   let base = (account.apiUrl || '').trim().replace(/\/+$/, '')
   if (!base) throw new Error('该账户未填写 API 地址')
-  // 用户填 base（如 https://api.deepseek.com）时补 /v1；已含 /chat/completions 则直接用
   if (base.includes('/chat/completions')) return base
+  // DeepSeek 官方原生端点是 /chat/completions（不带 /v1）；用户若填了带 /v1 的地址，
+  // 兼容层会对 Content-Type 敏感并返回 415，这里对 DeepSeek 强制去掉版本后缀。
+  const pid = (account.providerId || '').toLowerCase()
+  const isDeepSeek = pid.includes('deepseek') || /deepseek/i.test(base)
+  if (isDeepSeek) {
+    // 官方原生端点不带 /v1；去掉用户可能填的版本后缀，直接拼 /chat/completions
+    base = base.replace(/\/v\d+$/, '')
+    return `${base}/chat/completions`
+  }
   if (!/\/v\d+/.test(base)) base += '/v1'
   return `${base}/chat/completions`
 }
@@ -167,10 +175,20 @@ export async function callChat(
     const url = chatUrl(account)
     const model = engineId || account.label
     const body: Record<string, unknown> = { model, messages, stream: false }
-    // Kimi K3 系列固定采样参数：不传 temperature，避免 400 invalid temperature
-    if (!usesFixedSampling(account, model)) body.temperature = 0.7
-    const effort = normalizeReasoningEffort(account, model, reasoningEffort)
-    if (effort) body.reasoning_effort = effort
+    const pid = (account.providerId || '').toLowerCase()
+    const isDeepSeek = pid.includes('deepseek') || /deepseek/i.test(model) || /deepseek/i.test(account.apiUrl || '')
+    if (isDeepSeek) {
+      // DeepSeek V4.x 始终思考：按官方文档用 thinking + reasoning_effort（low/high/max），
+      // 不传 temperature（思考模式下被忽略，且兼容层可能因此报 415）。
+      body.thinking = { type: 'enabled' }
+      const effort = normalizeReasoningEffort(account, model, reasoningEffort)
+      if (effort) body.reasoning_effort = effort
+    } else {
+      // Kimi K3 系列固定采样参数：不传 temperature，避免 400 invalid temperature
+      if (!usesFixedSampling(account, model)) body.temperature = 0.7
+      const effort = normalizeReasoningEffort(account, model, reasoningEffort)
+      if (effort) body.reasoning_effort = effort
+    }
 
     const request = (payload: Record<string, unknown>, reqUrl = url) =>
       isDesktopApp() ? invokeApi(reqUrl, apiKey, payload) : directFetch(reqUrl, apiKey, payload)
@@ -183,24 +201,28 @@ export async function callChat(
       const reasoningErr = isReasoningError(e)
       const tempErr = isTemperatureError(e)
       const nativeUrl = stripVersionSuffix(url)
-      // 415 Content-Type：先试原生地址（去 /vN）
+      const slim = (b: Record<string, unknown>): Record<string, unknown> | null => {
+        const next = { ...b }
+        let changed = false
+        for (const k of ['reasoning_effort', 'thinking', 'temperature']) {
+          if (k in next) { delete next[k]; changed = true }
+        }
+        return changed ? next : null
+      }
+      // 415 Content-Type：先换原生地址（去 /vN）重试
       if (contentTypeErr && nativeUrl !== url) {
         try { raw = await request(body, nativeUrl) }
         catch (e2) {
-          // 换地址仍失败 → 用最简请求体（去 reasoning/temperature）再试一次
-          if ((isContentTypeError(e2) || reasoningErr) && ('reasoning_effort' in body || 'temperature' in body)) {
-            const minimal = { ...body }
-            delete minimal.reasoning_effort
-            delete minimal.temperature
-            raw = await request(minimal, nativeUrl)
-          } else throw e2
+          const min = slim(body)
+          if (min && (isContentTypeError(e2) || isReasoningError(e2))) raw = await request(min, nativeUrl)
+          else throw e2
         }
       }
-      // reasoning 参数不被接受：去掉 reasoning_effort 重试一次
-      else if (reasoningErr && 'reasoning_effort' in body) {
-        const retry = { ...body }
-        delete retry.reasoning_effort
-        raw = await request(retry)
+      // 415（地址本就原生）/ reasoning 报错：剥离可选参数用最简请求体重试
+      else if ((contentTypeErr || reasoningErr)) {
+        const min = slim(body)
+        if (min) raw = await request(min)
+        else throw e
       }
       // 固定采样限制：去掉 temperature 自动重试一次
       else if (tempErr && 'temperature' in body) {
