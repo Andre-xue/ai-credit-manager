@@ -34,6 +34,18 @@ describe('自有模型请求参数兼容', () => {
     expect(normalizeReasoningEffort(acct('openai'), 'gpt-4.1', 'minimal')).toBe('minimal')
   })
 
+  it('GLM / DeepSeek 始终思考模型的推理等级也映射到 low/high/max（code 1210）', () => {
+    const glm = acct('glm')
+    expect(normalizeReasoningEffort(glm, 'glm-5.3-flash', 'minimal')).toBe('low')
+    expect(normalizeReasoningEffort(glm, 'glm-5.3-flash', 'medium')).toBe('high')
+    expect(normalizeReasoningEffort(glm, 'glm-5.3-flash', 'high')).toBe('max')
+    const ds = acct('deepseek')
+    expect(normalizeReasoningEffort(ds, 'deepseek-v4-pro', 'medium')).toBe('high')
+    expect(normalizeReasoningEffort(ds, 'deepseek-v4-pro', 'high')).toBe('max')
+    // 平台识别仅靠模型名也要生效（providerId 不规范时）
+    expect(normalizeReasoningEffort(acct('other'), 'GLM-4.6', 'medium')).toBe('high')
+  })
+
   it('K3.1 Pro 实际请求体不带 temperature，推理等级映射为官方值', async () => {
     const fetchMock = vi.fn().mockResolvedValue(okResponse())
     vi.stubGlobal('fetch', fetchMock)

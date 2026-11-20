@@ -101,16 +101,25 @@ export function usesFixedSampling(account: Account, modelId: string): boolean {
     || /(^|[-_/])k3(\.1)?([-_/]|$)/.test(id)
 }
 
-/** K3 / K3.1 的 reasoning_effort 仅支持 low / high / max（Kimi 官方文档 2026-11）。 */
+/**
+ * 推理强度按平台归一化。
+ * Kimi K3、智谱 GLM（含 GLM-5.x 始终思考系列）、DeepSeek 新模型只接受 low / high / max 三档；
+ * 界面四档（minimal/low/medium/high）需映射过去，否则 medium 会被接口以 code 1210 拒绝。
+ */
 export function normalizeReasoningEffort(
   account: Account, modelId: string,
   effort?: 'minimal' | 'low' | 'medium' | 'high',
 ): 'minimal' | 'low' | 'medium' | 'high' | 'max' | undefined {
   if (!effort) return undefined
   const id = modelId.toLowerCase()
+  const pid = (account.providerId || '').toLowerCase()
   const isK3 = /(^|[-_/])k3(\.1)?([-_/]|$)/.test(id) || /3\.1/.test(id)
-  if (!isK3 || !usesFixedSampling(account, modelId)) return effort
-  // 界面四档 → Kimi 官方三档
+  // GLM / DeepSeek 的始终思考模型同样只认 low / high / max
+  const isLowHighMax = isK3
+    || pid.includes('glm') || /\bglm([-_/]|$)/.test(id)
+    || pid.includes('deepseek') || /\bdeepseek([-_/]|$)/.test(id)
+  if (!isLowHighMax) return effort
+  // 界面四档 → 三档（low 原样保留）
   switch (effort) {
     case 'minimal': return 'low'
     case 'medium': return 'high'
