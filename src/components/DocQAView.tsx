@@ -13,7 +13,7 @@ import {
 import { detectModelCapability, capabilityChatCapable } from '../core/modelCapability'
 import { categoryFromNote, isVoiceConfigAccount } from '../core/modelCategories'
 import { isServiceEnabled } from '../core/localServicesSettings'
-import { fetchLocalModels, detectLocalServices } from '../core/localServices'
+import { fetchLocalModels, detectLocalServices, checkLocalService } from '../core/localServices'
 import { filterAssistantModelNames, callChat, callLocalChat, fetchProviderModels } from '../core/providerCall'
 import { decryptSecret, getBiometricPassword } from '../core/crypto'
 import { needsBinaryParse, parseBinaryDocument } from '../core/documentParse'
@@ -98,6 +98,7 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
   const [embedLoading, setEmbedLoading] = useState(false)      // 嵌入模型探测中
   const [localLoadFailed, setLocalLoadFailed] = useState(false)
   const [embedLoadFailed, setEmbedLoadFailed] = useState(false)
+  const [serviceDown, setServiceDown] = useState(false)   // 开关已开但本机 Ollama 实际未运行
   const [reloadTick, setReloadTick] = useState(0)              // 手动重试计数
 
   useEffect(() => {
@@ -105,11 +106,11 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
     if (!serviceOn) {
       setLocalModels([]); setLocalModel(''); setEmbedModels([])
       setLoadingLocal(false); setEmbedLoading(false)
-      setLocalLoadFailed(false); setEmbedLoadFailed(false)
+      setLocalLoadFailed(false); setEmbedLoadFailed(false); setServiceDown(false)
       return
     }
     setLoadingLocal(true); setEmbedLoading(true)
-    setLocalLoadFailed(false); setEmbedLoadFailed(false)
+    setLocalLoadFailed(false); setEmbedLoadFailed(false); setServiceDown(false)
     const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> =>
       Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))])
     ;(async () => {
@@ -134,6 +135,14 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
         if (alive) {
           setLocalModels([]); setLocalModel(''); setEmbedModels([])
           setLocalLoadFailed(true); setEmbedLoadFailed(true)
+          // 二次确认：开关显示已开启，但本机 Ollama 进程是否真的在跑？
+          void checkLocalService('ollama').then(addr => {
+            if (!alive) return
+            if (!addr) {
+              setServiceDown(true)
+              notify('Ollama 开关虽已开启，但本机服务未运行。请在终端执行 ollama serve 启动，或到设置页重新开关一次')
+            }
+          })
         }
       } finally { if (alive) { setLoadingLocal(false); setEmbedLoading(false) } }
       // 2) 后台探测地址，仅当探测到不同地址时校准并重试一次
@@ -280,7 +289,7 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
               </select>
             ) : (
               <select className="select" value={localModel} onChange={e => setLocalModel(e.target.value)} disabled={importing || answering || !serviceOn || localModels.length === 0}>
-                {localModels.length === 0 && <option value="">{loadingLocal ? '加载本地模型中…' : (localLoadFailed ? '连接失败，请点右侧重试' : (!serviceOn ? '请先开启 Ollama 服务' : '未找到可用模型，请先 ollama pull'))}</option>}
+                {localModels.length === 0 && <option value="">{loadingLocal ? '加载本地模型中…' : (serviceDown ? '本机服务未运行' : localLoadFailed ? '连接失败，请点重试' : (!serviceOn ? '请先开启 Ollama 服务' : '未找到可用模型，请先 ollama pull'))}</option>}
                 {localModels.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             )}
@@ -303,12 +312,19 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
                 <button className="docqa-reload-btn" onClick={() => setReloadTick(t => t + 1)} disabled={loadingLocal || embedLoading} title="重新探测本机模型">↻ 重试</button>
               </label>
               <span className="docqa-embed-readonly" title="由本机 Ollama 自动探测，不可手动修改">
-                {embedModels.length ? embedModel : (embedLoading ? '探测中…' : (embedLoadFailed ? '连接失败，请点「重试」' : '未检测到嵌入模型'))}
+                {embedModels.length ? embedModel : (embedLoading ? '探测中…' : (serviceDown ? '本机服务未运行' : embedLoadFailed ? '连接失败，请点「重试」' : '未检测到嵌入模型'))}
               </span>
             </div>
           )}
         </div>
-        {serviceType === 'local' && serviceOn && embedWarn && (
+        {serviceDown && (
+          <div className="docqa-warn">
+            本机 Ollama 服务<strong>未运行</strong>（开关虽显示已开启）。请任选一种方式恢复：
+            ① 顶部「本地服务」开关先关再开；② 终端执行 <code>ollama serve</code>；③ 切换到「云端模型」使用关键词检索（无需 Ollama）。
+            恢复后点嵌入模型旁的「↻ 重试」。
+          </div>
+        )}
+        {serviceType === 'local' && serviceOn && embedWarn && !serviceDown && (
           <div className="docqa-warn">本机未检测到嵌入模型 <b>{embedModel}</b>。请在终端执行 <code>ollama pull {embedModel}</code> 安装后重试。嵌入模型由本机自动探测，安装后刷新即可。</div>
         )}
         {serviceType === 'local' && !serviceOn && (

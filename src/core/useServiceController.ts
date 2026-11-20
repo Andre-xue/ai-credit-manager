@@ -2,7 +2,7 @@
 // 供设置页、AI 翻译、AI 图像、AI 视频等多处共用，保证开关状态联动。
 // 状态源单一：settings.localServices（持久化）；运行时状态（服务是否真在跑）由本机探测得到。
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AppSettings, LocalServiceKey, MemoryTier } from './types'
 import {
   checkLocalService, startLocalService, stopServiceByPort,
@@ -39,10 +39,31 @@ export function useServiceController(
   const [status, setStatus] = useState<Partial<Record<LocalServiceKey, string | null>>>({})
   const [busyKey, setBusyKey] = useState<LocalServiceKey | null>(null)
 
+  const autoStartedRef = useRef<Partial<Record<LocalServiceKey, boolean>>>({})
   const refresh = useCallback(() => {
     void Promise.all(LOCAL_SERVICE_KEYS.map(async k => [k, await checkLocalService(k)] as const))
-      .then(rows => setStatus(Object.fromEntries(rows)))
-  }, [])
+      .then(rows => {
+        const map = Object.fromEntries(rows) as Partial<Record<LocalServiceKey, string | null>>
+        setStatus(map)
+        // 自愈：Ollama 开关已开但服务实际没跑（如 App 重启后遗留状态）→ 自动拉起一次。
+        // 仅 ollama（轻量、用户开着开关即代表想用）；不自动拉 ComfyUI/LM Studio，且每次会话只尝试一次。
+        const k: LocalServiceKey = 'ollama'
+        if (settings && isServiceEnabled(settings, k) && !map[k] && !autoStartedRef.current[k]) {
+          autoStartedRef.current[k] = true
+          void startLocalService(k).then(r => {
+            if (r.ok) {
+              let n = 0
+              const timer = window.setInterval(() => {
+                void checkLocalService(k).then(addr => {
+                  if (addr) { setStatus(prev => ({ ...prev, [k]: addr })); window.clearInterval(timer) }
+                  else if (++n >= 15) window.clearInterval(timer)
+                })
+              }, 2000)
+            }
+          })
+        }
+      })
+  }, [settings])
   useEffect(() => { refresh() }, [refresh])
 
   const enabled = useCallback((key: LocalServiceKey) => isServiceEnabled(settings, key), [settings])
@@ -78,9 +99,20 @@ export function useServiceController(
             const poll = window.setInterval(() => {
               void checkLocalService(key).then(addr => {
                 if (addr) { setStatus(prev => ({ ...prev, [key]: addr })); window.clearInterval(poll) }
-                else if (++tries >= 15) window.clearInterval(poll)
+                else if (++tries >= 15) {
+                  window.clearInterval(poll)
+                  // 启动命令返回成功但服务始终没起来 → 回滚开关，避免"已开启却连不上"的状态脱节
+                  patchSettings({ localServices: { ...(settings?.localServices ?? {}), [key]: false } })
+                  setStatus(prev => ({ ...prev, [key]: null }))
+                  notifyLocalServiceChanged(key, false)
+                  notify(`${name} 启动后未能正常监听端口，已自动关闭开关。请确认本机 ${key} 可正常运行后重试`)
+                }
               })
             }, 2000)
+          } else {
+            // 启动命令直接失败 → 回滚开关
+            patchSettings({ localServices: { ...(settings?.localServices ?? {}), [key]: false } })
+            notifyLocalServiceChanged(key, false)
           }
         } else {
           notify(`${name} 请在 LM Studio 应用内手动开启本地服务器`)
