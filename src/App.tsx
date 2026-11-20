@@ -716,7 +716,7 @@ function App() {
           {tab === 'docs' && <div className="set-content">
             <SettingsSection title="本地文档问答" desc="导入文档，基于本机模型问答 · 文档与向量只存此设备" icon={FileText} tone="indigo">
               <div style={{ padding: '4px 2px 2px' }}>
-                <DocQAView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} thinkingMode={state.settings.thinkingMode} settings={state.settings} />
+                <DocQAView accounts={state.accounts} sessionPwd={sessionPwd} onUnlock={setSessionPwd} notify={notify} thinkingMode={state.settings.thinkingMode} settings={state.settings} serviceController={serviceController} />
               </div>
             </SettingsSection>
           </div>}
