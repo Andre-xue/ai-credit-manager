@@ -1908,3 +1908,4 @@ input[type="range"] { width: 100%; height: 4px; accent-color: var(--primary); cu
 .tr-target-row { display: flex; gap: 14px; margin-bottom: 14px; }
 .tr-target-row .tr-field { min-width: 180px; flex: 0 1 220px; }
 .docqa-hint-line { font-size: 11.5px; color: var(--text-3); padding: 8px 10px; margin-top: 10px; border-radius: 7px; background: var(--panel-2); }
+.docqa-embed-readonly { display: inline-flex; align-items: center; height: 36px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel-2); color: var(--text-2); font-size: 12px; font-family: var(--font-mono); }

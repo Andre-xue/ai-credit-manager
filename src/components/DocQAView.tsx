@@ -40,7 +40,9 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
   const serviceOn = isServiceEnabled(settings, 'ollama')
 
   // ===== 回答模型：云端 / 本地 双模式 =====
-  const [serviceType, setServiceType] = useState<ServiceType>('local')
+  const [serviceType, setServiceType] = useState<ServiceType>(() => (serviceOn ? 'local' : 'cloud'))
+  // Ollama 关闭时只保留云端：若当前停在「本地」自动切回云端
+  useEffect(() => { if (!serviceOn) setServiceType('cloud') }, [serviceOn])
   // 云端账户：API Key 管理里「通用型/对话型/文本型(归入通用)」分类、且能聊天的模型
   const cloudAccounts = useMemo(() => accounts.filter(a => {
     if (a.providerId?.startsWith('local-') || isVoiceConfigAccount(a.providerId, a.note)) return false
@@ -87,45 +89,55 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
     if (cloudAccounts.length && !cloudAccounts.some(a => a.id === cloudAccountId)) setCloudAccountId(cloudAccounts[0].id)
   }, [cloudAccounts, cloudAccountId])
 
-  // 本地回答模型：Ollama 拉取可用模型（排除嵌入/视频/生图），直接调本机服务无需账户 Key
+  // ===== 本机 Ollama 地址：后台探测，探测不到用默认端口（不再依赖服务名匹配）=====
+  const [ollamaBase, setOllamaBase] = useState('http://127.0.0.1:11434')
+
+  // ===== 本地回答模型：拉取可用模型（排除嵌入/视频/生图），直接调本机服务无需 Key =====
   const [localModels, setLocalModels] = useState<string[]>([])
   const [localModel, setLocalModel] = useState('')
-  const [ollamaBase, setOllamaBase] = useState('')
+  const [loadingLocal, setLoadingLocal] = useState(false)
   useEffect(() => {
     let alive = true
-    if (!serviceOn) { setLocalModels([]); setLocalModel(''); setOllamaBase(''); return }
-    void detectLocalServices().then(r => {
-      const ollama = r.services.find(s => /ollama/i.test(s.service))
-      const base = ollama?.url ?? ''
-      if (!alive || !base) return
+    if (!serviceOn) { setLocalModels([]); setLocalModel(''); setLoadingLocal(false); return }
+    setLoadingLocal(true)
+    ;(async () => {
+      // 先用探测结果校准地址（探测不到就用默认 11434，不再卡住）
+      let base = 'http://127.0.0.1:11434'
+      try {
+        const r = await detectLocalServices()
+        const hit = r.services.find(s => /ollama/i.test(s.service)) ?? r.services[0]
+        if (hit?.url) base = hit.url
+      } catch { /* 探测失败用默认地址 */ }
+      if (!alive) return
       setOllamaBase(base)
-      void fetchLocalAssistantModels(base).then(ids => {
+      try {
+        const ids = await fetchLocalAssistantModels(base)
         if (!alive) return
         setLocalModels(ids)
         setLocalModel(prev => ids.includes(prev) ? prev : (ids[0] ?? ''))
-      }).catch(() => { if (alive) { setLocalModels([]); setLocalModel('') } })
-    }).catch(() => {})
+        if (ids.length === 0) notify('本机 Ollama 未找到可用于回答的模型，请先 ollama pull 一个对话模型')
+      } catch {
+        if (alive) { setLocalModels([]); setLocalModel(''); notify('无法连接本机 Ollama，请确认服务已启动') }
+      } finally { if (alive) setLoadingLocal(false) }
+    })()
     return () => { alive = false }
   }, [serviceOn])
 
-  // ===== 嵌入模型（向量检索始终走本机 Ollama）=====
-  const [embedChoice, setEmbedChoice] = useState('nomic-embed-text')
+  // ===== 嵌入模型：自动获取本机嵌入类模型，只读不可手改 =====
   const [embedModels, setEmbedModels] = useState<string[]>([])
   const [embedChecked, setEmbedChecked] = useState(false)
-  // baseUrl：本地回答用 ollamaBase；云端回答仍用本机 Ollama 做嵌入（探测或从账户取）
-  const localAccounts = useMemo(() => accounts.filter(a => a.providerId?.startsWith('local-') && a.apiUrl), [accounts])
-  const embedBase = ollamaBase || localAccounts[0]?.apiUrl || 'http://127.0.0.1:11434'
   useEffect(() => {
     if (!serviceOn) { setEmbedModels([]); setEmbedChecked(false); return }
     let alive = true
-    void fetchLocalModels('ollama', embedBase).then(r => {
+    void fetchLocalModels('ollama', ollamaBase).then(r => {
       if (!alive) return
       setEmbedModels(r.ok ? filterEmbeddingModels(r.models) : [])
       setEmbedChecked(r.ok)
-    })
+    }).catch(() => { if (alive) { setEmbedModels([]); setEmbedChecked(false) } })
     return () => { alive = false }
-  }, [embedBase, serviceOn])
-  const embedModel = embedChoice
+  }, [ollamaBase, serviceOn])
+  // 自动选中：优先第一个探测到的嵌入模型，否则保持默认名（用于未安装提示）
+  const embedModel = embedModels[0] ?? 'nomic-embed-text'
   const embedWarn = shouldWarnEmbed(embedChecked, embedModels, embedModel)
   const embedInstalled = !embedWarn || embedModels.length === 0
   // 是否用向量检索：Ollama 开着且嵌入可用时用向量，否则降级关键词检索（云端模式因此可脱离 Ollama）
@@ -157,7 +169,7 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
       const docId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       setProgress(useVector ? '生成向量并入库…' : '切分文本并入库（关键词检索模式）…')
       const count = useVector
-        ? await addDocument({ docId, name: file.name, text, baseUrl: embedBase, embedModel, onProgress: (done, total) => setProgress(`已处理 ${done}/${total} 块`) })
+        ? await addDocument({ docId, name: file.name, text, baseUrl: ollamaBase, embedModel, onProgress: (done, total) => setProgress(`已处理 ${done}/${total} 块`) })
         : await addDocumentTextOnly({ docId, name: file.name, text, onProgress: (done, total) => setProgress(`已处理 ${done}/${total} 块`) })
       notify(`已导入「${file.name}」，切分 ${count} 块`)
       await refreshDocs()
@@ -177,7 +189,7 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
     setAnswering(true); setAnswer(''); setSources([])
     try {
       const hits = useVector
-        ? await searchChunks(await embedText(embedBase, embedModel, q), 3, q)
+        ? await searchChunks(await embedText(ollamaBase, embedModel, q), 3, q)
         : await searchChunksByKeyword(q, 3)
       if (!hits.length) { notify('知识库为空或未匹配到相关内容，请先导入文档'); return }
       const prompt = buildContextPrompt(q, hits)
@@ -233,7 +245,7 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
             <label>服务类型</label>
             <select className="select" value={serviceType} onChange={e => setServiceType(e.target.value as ServiceType)} disabled={importing || answering}>
               <option value="cloud">☁️ 云端模型</option>
-              <option value="local">🖥️ 本地模型</option>
+              {serviceOn && <option value="local">🖥️ 本地模型</option>}
             </select>
           </div>
           <div className="tr-field">
@@ -244,8 +256,8 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
                 {cloudAccounts.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
               </select>
             ) : (
-              <select className="select" value={localModel} onChange={e => setLocalModel(e.target.value)} disabled={importing || answering || !serviceOn}>
-                {localModels.length === 0 && <option value="">{serviceOn ? '加载本地模型中…' : '请先开启 Ollama 服务'}</option>}
+              <select className="select" value={localModel} onChange={e => setLocalModel(e.target.value)} disabled={importing || answering || !serviceOn || localModels.length === 0}>
+                {localModels.length === 0 && <option value="">{loadingLocal ? '加载本地模型中…' : (!serviceOn ? '请先开启 Ollama 服务' : '未找到可用模型，请先 ollama pull')}</option>}
                 {localModels.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             )}
@@ -260,22 +272,16 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
               </select>
             </div>
           )}
-          {/* 嵌入模型：仅 Ollama 开启 + 本地模式时显示（本地辅助，云端隐藏） */}
+          {/* 嵌入模型：自动获取本机嵌入类模型，只读不可手改 */}
           {serviceType === 'local' && serviceOn && (
             <div className="tr-field">
-              <label>嵌入模型（本地检索辅助）</label>
-              {embedModels.length > 0 ? (
-                <select className="select" value={embedModel} onChange={e => setEmbedChoice(e.target.value)} disabled={importing || answering}>
-                  {Array.from(new Set([...embedModels, embedChoice])).map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-              ) : (
-                <input className="input" value={embedModel} onChange={e => setEmbedChoice(e.target.value)} placeholder="嵌入模型名" disabled={importing || answering} />
-              )}
+              <label>嵌入模型（自动获取，本地检索辅助）</label>
+              <span className="docqa-embed-readonly" title="由本机 Ollama 自动探测，不可手动修改">{embedModels.length ? embedModel : (embedChecked ? '未检测到嵌入模型' : '探测中…')}</span>
             </div>
           )}
         </div>
         {serviceType === 'local' && serviceOn && embedWarn && (
-          <div className="docqa-warn">本机未检测到嵌入模型 <b>{embedModel}</b>。请在终端执行 <code>ollama pull {embedModel}</code> 安装后重试，或在上方可选列表里换一个已安装的嵌入模型。</div>
+          <div className="docqa-warn">本机未检测到嵌入模型 <b>{embedModel}</b>。请在终端执行 <code>ollama pull {embedModel}</code> 安装后重试。嵌入模型由本机自动探测，安装后刷新即可。</div>
         )}
         {serviceType === 'local' && !serviceOn && (
           <div className="docqa-warn">本地模式需要本机 Ollama 服务。请先开启顶部 Ollama 开关，或切换到「云端模型」使用关键词检索（无需 Ollama）。</div>
