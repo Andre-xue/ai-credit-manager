@@ -144,9 +144,20 @@ async fn call_provider_api(url: String, api_key: String, body_json: String, meth
     let status = resp.status();
     let text = resp.text().await.map_err(|e| format!("读取响应失败：{}", e))?;
     if !status.is_success() {
-        return Err(format!("接口返回 {}：{}", status.as_u16(), text.chars().take(200).collect::<String>()))
+        // 错误里带上实际请求的 URL 与请求体，便于定位 415 等兼容性问题（不含 api_key）
+        let method = req::method_name(&m);
+        return Err(format!("接口返回 {} [{} {} body={}]：{}",
+            status.as_u16(), method, url,
+            body_json.chars().take(300).collect::<String>(),
+            text.chars().take(200).collect::<String>()))
     }
     Ok(text)
+}
+
+mod req {
+    pub fn method_name(m: &str) -> &'static str {
+        if m == "GET" { "GET" } else { "POST" }
+    }
 }
 
 /// 官方只读用量代理：仅允许白名单官方端点，绕过桌面端 CORS 限制。
