@@ -29,8 +29,10 @@ describe('自有模型请求参数兼容', () => {
     expect(normalizeReasoningEffort(kimi, 'kimi-k3.1-pro', 'minimal')).toBe('low')
     expect(normalizeReasoningEffort(kimi, 'kimi-k3.1-pro', 'medium')).toBe('high')
     expect(normalizeReasoningEffort(kimi, 'kimi-k3.1-pro', 'high')).toBe('max')
-    expect(normalizeReasoningEffort(kimi, 'kimi-k3.1-pro', undefined)).toBeUndefined()
-    // 其他模型保持原有映射
+    // 始终思考模型：不传参数(关闭)会被平台当关闭思考报错，保底给 low
+    expect(normalizeReasoningEffort(kimi, 'kimi-k3.1-pro', undefined)).toBe('low')
+    // 普通模型保持不传
+    expect(normalizeReasoningEffort(acct('openai'), 'gpt-4.1', undefined)).toBeUndefined()
     expect(normalizeReasoningEffort(acct('openai'), 'gpt-4.1', 'minimal')).toBe('minimal')
   })
 
@@ -42,6 +44,9 @@ describe('自有模型请求参数兼容', () => {
     const ds = acct('deepseek')
     expect(normalizeReasoningEffort(ds, 'deepseek-v4-pro', 'medium')).toBe('high')
     expect(normalizeReasoningEffort(ds, 'deepseek-v4-pro', 'high')).toBe('max')
+    // 关闭档(undefined)也保底 low，避免 code 1210
+    expect(normalizeReasoningEffort(glm, 'glm-5.3-flash', undefined)).toBe('low')
+    expect(normalizeReasoningEffort(ds, 'deepseek-v4-pro', undefined)).toBe('low')
     // 平台识别仅靠模型名也要生效（providerId 不规范时）
     expect(normalizeReasoningEffort(acct('other'), 'GLM-4.6', 'medium')).toBe('high')
   })
@@ -65,6 +70,36 @@ describe('自有模型请求参数兼容', () => {
     expect(r.ok).toBe(true)
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).temperature).toBeUndefined()
+  })
+
+  it('DeepSeek 415 Content-Type 报错时自动换原生地址(去 /v1)重试', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 415, text: async () => '{"error":{"message":"Expected request with `Content-Type: application/json`"}}' })
+      .mockResolvedValueOnce(okResponse('ok'))
+    vi.stubGlobal('fetch', fetchMock)
+    // 账户地址带 /v1 → chatUrl 拼出 /v1/chat/completions
+    const ds = { ...acct('deepseek'), apiUrl: 'https://api.deepseek.com/v1' }
+    const r = await callChat(ds, 'key', [{ role: 'user', content: 'hi' }], 'deepseek-flash')
+    expect(r.ok).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0][0]).toContain('/v1/chat/completions')
+    expect(fetchMock.mock.calls[1][0]).toBe('https://api.deepseek.com/chat/completions')
+  })
+
+  it('415 且地址无 /v1 时，去掉 reasoning/temperature 用最简请求体重试', async () => {
+    const cte = () => ({ ok: false, status: 415, text: async () => '{"error":{"message":"Expected request with `Content-Type: application/json`"}}' })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(cte())
+      .mockResolvedValueOnce(cte())
+      .mockResolvedValueOnce(okResponse('ok'))
+    vi.stubGlobal('fetch', fetchMock)
+    const ds = { ...acct('deepseek'), apiUrl: 'https://api.deepseek.com' }
+    const r = await callChat(ds, 'key', [{ role: 'user', content: 'hi' }], 'deepseek-flash', 'high')
+    expect(r.ok).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    const lastBody = JSON.parse(fetchMock.mock.calls[2][1].body)
+    expect(lastBody.reasoning_effort).toBeUndefined()
+    expect(lastBody.temperature).toBeUndefined()
   })
 })
 

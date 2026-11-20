@@ -110,7 +110,6 @@ export function normalizeReasoningEffort(
   account: Account, modelId: string,
   effort?: 'minimal' | 'low' | 'medium' | 'high',
 ): 'minimal' | 'low' | 'medium' | 'high' | 'max' | undefined {
-  if (!effort) return undefined
   const id = modelId.toLowerCase()
   const pid = (account.providerId || '').toLowerCase()
   const isK3 = /(^|[-_/])k3(\.1)?([-_/]|$)/.test(id) || /3\.1/.test(id)
@@ -118,6 +117,11 @@ export function normalizeReasoningEffort(
   const isLowHighMax = isK3
     || pid.includes('glm') || /\bglm([-_/]|$)/.test(id)
     || pid.includes('deepseek') || /\bdeepseek([-_/]|$)/.test(id)
+  if (!effort) {
+    // 始终思考模型不支持"关闭思考"：不传参数会被平台当作关闭而报 code 1210，
+    // 因此对这类模型保底传最低档 low；普通模型（OpenAI 等）保持不传。
+    return isLowHighMax ? 'low' : undefined
+  }
   if (!isLowHighMax) return effort
   // 界面四档 → 三档（low 原样保留）
   switch (effort) {
@@ -135,6 +139,25 @@ function isTemperatureError(e: unknown): boolean {
     || (/temperature/.test(msg) && /only\s+[\d.]+\s+is\s+allowed/.test(msg))
 }
 
+/** 415 Content-Type 错误（DeepSeek 账户地址带 /v1 时兼容层常报），换原生地址可解 */
+function isContentTypeError(e: unknown): boolean {
+  const msg = ((e as Error)?.message ?? String(e ?? '')).toLowerCase()
+  return (/415/.test(msg) && /content-type/.test(msg)) || /expected request with.*content-type/.test(msg)
+}
+
+/** reasoning / thinking 参数不被接受（含 code 1210、400 参数错误） */
+function isReasoningError(e: unknown): boolean {
+  const msg = ((e as Error)?.message ?? String(e ?? '')).toLowerCase()
+  return /1210/.test(msg)
+    || (/reasoning/.test(msg) && /400|invalid|not support|不支持|无效/.test(msg))
+    || (/思考/.test(msg) && /不支持|关闭/.test(msg))
+}
+
+/** 去掉 base 末尾的 /vN，得到原生根地址（DeepSeek 官方端点不带 /v1） */
+function stripVersionSuffix(url: string): string {
+  return url.replace(/\/v\d+(\/chat\/completions)?$/, '/chat/completions')
+}
+
 /** 对话：OpenAI 兼容 chat completions（非流式，简化处理） */
 export async function callChat(
   account: Account, apiKey: string, messages: { role: string; content: string }[],
@@ -149,15 +172,38 @@ export async function callChat(
     const effort = normalizeReasoningEffort(account, model, reasoningEffort)
     if (effort) body.reasoning_effort = effort
 
-    const request = (payload: Record<string, unknown>) =>
-      isDesktopApp() ? invokeApi(url, apiKey, payload) : directFetch(url, apiKey, payload)
+    const request = (payload: Record<string, unknown>, reqUrl = url) =>
+      isDesktopApp() ? invokeApi(reqUrl, apiKey, payload) : directFetch(reqUrl, apiKey, payload)
 
     let raw: string
     try {
       raw = await request(body)
     } catch (e) {
-      // 动态拉取到的未知模型也可能有固定采样限制：去掉 temperature 自动重试一次
-      if ('temperature' in body && isTemperatureError(e)) {
+      const contentTypeErr = isContentTypeError(e)
+      const reasoningErr = isReasoningError(e)
+      const tempErr = isTemperatureError(e)
+      const nativeUrl = stripVersionSuffix(url)
+      // 415 Content-Type：先试原生地址（去 /vN）
+      if (contentTypeErr && nativeUrl !== url) {
+        try { raw = await request(body, nativeUrl) }
+        catch (e2) {
+          // 换地址仍失败 → 用最简请求体（去 reasoning/temperature）再试一次
+          if ((isContentTypeError(e2) || reasoningErr) && ('reasoning_effort' in body || 'temperature' in body)) {
+            const minimal = { ...body }
+            delete minimal.reasoning_effort
+            delete minimal.temperature
+            raw = await request(minimal, nativeUrl)
+          } else throw e2
+        }
+      }
+      // reasoning 参数不被接受：去掉 reasoning_effort 重试一次
+      else if (reasoningErr && 'reasoning_effort' in body) {
+        const retry = { ...body }
+        delete retry.reasoning_effort
+        raw = await request(retry)
+      }
+      // 固定采样限制：去掉 temperature 自动重试一次
+      else if (tempErr && 'temperature' in body) {
         const retry = { ...body }
         delete retry.temperature
         raw = await request(retry)
