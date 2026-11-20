@@ -7,8 +7,8 @@ import { HoldToConfirm } from './HoldToConfirm'
 import { ServiceSwitch } from './ServiceSwitch'
 import type { ServiceController } from '../core/useServiceController'
 import {
-  isDocQAAvailable, addDocument, listDocuments, deleteDocument,
-  embedText, searchChunks, buildContextPrompt, filterEmbeddingModels, shouldWarnEmbed, type DocInfo,
+  isDocQAAvailable, addDocument, addDocumentTextOnly, listDocuments, deleteDocument,
+  embedText, searchChunks, searchChunksByKeyword, buildContextPrompt, filterEmbeddingModels, shouldWarnEmbed, type DocInfo,
 } from '../core/docQA'
 import { detectModelCapability, capabilityChatCapable } from '../core/modelCapability'
 import { categoryFromNote, isVoiceConfigAccount } from '../core/modelCategories'
@@ -127,8 +127,10 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
   const embedModel = embedChoice
   const embedWarn = shouldWarnEmbed(embedChecked, embedModels, embedModel)
   const embedInstalled = !embedWarn || embedModels.length === 0
-  // 当前模式是否可用
-  const embeddingReady = serviceOn && embedInstalled
+  // 是否用向量检索：Ollama 开着且嵌入可用时用向量，否则降级关键词检索（云端模式因此可脱离 Ollama）
+  const useVector = serviceOn && embedInstalled
+  // 导入/提问就绪：云端模式脱离 Ollama 也可用（关键词检索），本地模式需 Ollama 嵌入就绪
+  const embeddingReady = serviceType === 'cloud' || useVector
   const answerReady = serviceType === 'cloud' ? !!cloudAccount : (serviceOn && !!localModel)
 
   useEffect(() => { void refreshDocs() }, [])
@@ -138,17 +140,16 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
   }
 
   const importFile = async (file: File) => {
-    if (!serviceOn) { notify('文档向量化依赖本机 Ollama，请先在顶部开启 Ollama 服务'); return }
-    if (!embedInstalled) { notify(`本机未安装嵌入模型 ${embedModel}，请先执行：ollama pull ${embedModel}`); return }
+    if (serviceType === 'local' && !serviceOn) { notify('本地模式需要本机 Ollama 生成向量，请先开启服务或切换到云端模式'); return }
+    if (useVector && !embedInstalled) { notify(`本机未安装嵌入模型 ${embedModel}，请先执行：ollama pull ${embedModel}`); return }
     setImporting(true); setProgress('读取文件…')
     try {
       const text = await file.text()
       const docId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-      setProgress('生成向量并入库…')
-      const count = await addDocument({
-        docId, name: file.name, text, baseUrl: embedBase, embedModel,
-        onProgress: (done, total) => setProgress(`已处理 ${done}/${total} 块`),
-      })
+      setProgress(useVector ? '生成向量并入库…' : '切分文本并入库（关键词检索模式）…')
+      const count = useVector
+        ? await addDocument({ docId, name: file.name, text, baseUrl: embedBase, embedModel, onProgress: (done, total) => setProgress(`已处理 ${done}/${total} 块`) })
+        : await addDocumentTextOnly({ docId, name: file.name, text, onProgress: (done, total) => setProgress(`已处理 ${done}/${total} 块`) })
       notify(`已导入「${file.name}」，切分 ${count} 块`)
       await refreshDocs()
     } catch (e) {
@@ -166,9 +167,10 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
     }
     setAnswering(true); setAnswer(''); setSources([])
     try {
-      const qVec = await embedText(embedBase, embedModel, q)
-      const hits = await searchChunks(qVec, 3)
-      if (!hits.length) { notify('知识库为空，请先导入文档'); return }
+      const hits = useVector
+        ? await searchChunks(await embedText(embedBase, embedModel, q), 3, q)
+        : await searchChunksByKeyword(q, 3)
+      if (!hits.length) { notify('知识库为空或未匹配到相关内容，请先导入文档'); return }
       const prompt = buildContextPrompt(q, hits)
       const msgs = [{ role: 'user', content: prompt }]
       if (serviceType === 'cloud') {
@@ -205,14 +207,14 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
     <div className="docqa">
       <div className="docqa-intro">
         <Info size={14} />
-        <span>导入本地文本（.txt / .md / .csv 等），追问其中的内容。文档与向量只存本机；检索用嵌入模型 <b>{embedModel}</b>，回答用 <b>{answerLabel}</b>。</span>
+        <span>导入本地文本（.txt / .md / .csv 等），追问其中的内容。文档只存本机；检索方式：{useVector ? <>向量（<b>{embedModel}</b>）</> : '关键词匹配'}，回答用 <b>{answerLabel}</b>。</span>
       </div>
 
       {/* Ollama 服务开关：向量化与本地回答都依赖它 */}
       {serviceController && <div className="docqa-service-bar">
         <span className="docqa-service-hint">本地服务</span>
         <ServiceSwitch controller={serviceController} serviceKey="ollama" />
-        <span className="docqa-service-note">文档向量化需要本机 Ollama；关闭后本地回答不可用，云端回答仍可用。</span>
+        <span className="docqa-service-note">开启 Ollama 可用向量检索；关闭后云端模式自动改用关键词检索，仍可正常使用。</span>
       </div>}
 
       {/* 回答模型配置：服务类型 / 模型 / 引擎（云端）/ 嵌入（本地+Ollama） */}
@@ -266,8 +268,11 @@ export function DocQAView({ accounts, sessionPwd, onUnlock, notify, thinkingMode
         {serviceType === 'local' && serviceOn && embedWarn && (
           <div className="docqa-warn">本机未检测到嵌入模型 <b>{embedModel}</b>。请在终端执行 <code>ollama pull {embedModel}</code> 安装后重试，或在上方可选列表里换一个已安装的嵌入模型。</div>
         )}
-        {!serviceOn && (
-          <div className="docqa-warn">本机 Ollama 服务已关闭：文档向量化与本地回答不可用；如需纯云端回答，请开启服务以完成向量化，或先在服务开启时导入文档。</div>
+        {serviceType === 'local' && !serviceOn && (
+          <div className="docqa-warn">本地模式需要本机 Ollama 服务。请先开启顶部 Ollama 开关，或切换到「云端模型」使用关键词检索（无需 Ollama）。</div>
+        )}
+        {serviceType === 'cloud' && !serviceOn && (
+          <div className="docqa-hint-line">云端模式无需 Ollama：文档将以关键词检索方式入库与检索。开启 Ollama 后可获得更精准的向量检索。</div>
         )}
       </div>
 

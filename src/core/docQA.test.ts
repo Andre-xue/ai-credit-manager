@@ -46,3 +46,20 @@ describe('文档问答嵌入模型选择与检测', () => {
     expect(shouldWarnEmbed(false, [], 'nomic-embed-text')).toBe(false)
   })
 })
+
+describe('关键词检索打分（云端无Ollama降级）', () => {
+  it('相关文本得分高于无关文本', async () => {
+    const { keywordScore } = await import('./docQA')
+    const q = '怎么重置密码'
+    const relevant = keywordScore(q, '如果忘记登录密码，可以在设置页面重置密码。点击重置密码按钮即可。')
+    const irrelevant = keywordScore(q, '今天天气很好，适合出去散步和运动。')
+    expect(relevant).toBeGreaterThan(irrelevant)
+    expect(relevant).toBeGreaterThan(0)
+    expect(irrelevant).toBe(0)
+  })
+  it('英文关键词也能匹配', async () => {
+    const { keywordScore } = await import('./docQA')
+    expect(keywordScore('reset password', 'You can reset password in settings.')).toBeGreaterThan(0)
+    expect(keywordScore('reset password', '完全不相关的中文内容')).toBe(0)
+  })
+})

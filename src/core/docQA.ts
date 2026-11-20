@@ -161,18 +161,78 @@ export function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(na) * Math.sqrt(nb))
 }
 
-/** 检索与问题最相关的文档块 */
-export async function searchChunks(queryVector: number[], topK = 3): Promise<{ chunk: DocChunk; score: number }[]> {
+/** 检索与问题最相关的文档块。queryText 可选：供无向量的文本块做关键词降级匹配。 */
+export async function searchChunks(queryVector: number[], topK = 3, queryText = ''): Promise<{ chunk: DocChunk; score: number }[]> {
   const db = await openDb()
   const chunks = await new Promise<DocChunk[]>((resolve, reject) => {
     const req = db.transaction(STORE, 'readonly').objectStore(STORE).getAll()
     req.onsuccess = () => resolve((req.result ?? []) as DocChunk[])
     req.onerror = () => reject(req.error)
   })
-  return chunks
-    .map(c => ({ chunk: c, score: cosineSimilarity(queryVector, c.vector) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, Math.max(1, topK))
+  const scored = chunks.map(c => {
+    // 有向量走余弦相似度；无向量（云端关键词模式导入的块）走关键词打分，保证模式切换后文档仍可检索
+    const score = c.vector?.length ? cosineSimilarity(queryVector, c.vector) : (queryText ? keywordScore(queryText, c.text) : 0)
+    return { chunk: c, score }
+  })
+  scored.sort((a, b) => b.score - a.score)
+  return scored.slice(0, Math.max(1, topK))
+}
+
+/** 关键词匹配打分（纯函数，便于测试）：中文 2-gram + 整词匹配占比 */
+export function keywordScore(query: string, text: string): number {
+  const grams = (s: string): string[] => {
+    const clean = s.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '')
+    const out: string[] = []
+    for (let i = 0; i < clean.length - 1; i++) out.push(clean.slice(i, i + 2))
+    const tokens = s.toLowerCase().match(/[\u4e00-\u9fa5a-z0-9]{2,}/g) ?? []
+    return [...out, ...tokens]
+  }
+  const qSet = new Set(grams(query))
+  if (!qSet.size) return 0
+  const cSet = new Set(grams(text))
+  let hit = 0
+  for (const g of qSet) if (cSet.has(g)) hit++
+  return hit / qSet.size
+}
+
+/**
+ * 纯文本关键词检索（云端模式且无本地 Ollama 嵌入时用）：中文按 2-gram + 整词匹配打分，无需向量。
+ * 向量块（有 vector）与文本块（vector 为空）一并按关键词匹配，保证云端导入的文档也能被检索。
+ */
+export async function searchChunksByKeyword(query: string, topK = 3): Promise<{ chunk: DocChunk; score: number }[]> {
+  const db = await openDb()
+  const chunks = await new Promise<DocChunk[]>((resolve, reject) => {
+    const req = db.transaction(STORE, 'readonly').objectStore(STORE).getAll()
+    req.onsuccess = () => resolve((req.result ?? []) as DocChunk[])
+    req.onerror = () => reject(req.error)
+  })
+  const scored = chunks.map(c => ({ chunk: c, score: keywordScore(query, c.text) }))
+    .filter(x => x.score > 0)
+  scored.sort((a, b) => b.score - a.score)
+  return scored.slice(0, Math.max(1, topK))
+}
+
+/** 仅切块存文本、不生成向量（云端模式无 Ollama 时用，供关键词检索） */
+export async function addDocumentTextOnly(params: {
+  docId: string; name: string; text: string; onProgress?: (done: number, total: number) => void;
+}): Promise<number> {
+  const chunks = chunkText(params.text)
+  if (!chunks.length) throw new Error('文档内容为空')
+  const db = await openDb()
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk: DocChunk = {
+      id: `${params.docId}#${i}`, docId: params.docId, docName: params.name,
+      index: i, text: chunks[i], vector: [],
+    }
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite')
+      tx.objectStore(STORE).put(chunk)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+    params.onProgress?.(i + 1, chunks.length)
+  }
+  return chunks.length
 }
 
 /** 组装带引用的上下文 prompt */
